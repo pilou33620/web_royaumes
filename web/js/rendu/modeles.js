@@ -67,10 +67,13 @@ function coneGonfle(r, cotes) {
 }
 /** Toit à deux pans épais qui débordent, faîtage rond, pignons pleins (même gabarit que G.pignon). */
 function pignonDodu() {
-  const geos = [G.pignon.clone().scale(0.96, 0.96, 0.96)];
+  // pignons pleins jusqu'au bord des pans : on ne voit pas de vide sous le toit
+  const geos = [G.pignon.clone().scale(1.12, 0.96, 0.96)];
   const a = Math.atan2(1, 0.5), L = Math.hypot(1, 0.5) + 0.2, e = 0.13;
   for (const s of [1, -1]) {
-    const pan = boiteRonde(0.3).translate(0, -0.5, 0).scale(1.14, e, L);
+    const pan = fusionner([boiteRonde(0.3).translate(0, -0.5, 0).scale(1.14, e, L),
+      // rangs de tuiles (ou de chaume) en relief
+      ...[0.2, 0.42, 0.64, 0.86].map(t => new THREE.BoxGeometry(1.15, e * 0.45, 0.06).translate(0, e * 0.5, -L / 2 + t * L))]);
     pan.applyMatrix4(new THREE.Matrix4().makeRotationX(s * a));
     const c = L / 2 - 0.06;
     pan.translate(0, 1 - Math.sin(a) * c + e * 0.35, s * Math.cos(a) * c);
@@ -94,7 +97,11 @@ if (DODU) {
     cone: coneGonfle(0.5, 12), pyr: coneGonfle(0.7071, 4),
     boule: new THREE.SphereGeometry(0.5, 12, 8),
     pignon: pignonDodu(),
-    mansarde: fusionner([G.mansarde.clone().scale(1.04, 1, 1.04), lèvre]),
+    mansarde: fusionner([G.mansarde.clone().scale(1.04, 1, 1.04), lèvre,
+      // rangs d'ardoises en relief sur le brisis (il se resserre de 0,5 à 0,42 en x et de 0,5 à 0,36 en z)
+      ...[0.2, 0.4].flatMap(y => { const hx = 1.04 * (0.5 - 0.08 * y / 0.6) + 0.012, hz = 1.04 * (0.5 - 0.14 * y / 0.6) + 0.012; return [
+        new THREE.BoxGeometry(hx * 2, 0.04, 0.03).translate(0, y, hz), new THREE.BoxGeometry(hx * 2, 0.04, 0.03).translate(0, y, -hz),
+        new THREE.BoxGeometry(0.03, 0.04, hz * 2).translate(hx, y, 0), new THREE.BoxGeometry(0.03, 0.04, hz * 2).translate(-hx, y, 0)]; })]),
   });
 }
 // trapu : un peu plus bas et plus large
@@ -309,7 +316,8 @@ export function geometrieBatiment(v) {
       break;
     }
     case 'scierie': for (let i = 0; i < 3; i++) k.boite(0.3, 0.025, 0.1, 0xd9b77a, 0.35, i * 0.025, 0.42 - i * 0.01); if (ind) { k.boite(0.07, 0.5, 0.07, S.brique, -0.25, 0.2, -0.1); k.anim.push({ type: 'fumee', pos: [-0.25, 0.75, -0.1], noire: true }); } k.boite(0.6, 0.25, 0.3, S.mur, 0, 0, -0.05); k.p(G.pignon, T, 0, 0.25, -0.05, 0.68, 0.18, 0.38); k.p(G.disque, 0x8b5a2b, 0.38, 0.15, -0.05, 0.3, 0.05, 0.3, 0, 0, Math.PI / 2); rondins(k, -0.15, 0.35); break;
-    case 'moulin': k.boite(0.07, 0.13, 0.012, S.bois, 0, 0, 0.18); k.boite(0.05, 0.06, 0.012, S.vitre, 0, 0.32, 0.178); for (let i = 0; i < 3; i++) k.p(G.boule, 0xe9e2d0, -0.3 + i * 0.07, 0.04, 0.3, 0.08, 0.08, 0.08); maison(k, -0.42, -0.3, 0.55, S, 0.6); k.p(G.cyl, S.mur, 0, 0, 0, 0.36, 0.62, 0.36); k.p(G.cone, T, 0, 0.62, 0, 0.46, 0.3, 0.46); k.anim.push({ type: 'ailes', pos: [0, 0.55, 0.2] }); champ(k, 0.42, 0.38, 0.25, 0.3, 0, s, n); break;
+    // en dodu, la tour bombée et le toit débordent : porte, fenêtre et ailes plus en avant
+    case 'moulin': k.boite(0.07, 0.13, 0.012, S.bois, 0, 0, DODU ? 0.2 : 0.18); k.boite(0.05, 0.06, 0.012, S.vitre, 0, 0.32, DODU ? 0.205 : 0.178); for (let i = 0; i < 3; i++) k.p(G.boule, 0xe9e2d0, -0.3 + i * 0.07, 0.04, 0.3, 0.08, 0.08, 0.08); maison(k, -0.42, -0.3, 0.55, S, 0.6); k.p(G.cyl, S.mur, 0, 0, 0, 0.36, 0.62, 0.36); k.p(G.cone, T, 0, 0.62, 0, 0.46, 0.3, 0.46); k.anim.push({ type: 'ailes', pos: [0, 0.55, DODU ? 0.32 : 0.2] }); champ(k, 0.42, 0.38, 0.25, 0.3, 0, s, n); break;
     case 'boulangerie': maison(k, -0.1, 0, 0.95, S, 0); k.p(G.dome, 0xc78a54, 0.35, 0, 0.15, 0.32, 0.32, 0.32); k.boite(0.08, 0.3, 0.08, S.pierre, -0.25, 0.2, -0.08); k.anim.push({ type: 'fumee', pos: [-0.25, 0.55, -0.08] }); break;
     case 'brasserie': maison(k, -0.1, -0.1, 1.0, S, 0.2); for (let i = 0; i < 3; i++) tonneau(k, 0.3 + (i % 2) * 0.14, 0.25 + (i > 1 ? 0.15 : 0)); break;
     case 'fonderie': k.boite(0.55, 0.32, 0.4, 0x8a857a, 0, 0, 0); k.boite(0.14, 0.75, 0.14, S.pierre, 0.2, 0, -0.1); k.boite(0.16, 0.08, 0.02, 0xff8a1c, -0.08, 0.05, 0.205); k.anim.push({ type: 'fumee', pos: [0.2, 0.8, -0.1], noire: true }); break;
