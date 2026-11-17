@@ -59,6 +59,7 @@ figure { margin: 0; }
         <li>Bâtiments refaits avec les modèles de web_power : chaque bâtiment sur sa dalle hexagonale, la ville sur plusieurs cases (mairie au centre, quartiers résidentiels de neuf maisons en couronne, faubourg), fermes de culture et d'élevage, église au toit brun et à la flèche d'ardoise.</li>
         <li>Selon l'époque : colombages et chaume en 1700, crépi, volets et tuiles aux Lumières, pierre, ardoise et étages sous l'Empire, brique et ardoise à l'ère industrielle ; la mairie passe du beffroi à l'horloge, à la coupole dorée, puis au campanile ; meules puis silos dans les fermes.</li>
         <li>À l'ère industrielle, les usines de web_power sortent de terre autour de la ville : usine à sheds en dents de scie, filature aux fenêtres éclairées et haut fourneau, avec leurs grandes cheminées de brique qui fument noir. Avant, leurs cases restent des champs.</li>
+        <li>Une voie ferrée (ballast, traverses et rails) relie les deux usines les plus proches ; un train, locomotive à vapeur et deux wagons de charbon, y fait la navette en crachant sa fumée noire, avec un arrêt à chaque usine.</li>
         <li>Plateau en hexagones séparés, à hauteurs étagées (mer, côte, plaine, collines, montagnes), flancs plus sombres, au lieu du relief lissé.</li>
         <li>Arbres en cônes et boules à facettes, montagnes à cinq pans enneigées, collines en dômes.</li>
         <li>Mer translucide turquoise, rivière en ruban bordé de sable, fond vert très sombre.</li>
@@ -236,6 +237,39 @@ for (const p of PLAN.slice(1).sort((x, y) => Math.hypot(x.k.x - centre.x, x.k.z 
 // hauteur d'un point du plateau : la case la plus proche
 function solEn(x, z) { let b = null, m = Infinity; for (const k of CASES) { const d = (k.x - x) ** 2 + (k.z - z) ** 2; if (d < m) { m = d; b = k; } } return Math.max(topDe(b), -0.15); }
 for (const c of CHEMINS) { c.pts2 = c.pts2.map(([x, z]) => [x, z]); c.y = c.pts2.map(([x, z]) => solEn(x, z) + 0.012); }
+// voie ferrée de l'ère industrielle : du haut fourneau à l'usine, en contournant la ville
+const RAIL = (() => {
+  const voie = (a, b) => {
+    const d = new Map([[a, 0]]), prev = new Map([[a, null]]), vu = new Set();
+    const poids = k => (k === b ? 1 : k.bati || k === ARMEE ? 8 : k.riv ? 3 : k.t === 'colline' ? 2 : k.t === 'foret' ? 1.5 : 1);
+    for (;;) {
+      let k = null, m = Infinity; for (const [x, v] of d) if (!vu.has(x) && v < m) { m = v; k = x; }
+      if (!k) return null; if (k === b) break; vu.add(k);
+      for (const n of voisins(k)) if (!vu.has(n) && !TERR[n.t].eau && n.t !== 'montagne') { const c = m + poids(n); if (c < (d.get(n) ?? Infinity)) { d.set(n, c); prev.set(n, k); } }
+    }
+    const ch = []; for (let k = b; k; k = prev.get(k)) ch.unshift(k); return { ch, cout: d.get(b) };
+  };
+  // les deux usines les plus proches l'une de l'autre
+  const us = PLAN.filter(p => p.ere === 'industrie').map(p => p.k), paires = [];
+  for (let i = 0; i < us.length; i++) for (let j = i + 1; j < us.length; j++) { const v = voie(us[i], us[j]); if (v) paires.push(v); }
+  if (!paires.length) return null;
+  const { ch } = paires.sort((x, y) => x.cout - y.cout)[0];
+  for (const k of ch.slice(1, -1)) k.rail = true; // pas d'arbres ni de champs sous la voie
+  let pts = ch.map(k => [k.x, k.z]);
+  const n = pts.length - 1; // la voie entre dans chaque usine sans aller jusqu'au centre
+  pts[0] = [pts[0][0] + (pts[1][0] - pts[0][0]) * 0.3, pts[0][1] + (pts[1][1] - pts[0][1]) * 0.3];
+  pts[n] = [pts[n][0] + (pts[n - 1][0] - pts[n][0]) * 0.3, pts[n][1] + (pts[n - 1][1] - pts[n][1]) * 0.3];
+  for (let it = 0; it < 3; it++) { // courbes douces (Chaikin)
+    const q = [pts[0]];
+    for (let i = 0; i < pts.length - 1; i++) { const [ax, az] = pts[i], [bx, bz] = pts[i + 1]; q.push([ax * 0.75 + bx * 0.25, az * 0.75 + bz * 0.25], [ax * 0.25 + bx * 0.75, az * 0.25 + bz * 0.75]); }
+    q.push(pts[pts.length - 1]); pts = q;
+  }
+  const cum = [0]; for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+  const ys = pts.map(([x, z]) => solEn(x, z) + 0.02);
+  // position, hauteur et cap à une distance donnée le long de la voie
+  const en = sd => { sd = Math.max(0, Math.min(cum[cum.length - 1] - 1e-4, sd)); let i = 0; while (cum[i + 1] < sd) i++; const f = (sd - cum[i]) / (cum[i + 1] - cum[i]); return { x: pts[i][0] + (pts[i + 1][0] - pts[i][0]) * f, z: pts[i][1] + (pts[i + 1][1] - pts[i][1]) * f, y: ys[i] + (ys[i + 1] - ys[i]) * f, cap: -Math.atan2(pts[i + 1][1] - pts[i][1], pts[i + 1][0] - pts[i][0]) }; };
+  return { pts, cum, ys, long: cum[cum.length - 1], en };
+})();
 
 // ---------------------------------------------------------------- plateau
 let PLATEAU = null;
@@ -259,7 +293,7 @@ function construirePlateau() {
     const n = g.attributes.normal, a = new Float32Array(n.count * 3);
     for (let i = 0; i < n.count; i++) { const f = n.getY(i) > 0.5 ? 1 : 0.62; a.set([c.r * f, c.g * f, c.b * f], i * 3); }
     g.setAttribute('color', new THREE.BufferAttribute(a, 3)); TUILES.g.push(g);
-    if (k.bati || k === ARMEE) continue;
+    if (k.bati || k === ARMEE || (k.rail && EPOQUE === 'industrie')) continue;
     const y = k.top, rr = () => { const an = rnd() * Math.PI * 2, l = Math.sqrt(rnd()) * R * 0.62; return [k.x + Math.cos(an) * l, k.z + Math.sin(an) * l]; };
     const s0 = 0.11; // décor de web_power ramené à des cases de 1
     if (k.t === 'foret') for (let i = 0, nb = 5 + (rnd() * 3 | 0); i < nb; i++) {
@@ -303,6 +337,14 @@ function construirePlateau() {
   const ROUTE = { ancien: 0xc9a874, lumieres: 0xc9a874, empire: 0xb9b2a2, industrie: 0x8a867e }[EPOQUE];
   for (const p of PLAN) p.k.bati = actif(p);
   for (const ch of CHEMINS) if (!ch.ere || ch.ere === EPOQUE) put(DECOR, ruban(ch.pts2, ch.large, 0), SAISON === 0 && EPOQUE !== 'industrie' ? 0xe3e6e2 : ROUTE, 0, 0, 0, 0, 0);
+  if (EPOQUE === 'industrie' && RAIL) {
+    put(DECOR, ruban(RAIL.pts, 0.065, 0), 0x9a948a, 0, 0, 0, 0, 0); // ballast
+    for (let sd = 0.02; sd < RAIL.long; sd += 0.045) { const p = RAIL.en(sd); put(DECOR, new THREE.BoxGeometry(0.026, 0.008, 0.13), 0x5b3a1e, p.x, p.y + 0.002, p.z, p.cap, 0); } // traverses
+    for (let i = 0; i < RAIL.pts.length - 1; i++) { // deux rails
+      const [ax, az] = RAIL.pts[i], [bx, bz] = RAIL.pts[i + 1], l = Math.hypot(bx - ax, bz - az), cap = -Math.atan2(bz - az, bx - ax), px = -(bz - az) / l, pz = (bx - ax) / l, y = (RAIL.ys[i] + RAIL.ys[i + 1]) / 2 + 0.01;
+      for (const o of [-0.032, 0.032]) put(DECOR, new THREE.BoxGeometry(l + 0.004, 0.01, 0.008), 0x8a8f96, (ax + bx) / 2 + px * o, y, (az + bz) / 2 + pz * o, cap, 0);
+    }
+  }
   fige(TUILES, PLATEAU); fige(DECOR, PLATEAU); fige(RIVL, PLATEAU);
 }
 function perp(pts, i) { const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)], dx = b[0] - a[0], dz = b[1] - a[1], l = Math.hypot(dx, dz) || 1; return [-dz / l, dx / l]; }
@@ -623,6 +665,10 @@ const MODELES = {
   cerf: [...BICHE, ...[0.13, -0.13].flatMap(z => [[boite(0.07, 0.55, 0.07), 0.66, 2.2, z, 0x5a4630], [boite(0.32, 0.07, 0.07), 0.55, 2.35, z * 1.6, 0x5a4630], [boite(0.07, 0.25, 0.07), 0.45, 2.45, z * 2, 0x5a4630]])],
   sanglier: [[boite(1.3, 0.7, 0.62), 0, 0.75, 0, 0x4a3a30], [boite(1, 0.14, 0.22), 0, 1.15, 0, 0x2e241e], [boite(0.5, 0.46, 0.46), 0.82, 0.68, 0, 0x3e3029], [boite(0.2, 0.22, 0.26), 1.14, 0.58, 0, 0x8a6a5a], [boite(0.06, 0.16, 0.05), 1.1, 0.52, 0.15, 0xf4f1ea], [boite(0.06, 0.16, 0.05), 1.1, 0.52, -0.15, 0xf4f1ea], ...PATTES(0.42, 0.18, 0.42, 0.15, 0x2e241e)],
   renard: [[boite(1, 0.38, 0.32), 0, 0.66, 0, 0xd9622b], [boite(0.8, 0.1, 0.28), 0, 0.48, 0, 0xf4f1ea], [boite(0.38, 0.32, 0.3), 0.6, 0.82, 0, 0xd9622b], [boite(0.2, 0.13, 0.15), 0.85, 0.74, 0, 0xf4f1ea], [boite(0.08, 0.2, 0.08), 0.62, 1.06, 0.09, 0x2a1d14], [boite(0.08, 0.2, 0.08), 0.62, 1.06, -0.09, 0x2a1d14], [boite(0.7, 0.22, 0.22), -0.8, 0.76, 0, 0xd9622b], [boite(0.2, 0.22, 0.22), -1.22, 0.8, 0, 0xf4f1ea], ...PATTES(0.32, 0.1, 0.46, 0.08, 0x2a1d14)],
+  loco: [[cyl(0.5, 0.5, 2.2, 12).rotateZ(Math.PI / 2), 0.4, 1.25, 0, 0x2b2b30], [boite(0.15, 1.02, 1.02), -0.2, 1.25, 0, 0xb8322a], [boite(0.15, 1.02, 1.02), 1, 1.25, 0, 0xb8322a], [boite(1, 1.4, 1.15), -1.15, 1.4, 0, 0x8a2a24], [boite(1.3, 0.15, 1.35), -1.15, 2.15, 0, 0x2b2b30], [boite(0.5, 0.45, 0.08), -1.15, 1.6, 0.58, 0xf2d27a],
+    [cyl(0.32, 0.18, 0.4, 8), 1.1, 2.15, 0, 0x2b2b30], [cyl(0.16, 0.16, 0.5, 8), 1.1, 1.8, 0, 0x2b2b30], [boite(0.4, 0.3, 0.4), 0.2, 1.85, 0, 0xc9a24a], [boite(3.4, 0.3, 1), -0.1, 0.55, 0, 0x3a3a40], [cone(0.45, 0.6, 4).rotateZ(-Math.PI / 2), 1.75, 0.5, 0, 0xb8322a],
+    roue(-1.1, 0.55, 0.42), roue(-1.1, -0.55, 0.42), roue(0.1, 0.55, 0.42), roue(0.1, -0.55, 0.42), roue(1, 0.55, 0.3), roue(1, -0.55, 0.3)],
+  wagon: [[boite(2.2, 0.8, 1.1), 0, 0.95, 0, 0x6b4a2a], [boite(2, 0.3, 0.95), 0, 1.4, 0, 0x2b2b2b], [boite(2.4, 0.25, 1), 0, 0.5, 0, 0x3a3a40], roue(-0.7, 0.55, 0.35), roue(-0.7, -0.55, 0.35), roue(0.7, 0.55, 0.35), roue(0.7, -0.55, 0.35)],
   bateau: [[boite(3.2, 0.7, 1.2), 0, 0.35, 0, 0x8a5a34], [boite(0.15, 3.2, 0.15), 0, 2, 0, 0x5b3a1e], [cone(1.2, 3.2, 3).scale(0.25, 1, 1), 0.2, 2.3, 0, 0xf6f2ea]],
   oiseau: [[boite(1.5, 0.32, 0.38), 0, 0, 0, 0xf4f1ea], [boite(0.42, 0.3, 0.3), 0.9, 0.08, 0, 0xf4f1ea], [boite(0.25, 0.08, 0.1), 1.2, 0.04, 0, 0xf2b33d], [boite(0.5, 0.08, 0.5), -0.95, 0.04, 0, 0xd9d6cf], [boite(0.75, 0.07, 2.2), 0.05, 0, 0, 0xd9d6cf]],
 };
@@ -651,6 +697,8 @@ function construireAmbiance() {
   CASES.filter(k => k.t === 'mer').filter((k, i) => hache(k.c, k.r, 23) < 0.25).slice(0, 4).forEach((k, i) => ACTEURS.push({ type: 'bateau', o: acteur('bateau', 0.05), k, r: 0.5 + hache(k.c, k.r, 3) * 0.6, ph: i * 1.7, v: 0.05 + hache(k.c, k.r, 5) * 0.05 }));
   // un vol d'oiseaux en V
   for (let n = 0; n < 7; n++) ACTEURS.push({ type: 'oiseau', o: acteur('oiseau', 0.035), n });
+  // le train entre les deux usines (ère industrielle seulement)
+  if (RAIL) ACTEURS.push({ type: 'train', o: AMB, voitures: [acteur('loco'), acteur('wagon'), acteur('wagon')], fumee: 0 });
 }
 function animAmbiance(dt, t) {
   for (const a of ACTEURS) {
@@ -669,6 +717,13 @@ function animAmbiance(dt, t) {
       o.visible = HEURE !== 'nuit';
     } else if (a.type === 'bateau') {
       const an = t * a.v + a.ph; o.position.set(a.k.x + Math.cos(an) * a.r, -0.16 + Math.sin(t * 1.3 + a.ph) * 0.006, a.k.z + Math.sin(an) * a.r); o.rotation.y = -an;
+    } else if (a.type === 'train') {
+      // navette : la locomotive tire à l'aller et pousse au retour ; arrêts au quai de chaque usine
+      const vis = EPOQUE === 'industrie', ecart = 0.115, utile = RAIL.long - ecart * 2 - 0.04;
+      const ph = t * 0.06, u = Math.max(-1, Math.min(1, Math.sin(ph) * 1.25)), tete = 0.02 + ecart * 2 + (u + 1) / 2 * utile;
+      a.voitures.forEach((o, i) => { const p = RAIL.en(tete - i * ecart); o.visible = vis; o.position.set(p.x, p.y, p.z); o.rotation.y = p.cap; });
+      if (vis && Math.abs(u) < 1 && (a.fumee -= dt) <= 0 && bouffees.length < 300) { a.fumee = 0.35; const p = RAIL.en(tete + 0.045); bouffees.push({ x: p.x, y: p.y + 0.1, z: p.z, age: 0.4, noire: true }); }
+      continue;
     } else if (a.type === 'oiseau') {
       const Lc = COLS * SQ3 + 6, x = ((t * 0.5) % Lc) - 3, row = a.n - 3, ang = 0.5;
       o.position.set(x - Math.abs(row) * 0.12, 2.6 + Math.abs(row) * 0.03 + Math.sin(t * 9 + a.n) * 0.01, centre.z - 1.5 + row * 0.12 + x * 0.25);
