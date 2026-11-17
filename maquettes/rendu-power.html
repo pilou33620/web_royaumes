@@ -67,6 +67,7 @@ figure { margin: 0; }
         <li>Toits en matériaux de l'époque, une teinte par maison : chaume et tuiles brunes en 1700, tuiles rouges et orangées aux Lumières, ardoise et tuiles sous l'Empire, ardoise et brique à l'ère industrielle. La couleur du royaume reste sur les drapeaux, les volets et les uniformes.</li>
         <li>Routes de web_power selon l'époque : chemins de terre, puis pavés (Empire), puis chaussées empierrées (Industrie), avec des charrettes à cheval.</li>
         <li>L'armée est une icône fixe (ligne d'infanterie devant, drapeau et officier au centre, cavalerie derrière, deux canons sur le flanc) dont l'allure suit la technologie militaire : piques et mousquets en 1700, baïonnettes et grenadiers avec le fusil à silex, canons Gribeauval attelés, bicornes, cuirassiers et hussards avec la levée en masse, shakos, capotes, pantalons garance et tirailleurs avec la percussion, képis et fourgon avec le chemin de fer. Elle suit l'époque choisie, ou les boutons « Armée ».</li>
+        <li>La vie des champs suit la saison : semeur au printemps, faucheurs et gerbes l'été, laboureur derrière son cheval et corbeaux à l'automne, épouvantails ; vignerons puis vendangeurs à la hotte dans le vignoble ; poules qui picorent à la ferme, moutons qui broutent dans l'enclos de la bergerie. Personne aux champs la nuit.</li>
         <li>Vie de la carte de web_power : vaches dans les prés, cerfs, biches, sangliers et renards aux lisières, bateaux, vol d'oiseaux en V.</li>
       </ul>
     </section>
@@ -314,9 +315,11 @@ function construirePlateau() {
       const C = SAISON === 0 ? [0xeef2f6, 0xe4eaef] : SAISON === 1 ? [0x9fd35a, 0x86c24a, 0xb5d86a] : SAISON === 3 ? [0xc9a35a, 0xa8803f, 0x9b7d4a] : [0xe3c75b, 0xd6b24a, 0xa9c457, 0xc9b24a];
       const W = 0.46, D = 0.24, jeu = 0.04;
       const poser = (w, h, d, c, lx, lz) => put(DECOR, new THREE.BoxGeometry(w, h, d), c, k.x + lx * ca + lz * sa, y + h / 2, k.z - lx * sa + lz * ca, an, 0);
+      if (hache(k.c, k.r, 12) < 0.35) { const x = k.x + 0.05 * sa, z = k.z + 0.05 * ca; put(DECOR, new THREE.BoxGeometry(0.008, 0.11, 0.008), 0x5b3a1e, x, y + 0.055, z, 0, 0.003); put(DECOR, new THREE.BoxGeometry(0.075, 0.008, 0.008), 0x5b3a1e, x, y + 0.09, z, an, 0.003); put(DECOR, new THREE.BoxGeometry(0.034, 0.034, 0.02), 0x8a5a34, x, y + 0.083, z, an, 0.003); put(DECOR, new THREE.CylinderGeometry(0.024, 0.024, 0.007, 8), 0xd9b45a, x, y + 0.117, z, 0, 0.003); } // épouvantail
       for (let b = -1; b <= 1; b++) for (const cote of [-1, 1]) {
         const col = new THREE.Color(C[hache(k.c * 7 + b, k.r * 5 + cote, 9) * C.length | 0]), lx = cote * (W + jeu) / 2, lz = b * (D + jeu);
         poser(W, 0.03, D, col.getHex(), lx, lz);
+        if (SAISON === 2 && b === 0 && cote === 1) for (const g of [-0.15, 0, 0.15]) { const gx = lx + g, x = k.x + gx * ca + lz * sa, z = k.z - gx * sa + lz * ca; put(DECOR, cone(0.03, 0.08, 6), 0xe3c75b, x, y + 0.07, z, 0, 0.004); } // gerbes
         if (SAISON !== 0) for (const sl of [-1, 0, 1]) poser(W * 0.9, 0.034, 0.018, col.clone().multiplyScalar(0.8).getHex(), lx, lz + sl * D / 3);
       }
     }
@@ -658,6 +661,8 @@ const boite = (w, h, d) => new THREE.BoxGeometry(w, h, d);
 const PATTES = (dx, dz, h, w, c) => [[-dx, -dz], [-dx, dz], [dx, -dz], [dx, dz]].map(([x, z]) => [boite(w, h, w), x, h / 2, z, c]);
 const roue = (x, z, r = 0.38) => [cyl(r, r, 0.22, 8).rotateX(Math.PI / 2), x, r, z, 0x2a2622];
 const BICHE = [[boite(1.3, 0.55, 0.45), 0, 1.05, 0, 0x9a6a3a], [boite(1, 0.14, 0.4), 0, 0.78, 0, 0xe8dcc8], [boite(0.28, 0.62, 0.26), 0.6, 1.45, 0, 0x9a6a3a], [boite(0.5, 0.28, 0.26), 0.8, 1.8, 0, 0x8a5c32], [boite(0.1, 0.2, 0.08), 0.68, 2.02, 0.1, 0x6b4a2a], [boite(0.1, 0.2, 0.08), 0.68, 2.02, -0.1, 0x6b4a2a], [boite(0.12, 0.16, 0.14), -0.7, 1.2, 0, 0xf4f1ea], ...PATTES(0.45, 0.14, 0.8, 0.12, 0x6b4a2a)];
+const PAYSAN = chemise => [[boite(0.3, 0.9, 0.24), 0, 0.45, 0.16, 0x5a4632], [boite(0.3, 0.9, 0.24), 0, 0.45, -0.16, 0x5a4632], [boite(0.5, 0.95, 0.75), 0, 1.35, 0, chemise], [sphere(0.28, 1), 0.02, 2.1, 0, 0xf0c9a0], [cyl(0.55, 0.55, 0.08, 10), 0, 2.36, 0, 0xd9b45a], [cyl(0.25, 0.3, 0.25, 8), 0, 2.5, 0, 0xd9b45a]];
+const ATTELAGE = dx => [[boite(1.9, 0.85, 0.7), dx, 1.35, 0, 0x8a5a32], [boite(0.45, 0.9, 0.4), dx + 0.95, 1.95, 0, 0x8a5a32], [boite(0.7, 0.35, 0.35), dx + 1.25, 2.3, 0, 0x7a4a28], ...PATTES(0.7, 0.22, 0.95, 0.16, 0x4a2c18).map(([g, x, y, z, c]) => [g, x + dx, y, z, c])];
 const MODELES = {
   char: [[boite(1.7, 0.3, 1), -0.4, 0.75, 0, 0x9a6a3a], [boite(1.7, 0.35, 0.1), -0.4, 1.05, 0.45, 0x7a4f2a], [boite(1.7, 0.35, 0.1), -0.4, 1.05, -0.45, 0x7a4f2a], roue(-0.4, 0.55, 0.45), roue(-0.4, -0.55, 0.45), [boite(1.1, 0.55, 0.4), 1.2, 1.05, 0, 0x6b4226], [boite(0.45, 0.4, 0.3), 1.85, 1.45, 0, 0x6b4226], [boite(0.12, 0.75, 0.12), 0.8, 0.4, 0, 0x4a2e1a], [boite(0.12, 0.75, 0.12), 1.6, 0.4, 0, 0x4a2e1a], [boite(0.7, 0.35, 0.8), -0.5, 1.15, 0, 0xe3c75b]],
   vache: [[boite(1.6, 0.8, 0.7), 0, 0.9, 0, 0xf6f2ea], [boite(0.7, 0.5, 0.72), -0.2, 1.0, 0, 0x2f2c2a], [boite(0.6, 0.55, 0.5), 0.95, 1.15, 0, 0xf6f2ea], [boite(0.2, 0.5, 0.2), -0.55, 0.3, 0.2, 0xe8e2d6], [boite(0.2, 0.5, 0.2), 0.5, 0.3, -0.2, 0xe8e2d6], [boite(0.2, 0.5, 0.2), -0.55, 0.3, -0.2, 0xe8e2d6], [boite(0.2, 0.5, 0.2), 0.5, 0.3, 0.2, 0xe8e2d6]],
@@ -668,6 +673,14 @@ const MODELES = {
   loco: [[cyl(0.5, 0.5, 2.2, 12).rotateZ(Math.PI / 2), 0.4, 1.25, 0, 0x2b2b30], [boite(0.15, 1.02, 1.02), -0.2, 1.25, 0, 0xb8322a], [boite(0.15, 1.02, 1.02), 1, 1.25, 0, 0xb8322a], [boite(1, 1.4, 1.15), -1.15, 1.4, 0, 0x8a2a24], [boite(1.3, 0.15, 1.35), -1.15, 2.15, 0, 0x2b2b30], [boite(0.5, 0.45, 0.08), -1.15, 1.6, 0.58, 0xf2d27a],
     [cyl(0.32, 0.18, 0.4, 8), 1.1, 2.15, 0, 0x2b2b30], [cyl(0.16, 0.16, 0.5, 8), 1.1, 1.8, 0, 0x2b2b30], [boite(0.4, 0.3, 0.4), 0.2, 1.85, 0, 0xc9a24a], [boite(3.4, 0.3, 1), -0.1, 0.55, 0, 0x3a3a40], [cone(0.45, 0.6, 4).rotateZ(-Math.PI / 2), 1.75, 0.5, 0, 0xb8322a],
     roue(-1.1, 0.55, 0.42), roue(-1.1, -0.55, 0.42), roue(0.1, 0.55, 0.42), roue(0.1, -0.55, 0.42), roue(1, 0.55, 0.3), roue(1, -0.55, 0.3)],
+  paysan: PAYSAN(0xe9e2d0),
+  faucheur: [...PAYSAN(0xd9cfb0), [boite(1.8, 0.08, 0.08).rotateZ(-0.6), 0.55, 1.3, 0.35, 0x8b5a2b], [boite(0.08, 0.05, 1.1), 1.25, 0.8, 0.85, 0xd9d9d9]],
+  semeur: [...PAYSAN(0xc9d4e0), [boite(0.32, 0.45, 0.4), 0.3, 1.2, 0.4, 0xc9b27a]],
+  vendangeur: [...PAYSAN(0xe0d0c0), [cyl(0.36, 0.26, 0.8, 8), -0.45, 1.55, 0, 0x8a6a4a], [sphere(0.22, 0), -0.45, 2, 0, 0x6a2a5a]],
+  charrue: [...ATTELAGE(1.6), [boite(1.6, 0.12, 0.12), 0.1, 0.75, 0, 0x8b5a2b], [boite(0.2, 0.55, 0.5), -0.6, 0.35, 0, 0x6b6f75], [boite(0.9, 0.08, 0.08).rotateZ(0.5), -1, 1, 0.25, 0x8b5a2b], [boite(0.9, 0.08, 0.08).rotateZ(0.5), -1, 1, -0.25, 0x8b5a2b], ...PAYSAN(0xd9cfb0).map(([g, x, y, z, c]) => [g.clone(), x - 1.7, y, z, c])],
+  poule: [[boite(0.5, 0.4, 0.35), 0, 0.4, 0, 0xf4f1ea], [boite(0.22, 0.25, 0.2), 0.3, 0.7, 0, 0xf4f1ea], [boite(0.1, 0.12, 0.06), 0.32, 0.88, 0, 0xd9322a], [boite(0.1, 0.05, 0.06), 0.45, 0.68, 0, 0xf2b33d], [boite(0.06, 0.25, 0.06), 0, 0.12, 0.08, 0xf2b33d], [boite(0.06, 0.25, 0.06), 0, 0.12, -0.08, 0xf2b33d], [boite(0.15, 0.2, 0.25), -0.3, 0.6, 0, 0xe8e2d6]],
+  mouton: [[boite(1.1, 0.65, 0.7), 0, 0.75, 0, 0xf4f2ea], [boite(0.35, 0.35, 0.35), 0.65, 0.85, 0, 0x2b2b2b], ...PATTES(0.35, 0.2, 0.45, 0.12, 0x2b2b2b)],
+  corbeau: [[boite(0.6, 0.25, 0.25), 0, 0.25, 0, 0x1f1f24], [boite(0.2, 0.2, 0.2), 0.35, 0.38, 0, 0x1f1f24], [boite(0.15, 0.05, 0.06), 0.5, 0.35, 0, 0x4a4a4a], [boite(0.3, 0.05, 0.2), -0.4, 0.3, 0, 0x1f1f24]],
   wagon: [[boite(2.2, 0.8, 1.1), 0, 0.95, 0, 0x6b4a2a], [boite(2, 0.3, 0.95), 0, 1.4, 0, 0x2b2b2b], [boite(2.4, 0.25, 1), 0, 0.5, 0, 0x3a3a40], roue(-0.7, 0.55, 0.35), roue(-0.7, -0.55, 0.35), roue(0.7, 0.55, 0.35), roue(0.7, -0.55, 0.35)],
   bateau: [[boite(3.2, 0.7, 1.2), 0, 0.35, 0, 0x8a5a34], [boite(0.15, 3.2, 0.15), 0, 2, 0, 0x5b3a1e], [cone(1.2, 3.2, 3).scale(0.25, 1, 1), 0.2, 2.3, 0, 0xf6f2ea]],
   oiseau: [[boite(1.5, 0.32, 0.38), 0, 0, 0, 0xf4f1ea], [boite(0.42, 0.3, 0.3), 0.9, 0.08, 0, 0xf4f1ea], [boite(0.25, 0.08, 0.1), 1.2, 0.04, 0, 0xf2b33d], [boite(0.5, 0.08, 0.5), -0.95, 0.04, 0, 0xd9d6cf], [boite(0.75, 0.07, 2.2), 0.05, 0, 0, 0xd9d6cf]],
@@ -697,6 +710,35 @@ function construireAmbiance() {
   CASES.filter(k => k.t === 'mer').filter((k, i) => hache(k.c, k.r, 23) < 0.25).slice(0, 4).forEach((k, i) => ACTEURS.push({ type: 'bateau', o: acteur('bateau', 0.05), k, r: 0.5 + hache(k.c, k.r, 3) * 0.6, ph: i * 1.7, v: 0.05 + hache(k.c, k.r, 5) * 0.05 }));
   // un vol d'oiseaux en V
   for (let n = 0; n < 7; n++) ACTEURS.push({ type: 'oiseau', o: acteur('oiseau', 0.035), n });
+  // ---- la vie des champs, des vergers et des fermes, selon la saison
+  const angB = k => (hache(k.c, k.r, 2) * 6 | 0) * Math.PI / 3; // orientation d'un bâtiment (comme construireBatiments)
+  const dansBat = (k, lx, lz) => { const g = angB(k), c = Math.cos(g), sn = Math.sin(g); return [k.x + (lx * c + lz * sn) * ECH_BAT, k.z + (-lx * sn + lz * c) * ECH_BAT]; };
+  // champs des plaines : une parcelle par case pour chaque travail
+  CASES.filter(k => k.t === 'plaine' && !k.riv && !k.bati).slice(0, 7).forEach((k, i) => {
+    const an = (hache(k.c, k.r, 7) * 3 | 0) * Math.PI / 3, ca = Math.cos(an), sa = Math.sin(an);
+    const parcelle = (b, cote) => { const lx = cote * 0.25, lz = b * 0.28; return { x: k.x + lx * ca + lz * sa, z: k.z - lx * sa + lz * ca }; };
+    const champ = (nom, saisons, b, cote, extra = {}) => ACTEURS.push({ type: 'champ', o: acteur(nom), k, ...parcelle(b, cote), an, saisons, ph: hache(k.c, k.r, 30 + b * 3 + cote) * 6, L: 0.36, y: 0.03, ...extra });
+    champ('faucheur', [2], -1, -1, { geste: 'fauche', v: 0.12 }); champ('faucheur', [2], 0, -1, { geste: 'fauche', v: 0.1 });
+    champ('semeur', [1], 1, 1, { geste: 'marche', v: 0.25 });
+    champ('charrue', [3], 1, -1, { geste: 'marche', v: 0.12, L: 0.3 });
+    for (let n = 0; n < 3; n++) champ('corbeau', [3, 0], -1 + n, 1, { geste: 'sautille', v: 0.6, L: 0.3, ph: n * 2.3 + i });
+  });
+  for (const p of PLAN) {
+    const k = p.k;
+    if (p.cle === 'ferme') {
+      for (const [fx, fz, lng, b] of [[-3.6, 2.6, 4.4, 0], [2.2, 3.4, 4.6, 1]]) {
+        const [x, z] = dansBat(k, fx, fz);
+        ACTEURS.push({ type: 'champ', o: acteur(b ? 'charrue' : 'faucheur'), k, x, z, an: angB(k), saisons: b ? [3, 1] : [2], geste: b ? 'marche' : 'fauche', v: 0.1, L: lng * ECH_BAT, y: 0.045, ph: b * 2 });
+      }
+      for (let n = 0; n < 5; n++) { const [x, z] = dansBat(k, -3.4 + (hache(n, 1, 44) - 0.5) * 3, -0.2 + (hache(n, 2, 44) - 0.5) * 1.6); ACTEURS.push({ type: 'basse-cour', o: acteur('poule', ECH * 0.8), x, z, y: 0.025, ph: n * 1.3, r: 0.04 }); }
+    }
+    if (p.cle === 'bergerie') for (let n = 0; n < 6; n++) { const [x, z] = dansBat(k, (hache(n, 3, 45) - 0.5) * 7, 1 + (hache(n, 4, 45) - 0.5) * 6); ACTEURS.push({ type: 'basse-cour', o: acteur('mouton', ECH * 0.85), x, z, y: 0.025, ph: n * 1.7, r: 0.12, lent: true }); }
+    if (p.cle === 'vignoble') for (let n = 0; n < 3; n++) {
+      const [x, z] = dansBat(k, -0.9, (n - 1) * 1.7 + 0.85); // entre deux rangs de vigne
+      ACTEURS.push({ type: 'champ', o: acteur('vendangeur'), k, x, z, an: angB(k), saisons: [3], geste: 'cueille', v: 0.06, L: 0.8, y: 0.03, ph: n * 2.1 });
+      if (n < 2) ACTEURS.push({ type: 'champ', o: acteur('paysan'), k, x, z, an: angB(k), saisons: [1, 2], geste: 'cueille', v: 0.05, L: 0.8, y: 0.03, ph: n * 2.7 + 1 });
+    }
+  }
   // le train entre les deux usines (ère industrielle seulement)
   if (RAIL) ACTEURS.push({ type: 'train', o: AMB, voitures: [acteur('loco'), acteur('wagon'), acteur('wagon')], fumee: 0 });
 }
@@ -717,6 +759,20 @@ function animAmbiance(dt, t) {
       o.visible = HEURE !== 'nuit';
     } else if (a.type === 'bateau') {
       const an = t * a.v + a.ph; o.position.set(a.k.x + Math.cos(an) * a.r, -0.16 + Math.sin(t * 1.3 + a.ph) * 0.006, a.k.z + Math.sin(an) * a.r); o.rotation.y = -an;
+    } else if (a.type === 'champ') {
+      // va-et-vient le long des sillons ; la faux balaie, le vendangeur se penche, le corbeau sautille
+      const vis = a.saisons.includes(SAISON) && HEURE !== 'nuit' && !(a.k.rail && EPOQUE === 'industrie');
+      o.visible = vis; if (!vis) continue;
+      const p = t * a.v + a.ph, u = a.geste === 'sautille' ? Math.sin(Math.floor(p) * 2.7) : Math.sin(p), sens = a.geste === 'sautille' ? (Math.floor(p) % 2 ? 1 : -1) : Math.cos(p) >= 0 ? 1 : -1;
+      const ca = Math.cos(a.an), sa = Math.sin(a.an), d = u * a.L / 2;
+      o.position.set(a.x + d * ca, a.k.top + a.y + (a.geste === 'sautille' ? Math.abs(Math.sin(p * Math.PI)) * 0.012 : 0), a.z - d * sa);
+      o.rotation.set(0, a.an + (sens < 0 ? Math.PI : 0) + (a.geste === 'fauche' ? Math.sin(t * 2.4 + a.ph) * 0.6 : 0), a.geste === 'cueille' ? -Math.max(0, Math.sin(t * 1.1 + a.ph * 3)) * 0.7 : 0);
+    } else if (a.type === 'basse-cour') {
+      // poules qui picorent, moutons qui broutent, chacun autour de sa place
+      o.visible = HEURE !== 'nuit'; if (!o.visible) continue;
+      const p = t * (a.lent ? 0.15 : 0.5) + a.ph, an = p + Math.sin(p * 0.7) * 2;
+      o.position.set(a.x + Math.cos(an) * a.r * 0.5, solEn(a.x, a.z) + a.y, a.z + Math.sin(an) * a.r * 0.5);
+      o.rotation.set(0, -an - Math.PI / 2, Math.sin(t * (a.lent ? 0.8 : 5) + a.ph) > 0.4 ? -0.5 : 0);
     } else if (a.type === 'train') {
       // navette : la locomotive tire à l'aller et pousse au retour ; arrêts au quai de chaque usine
       const vis = EPOQUE === 'industrie', ecart = 0.115, utile = RAIL.long - ecart * 2 - 0.04;
