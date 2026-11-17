@@ -56,6 +56,7 @@ figure { margin: 0; }
         <li>Contour brun foncé autour de chaque bâtiment, arbre, rocher et soldat.</li>
         <li>Bâtiments refaits avec les modèles de web_power : chaque bâtiment sur sa dalle hexagonale, la ville sur plusieurs cases (mairie au centre, quartiers résidentiels de neuf maisons en couronne, faubourg), fermes de culture et d'élevage, église au toit brun et à la flèche d'ardoise.</li>
         <li>Selon l'époque : colombages et chaume en 1700, crépi, volets et tuiles aux Lumières, pierre, ardoise et étages sous l'Empire, brique et ardoise à l'ère industrielle ; la mairie passe du beffroi à l'horloge, à la coupole dorée, puis au campanile ; meules puis silos dans les fermes.</li>
+        <li>À l'ère industrielle, les usines de web_power sortent de terre autour de la ville : usine à sheds en dents de scie, filature aux fenêtres éclairées et haut fourneau, avec leurs grandes cheminées de brique qui fument noir. Avant, leurs cases restent des champs.</li>
         <li>Plateau en hexagones séparés, à hauteurs étagées (mer, côte, plaine, collines, montagnes), flancs plus sombres, au lieu du relief lissé.</li>
         <li>Arbres en cônes et boules à facettes, montagnes à cinq pans enneigées, collines en dômes.</li>
         <li>Mer translucide turquoise, rivière en ruban bordé de sable, fond vert très sombre.</li>
@@ -195,7 +196,7 @@ const libres = CASES.filter(k => !TERR[k.t].eau && k.t !== 'montagne' && !k.riv 
 const COTE = CASES.filter(k => !TERR[k.t].eau && !k.riv && voisins(k).some(n => TERR[n.t].eau)).sort((a, b) => Math.hypot(a.x - centre.x, a.z - centre.z) - Math.hypot(b.x - centre.x, b.z - centre.z));
 const PLAN = [{ k: centre, cle: 'hotel', niveau: 3 }];
 const prises = new Set([centre]);
-const prendre = (liste, cle) => { const k = liste.find(x => !prises.has(x)); if (k) { prises.add(k); PLAN.push({ k, cle }); } };
+const prendre = (liste, cle, ere) => { const k = liste.find(x => !prises.has(x)); if (k) { prises.add(k); PLAN.push({ k, cle, ere }); } };
 // la ville s'étend sur plusieurs cases, comme dans web_power : quartiers résidentiels et faubourg autour du centre
 for (const k of voisins(centre).filter(k => !TERR[k.t].eau && k.t !== 'montagne' && !k.riv).slice(0, 3)) { prises.add(k); PLAN.push({ k, cle: 'maison' }); }
 prendre(libres, 'cabane');
@@ -203,7 +204,10 @@ prendre(COTE, 'pecheur');
 prendre(libres.filter(k => voisins(k).some(n => n.t === 'foret')), 'bucheron');
 prendre(libres.filter(k => k.t === 'plaine' || k.t === 'prairie'), 'ferme');
 for (const cle of ['eglise', 'moulin', 'marche', 'caserne', 'forge', 'taverne', 'tour', 'vignoble', 'bergerie']) prendre(libres, cle);
-for (const p of PLAN) p.k.bati = true;
+// les usines n'existent qu'à l'ère industrielle ; avant, leurs cases restent des champs
+for (const cle of ['usine', 'filature', 'haut_fourneau']) prendre(libres.filter(k => k.t === 'plaine' || k.t === 'prairie'), cle, 'industrie');
+function actif(p) { return !p.ere || p.ere === EPOQUE; }
+for (const p of PLAN) p.k.bati = !p.ere;
 const ARMEE = libres.find(k => !prises.has(k));
 function topDe(k) { return TERR[k.bati ? 'bati' : k.t].h; }
 function chemin(a, b, deja) {
@@ -224,7 +228,7 @@ for (const p of PLAN.slice(1).sort((x, y) => Math.hypot(x.k.x - centre.x, x.k.z 
   pts[0] = [pts[0][0] + (pts[1][0] - pts[0][0]) * 0.35, pts[0][1] + (pts[1][1] - pts[0][1]) * 0.35]; // part du bord de la place
   const fin = pts.length - 1; pts[fin] = [pts[fin][0] + (pts[fin - 1][0] - pts[fin][0]) * 0.3, pts[fin][1] + (pts[fin - 1][1] - pts[fin][1]) * 0.3]; // s'arrête au pied du bâtiment
   const pts2 = []; for (let i = 0; i < pts.length - 1; i++) for (let s = 0; s < 4; s++) { const t = s / 4; pts2.push([pts[i][0] + (pts[i + 1][0] - pts[i][0]) * t, pts[i][1] + (pts[i + 1][1] - pts[i][1]) * t]); } pts2.push(pts[fin]);
-  CHEMINS.push({ pts2, large: 0.07, ch });
+  CHEMINS.push({ pts2, large: 0.07, ch, ere: p.ere });
 }
 // hauteur d'un point du plateau : la case la plus proche
 function solEn(x, z) { let b = null, m = Infinity; for (const k of CASES) { const d = (k.x - x) ** 2 + (k.z - z) ** 2; if (d < m) { m = d; b = k; } } return Math.max(topDe(b), -0.15); }
@@ -283,7 +287,8 @@ function construirePlateau() {
   });
   // routes de web_power : chemins de terre, puis pavés (Empire), puis chaussées empierrées (Industrie)
   const ROUTE = { ancien: 0xc9a874, lumieres: 0xc9a874, empire: 0xb9b2a2, industrie: 0x8a867e }[EPOQUE];
-  for (const ch of CHEMINS) put(DECOR, ruban(ch.pts2, ch.large, 0), SAISON === 0 && EPOQUE !== 'industrie' ? 0xe3e6e2 : ROUTE, 0, 0, 0, 0, 0);
+  for (const p of PLAN) p.k.bati = actif(p);
+  for (const ch of CHEMINS) if (!ch.ere || ch.ere === EPOQUE) put(DECOR, ruban(ch.pts2, ch.large, 0), SAISON === 0 && EPOQUE !== 'industrie' ? 0xe3e6e2 : ROUTE, 0, 0, 0, 0, 0);
   fige(TUILES, PLATEAU); fige(DECOR, PLATEAU); fige(RIVL, PLATEAU);
 }
 function perp(pts, i) { const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)], dx = b[0] - a[0], dz = b[1] - a[1], l = Math.hypot(dx, dz) || 1; return [-dz / l, dx / l]; }
@@ -421,6 +426,36 @@ const BATR = {
     for (const [x, z] of [[-1, 3.6], [1, 4.6], [-4.6, 2]]) put(L, cyl(0.5, 0.6, 0.6, 7), 0xb98a55, x, 0.3, z, 0, 0.1);
     for (const [x, z] of [[4.6, -3], [6, -1], [3, -4.8]]) { put(L, cyl(0.3, 0.4, 1.4, 5), 0x7a5233, x, 0.7, z); put(L, cone(1.6, 2.6, 6), 0x3e7f34, x, 2.4, z); put(L, cone(1.2, 2, 6), 0x4c9440, x, 3.6, z); }
   },
+  // ---- ère industrielle : les usines de web_power (hall de brique, sheds en dents de scie, grandes cheminées qui fument noir)
+  usine(L, ex, E) {
+    solQ(L, 0xb3ad9e);
+    for (const [x, z] of [[-3.4, -2.8], [2.6, -3.2], [-2.4, 3]]) {
+      put(L, boite(4.4, 2.2, 3.4), 0xb7634a, x, 1.1, z);
+      for (let k = 0; k < 3; k++) { const sh = cyl(0.9, 0.9, 3.6, 3); sh.rotateX(Math.PI / 2); sh.rotateZ(Math.PI / 2 + 0.5); put(L, sh, ARDOISE, x - 1.45 + k * 1.45, 2.6, z, 0, 0.12); }
+      for (let k = 0; k < 3; k++) put(L, boite(0.7, 0.8, 0.08), 0xf2d27a, x - 1.45 + k * 1.45, 1, z + 1.72, 0, 0);
+    }
+    put(L, cyl(0.6, 0.8, 9, 8), 0xb0644c, 4.4, 4.5, 2.6); put(L, cyl(0.7, 0.7, 0.5, 8), 0x5a2f24, 4.4, 9, 2.6); ex.fum.push([4.4, 9.5, 2.6, true]);
+    put(L, cyl(1.5, 1.5, 3, 12), 0xe8e4da, 1.6, 1.5, 4.6); put(L, cone(1.8, 1.6, 7), 0x2f2c2a, -5.6, 0.8, -0.4);
+  },
+  filature(L, ex, E) {
+    solQ(L, 0xa9a394);
+    put(L, boite(6.4, 3.4 * 1.3, 3.6), 0xa8553c, -0.8, 1.7 * 1.3, 0.4); toit(L, 4, 6.8, 1.6, 0x5a4741, -0.8, 3.4 * 1.3, 0.4, Math.PI / 2);
+    for (let e = 0; e < 2; e++) for (let k = 0; k < 4; k++) put(L, boite(0.8, 0.9, 0.1), 0xf2d27a, -3.2 + k * 1.6, 1.2 + e * 1.8, 2.25, 0, 0);
+    put(L, boite(1.6, 2.2, 0.1), 0x4a3420, -0.8, 1.1, 2.26, 0, 0);
+    put(L, cyl(0.55, 0.8, 10, 8), 0x8a3f2c, 3.6, 5, 2.6); put(L, cyl(0.7, 0.7, 0.5, 8), 0x5a2f24, 3.6, 10, 2.6); ex.fum.push([3.6, 10.6, 2.6, true]);
+    for (let i = 0; i < 4; i++) put(L, boite(1, 1, 1), 0xe9e2d0, -4.6 + (i % 2) * 1.1, 0.5 + (i >> 1), 4.4, 0, 0.1);
+    put(L, cone(1.8, 1.6, 7), 0x2f2c2a, 3.6, 0.8, -3.4);
+  },
+  haut_fourneau(L, ex, E) {
+    solQ(L, 0x9c968a);
+    const four = new THREE.LatheGeometry([[2.4, 0], [2.6, 2.4], [1.8, 6.4], [1.4, 7.4]].map(([x, y]) => new THREE.Vector2(x, y)), 12);
+    put(L, four, 0x8a4a36, -1.6, 0, -1, 0, 0.26); put(L, cyl(1.5, 1.5, 0.8, 12), 0x5a4741, -1.6, 7.8, -1); ex.fum.push([-1.6, 8.6, -1, true]);
+    put(L, boite(1.4, 1, 0.2), 0xff8a1c, -1.6, 0.9, 1.5, 0, 0);
+    const pont = boite(0.6, 0.5, 6.4); pont.rotateX(0.75); put(L, pont, 0x6b6f75, 2, 4, -1.2, 0, 0.1);
+    put(L, boite(4.6, 2.6, 3), 0xb7634a, 2.6, 1.3, 3.2); toit(L, 3.4, 5, 1.2, ARDOISE, 2.6, 2.6, 3.2, Math.PI / 2);
+    put(L, cyl(0.6, 0.8, 11, 8), 0xb0644c, 5.4, 5.5, -2.6); ex.fum.push([5.4, 11.2, -2.6, true]);
+    put(L, cone(2.4, 2, 7), 0x2f2c2a, -4.8, 1, 3.6); put(L, cone(1.6, 1.4, 7), 0xa5532a, 0.4, 0.7, -5);
+  },
 };
 
 // ---------------------------------------------------------------- bâtiments, armée et pièces animées
@@ -438,6 +473,7 @@ function construireBatiments() {
   BATIS = new THREE.Group(); scene.add(BATIS);
   ailes.length = drapeaux.length = cheminees.length = 0;
   for (const p of PLAN) {
+    if (!actif(p)) continue;
     const E = EPOQUES[EPOQUE], L = lot(), ex = { fum: [], ailes: [], drap: [] };
     let i = 0; rnd = () => hache(p.k.c * 31 + i++, p.k.r * 17, 77); // même tirage à chaque reconstruction
     BATR[p.cle](L, ex, E, p);
@@ -462,7 +498,7 @@ function construireBatiments() {
 // fumées : boules toon qui montent et grossissent
 const FUM = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(0.05, 0), new THREE.MeshToonMaterial({ color: 0xf2f0ea, gradientMap: degrade, transparent: true, opacity: 0.8 }), 300);
 FUM.count = 0; FUM.frustumCulled = false; scene.add(FUM);
-const bouffees = [];
+const bouffees = [], NOIRE = new THREE.Color(0x55504a), BLANCHE = new THREE.Color(0xffffff);
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _p = new THREE.Vector3();
 
 
@@ -493,7 +529,7 @@ function construireAmbiance() {
   if (AMB) scene.remove(AMB);
   AMB = new THREE.Group(); scene.add(AMB); ACTEURS = [];
   // charrettes : une par chemin assez long, en va-et-vient
-  CHEMINS.filter(c => c.pts2.length > 5).forEach((c, i) => ACTEURS.push({ type: 'char', o: acteur('char'), c, ph: i * 1.7, v: 0.05 + hache(i, 3) * 0.03 }));
+  CHEMINS.filter(c => c.pts2.length > 5 && !c.ere).forEach((c, i) => ACTEURS.push({ type: 'char', o: acteur('char'), c, ph: i * 1.7, v: 0.05 + hache(i, 3) * 0.03 }));
   // vaches dans les prés autour de la ferme ou de la bergerie
   CASES.filter(k => k.t === 'prairie' && !k.bati && !k.riv).slice(0, 3).forEach((k, j) => [0, 1].forEach(n => ACTEURS.push({ type: 'vache', o: acteur('vache', ECH * 0.9), k, x: (hache(k.c, n, 40) - 0.5) * 0.6, z: (hache(k.r, n, 50) - 0.5) * 0.5, a: hache(j, n, 60) * 6, ph: n * 2.1 + j })));
   // faune des lisières : cerf et biches, ou sangliers, ou renard, entre une forêt et un pré
@@ -547,7 +583,7 @@ const FENETRES = new THREE.Points(new THREE.BufferGeometry(), new THREE.PointsMa
 FENETRES.frustumCulled = false; scene.add(FENETRES);
 function majFenetres() {
   const pos = [], col = [];
-  for (const p of PLAN) for (let i = 0; i < (p.cle === 'hotel' ? 9 : 4); i++) {
+  for (const p of PLAN) for (let i = 0; i < (!actif(p) ? 0 : p.cle === 'hotel' ? 9 : 4); i++) {
     pos.push(p.k.x + (hache(p.k.c, i, 80) - 0.5) * 0.7, p.k.top + 0.08 + hache(p.k.r, i, 90) * 0.2, p.k.z + (hache(p.k.c, i, 100) - 0.5) * 0.6);
     col.push(1, i % 3 ? 0.74 : 0.9, i % 3 ? 0.36 : 0.65);
   }
@@ -587,12 +623,12 @@ function image(now) {
   if (!reduit) {
     for (const a of ailes) a.rotation.z += dt * 1.2;
     for (const f of drapeaux) { const p = f.geometry.attributes.position; for (let i = 0; i < p.count; i++) { const x = p.getX(i); p.setZ(i, Math.sin(t * 6 - x * 30) * x * 0.25); } p.needsUpdate = true; }
-    for (const c of cheminees) { c.prochain -= dt; if (c.prochain <= 0) { c.prochain = 0.7 + Math.random() * 0.6; if (bouffees.length < 300) bouffees.push({ x: c.pos.x, y: c.pos.y, z: c.pos.z, age: 0 }); } }
+    for (const c of cheminees) { c.prochain -= dt; if (c.prochain <= 0) { c.prochain = 0.7 + Math.random() * 0.6; if (bouffees.length < 300) bouffees.push({ x: c.pos.x, y: c.pos.y, z: c.pos.z, age: 0, noire: c.noire }); } }
   }
   let n = 0;
   for (let i = bouffees.length - 1; i >= 0; i--) { const b = bouffees[i]; b.age += dt; if (b.age > 3) { bouffees.splice(i, 1); continue; } b.y += dt * 0.18; b.x += dt * 0.05; }
-  for (const b of bouffees) { const s = 0.6 + b.age * 0.7; _m.compose(_p.set(b.x, b.y, b.z), _q, _s.set(s, s, s)); FUM.setMatrixAt(n++, _m); }
-  FUM.count = n; FUM.instanceMatrix.needsUpdate = true;
+  for (const b of bouffees) { const s = 0.6 + b.age * 0.7; _m.compose(_p.set(b.x, b.y, b.z), _q, _s.set(s, s, s)); FUM.setColorAt(n, b.noire ? NOIRE : BLANCHE); FUM.setMatrixAt(n++, _m); }
+  FUM.count = n; FUM.instanceMatrix.needsUpdate = true; if (FUM.instanceColor) FUM.instanceColor.needsUpdate = true;
   renderer.render(scene, cam);
   requestAnimationFrame(image);
 }
@@ -602,7 +638,7 @@ function choisir(attr, fn) {
   const bs = document.querySelectorAll(`[${attr}]`);
   bs.forEach(b => b.addEventListener('click', () => { fn(b.getAttribute(attr)); bs.forEach(x => x.setAttribute('aria-pressed', String(x === b))); }));
 }
-choisir('data-epoque', v => { EPOQUE = v; construirePlateau(); construireBatiments(); });
+choisir('data-epoque', v => { EPOQUE = v; construirePlateau(); construireBatiments(); majFenetres(); });
 choisir('data-heure', v => { HEURE = v; appliquerHeure(); });
 choisir('data-saison', v => { SAISON = +v; construirePlateau(); construireBatiments(); });
 
