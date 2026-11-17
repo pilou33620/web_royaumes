@@ -36,6 +36,13 @@ const G = {
 // Les mêmes bâtiments, en formes plus rondes et plus trapues : boîtes aux coins arrondis, toits épais qui débordent,
 // cylindres bombés, cônes gonflés, têtes plus grosses.
 export const DODU = new URLSearchParams(location.search).has('dodu');
+// rendu façon web_power (à l'essai : ?power) : toits en tuiles, chaume ou ardoise selon l'époque, la couleur du royaume
+// ne restant que sur les drapeaux, les volets et les uniformes
+export const POWER = new URLSearchParams(location.search).has('power');
+const TOITS = {
+  ancien: [0xc9a14f, 0xb8903f, 0xc4493a, 0xa8553a], lumieres: [0xd9573b, 0xe07a3a, 0xc4493a, 0xb8503a],
+  empire: [0x5d6f80, 0x58606c, 0xc4493a, 0xd9573b], industrie: [0x58606c, 0x5d6f80, 0x6b6470, 0xb0604a],
+};
 /** Boîte unité (posée sur y=0) aux arêtes arrondies de rayon r ; normales exactes, donc ombrage doux. */
 function boiteRonde(r) {
   const g = new THREE.BoxGeometry(1, 1, 1, 3, 3, 3), p = g.attributes.position, n = g.attributes.normal;
@@ -143,10 +150,12 @@ export function style(epoque, couleur) {
     s.toit = toit.clone().lerp(new THREE.Color(0x58606c), 0.35).getHex();
     s.chaume = s.ardoise;
   }
+  if (POWER) { s.toits = TOITS[epoque] || TOITS.ancien; s.toit = { ancien: 0x9a5a40, lumieres: 0xc4493a, empire: 0x5d6f80, industrie: 0x58606c }[epoque] ?? 0x9a5a40; }
   return s;
 }
 
 function maison(k, x, z, e, S, ry = 0, toit = S.toit, mur = S.mur) {
+  if (S.toits && toit === S.toit) toit = S.toits[Math.floor(hache(x * 97, z * 89, 3) * S.toits.length)]; // une teinte par maison
   k.groupe(x, z, ry, e, q => {
     const h = S.etage, y0 = 0.03, rangs = h > 0.4 ? 2 : 1;
     q.boite(0.44, y0, 0.36, S.socle, 0, 0, 0);
