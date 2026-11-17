@@ -122,6 +122,41 @@ const geoTete = new THREE.SphereGeometry(0.03, 6, 4).translate(0, 0.15, 0);
 const matPeau = new THREE.MeshLambertMaterial({ color: 0xf0c9a0 });
 const HABITS = [0x8b3a2a, 0x3b5998, 0x6b8e23, 0x8b6914, 0x5a4a7a, 0xcfc6b0].map(c => new THREE.MeshLambertMaterial({ color: c }));
 const matMouton = new THREE.MeshLambertMaterial({ color: 0xf4f2ea }), matTeteM = new THREE.MeshLambertMaterial({ color: 0x2b2b2b });
+// outils tenus au bout du bras (le bras pointe vers +z)
+const geoManche = new THREE.BoxGeometry(0.012, 0.012, 0.1).translate(0, 0, 0.05);
+const MARTEAU = new THREE.BoxGeometry(0.04, 0.025, 0.025).translate(0, 0, 0.1);
+const HACHE = new THREE.BoxGeometry(0.008, 0.045, 0.03).translate(0, -0.015, 0.1);
+const PIOCHE = new THREE.BoxGeometry(0.008, 0.012, 0.08).rotateX(Math.PI / 2).translate(0, 0, 0.1);
+const FUSIL = new THREE.BoxGeometry(0.01, 0.16, 0.01).translate(0, 0.06, 0.02);
+const PANIER = new THREE.CylinderGeometry(0.03, 0.022, 0.035, 7).translate(0, -0.02, 0.06);
+const SAC = new THREE.BoxGeometry(0.06, 0.05, 0.05).translate(0, 0.07, 0);
+// cle → [geste, outil, habit, poussière]
+const METIERS = {
+  ferme: ['cueille', PANIER, 3], champ_patates: ['cueille', PANIER, 2], vignoble: ['cueille', PANIER, 4], jardin: ['cueille', PANIER, 2],
+  bucheron: ['frappe', HACHE, 0], forestier: ['frappe', HACHE, 2],
+  carriere: ['frappe', PIOCHE, 5, true], mine_fer: ['frappe', PIOCHE, 3, true], mine_charbon: ['frappe', PIOCHE, 3, true], mine_or: ['frappe', PIOCHE, 3, true],
+  forge: ['frappe', MARTEAU, 3], armurerie: ['frappe', MARTEAU, 3], fonderie: ['frappe', MARTEAU, 3], haut_fourneau: ['frappe', MARTEAU, 3], scierie: ['frappe', HACHE, 0],
+  chasseur: ['garde', FUSIL, 2], caserne: ['garde', FUSIL, 1], haras: ['garde', FUSIL, 1], arsenal: ['garde', FUSIL, 1],
+  tour: ['garde', FUSIL, 1], remparts: ['garde', FUSIL, 1], citadelle: ['garde', FUSIL, 1], palais: ['garde', FUSIL, 1],
+};
+function travailleur(b, k, geste, outil, habit, poussiere, bois) {
+  const { x, z } = posCase(b.case), g = new THREE.Group();
+  g.rotation.order = 'YXZ'; // se pencher en avant après s'être tourné
+  const corps = new THREE.Mesh(geoVillageois, HABITS[habit]); corps.castShadow = true; g.add(corps);
+  g.add(new THREE.Mesh(geoTete, matPeau));
+  const bras = new THREE.Group(); bras.position.set(0, 0.11, 0.035);
+  if (geste === 'frappe') bras.add(new THREE.Mesh(geoManche, matCoque));
+  if (outil) bras.add(new THREE.Mesh(outil, outil === PANIER ? matCoque : matTeteM));
+  if (geste === 'porte') g.add(new THREE.Mesh(SAC, HABITS[5]));
+  g.add(bras);
+  groupeActeurs.add(g);
+  // à l'écart du bâtiment ; le bûcheron du côté de la forêt
+  let ang = hache(b.id, k, 14) * 6.28;
+  if (bois != null && geste === 'frappe') { const q = posCase(bois); ang = Math.atan2(q.z - z, q.x - x); }
+  const r = geste === 'cueille' ? 0.25 + k * 0.3 : 0.42;
+  const px = x + Math.cos(ang) * r, pz = z + Math.sin(ang) * r;
+  acteurs.push({ g, bras, type: 'travailleur', geste, champ: outil === PANIER, x: px, z: pz, cx: x, cz: z, ang, ph: hache(b.id, k, 8) * 6, poussiere, prochain: hache(b.id, k, 9) * 2 });
+}
 let acteurs = [], papillons = [], eaux = [], saison = 2;
 const matCerf = new THREE.MeshLambertMaterial({ color: 0x8a5a32 }), matBois = new THREE.MeshLambertMaterial({ color: 0xd9c7a0 });
 function cerf() {
@@ -176,19 +211,11 @@ export function majVie(etat) {
   }
   const parVille = new Map();
   for (const b of etat.batiments) {
-    if (b.reste > 0) {
-      // un ouvrier qui martèle sur le chantier
-      const { x, z } = posCase(b.case), g = new THREE.Group();
-      const corps = new THREE.Mesh(geoVillageois, HABITS[5]); corps.castShadow = true; g.add(corps);
-      g.add(new THREE.Mesh(geoTete, matPeau));
-      const bras = new THREE.Group(); bras.position.set(0, 0.11, 0.035);
-      bras.add(new THREE.Mesh(new THREE.BoxGeometry(0.015, 0.015, 0.09).translate(0, 0, 0.045), matCoque));
-      bras.add(new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.025, 0.025).translate(0, 0, 0.09), matTeteM));
-      g.add(bras);
-      groupeActeurs.add(g);
-      acteurs.push({ g, bras, type: 'ouvrier', x: x + 0.3, z: z + 0.15, y: dessus(b.case), ph: hache(b.id, 8) * 6, prochain: hache(b.id, 9) * 2 });
-      continue;
-    }
+    if (b.reste > 0) { travailleur(b, 0, 'frappe', MARTEAU, 5, true); continue; }
+    // chaque bâtiment achevé a ses gens : aux champs, à la hache, à la pioche, à la garde ou aux corvées
+    const m = METIERS[b.cle] || ['porte', null, Math.floor(hache(b.id, 13) * 5)];
+    const F = etat.cases?.foret || C.foret, bois = voisins(b.case).find(v => F[v] && TERRE(C.terrain[v]));
+    for (let k = 0; k < (m[0] === 'cueille' ? 2 : 1); k++) travailleur(b, k, m[0], m[1], m[2], m[3], bois);
     if (b.ville != null) { if (!parVille.has(b.ville)) parVille.set(b.ville, []); parVille.get(b.ville).push(b); }
     if (b.cle === 'pecheur' || b.cle === 'port') {
       const eau = voisins(b.case).filter(v => !TERRE(C.terrain[v]));
@@ -271,13 +298,33 @@ function majActeurs(dt, t) {
       a.g.position.set(x, solEn(x, z), z);
       a.g.rotation.y = -ang - Math.PI / 2;
       a.g.userData.tete.rotation.z = Math.sin(t * 0.4 + a.ph) > 0.3 ? -1.1 : 0;
-    } else if (a.type === 'ouvrier') {
-      a.g.position.set(a.x, a.y, a.z);
-      a.g.rotation.y = a.ph;
-      const coup = (t * 2.2 + a.ph) % 1;
-      a.bras.rotation.x = coup < 0.7 ? -1.2 * (coup / 0.7) : -1.2 + 1.2 * ((coup - 0.7) / 0.3);
-      a.prochain -= dt;
-      if (a.prochain <= 0) { a.prochain = 1.2 + Math.random() * 1.5; bouffee(a.x - 0.15, a.y + 0.05, a.z - 0.1, 'poussiere'); }
+    } else if (a.type === 'travailleur') {
+      if (a.champ) { a.g.visible = saison !== 0; if (!a.g.visible) continue; } // pas de cueillette l'hiver
+      let x = a.x, z = a.z, dir = Math.PI / 2 - a.ang; // de face vers l'extérieur (la forêt pour le bûcheron)
+      a.g.rotation.x = 0;
+      if (a.geste === 'frappe') {
+        const coup = (t * 2.2 + a.ph) % 1;
+        a.bras.rotation.x = coup < 0.7 ? -1.2 * (coup / 0.7) : -1.2 + 1.2 * ((coup - 0.7) / 0.3);
+        a.prochain -= dt;
+        if (a.poussiere && a.prochain <= 0) { a.prochain = 1.2 + Math.random() * 1.5; bouffee(x + Math.cos(a.ang) * 0.1, solEn(x, z) + 0.05, z + Math.sin(a.ang) * 0.1, 'poussiere'); }
+      } else if (a.geste === 'cueille') {
+        // il avance le long du rang, se penche, se relève
+        const u = Math.sin(t * 0.12 + a.ph), perp = a.ang + Math.PI / 2;
+        x += Math.cos(perp) * u * 0.25; z += Math.sin(perp) * u * 0.25;
+        const pench = Math.max(0, Math.sin(t * 1.3 + a.ph * 3));
+        a.bras.rotation.x = 0.6 * pench;
+        a.g.rotation.x = 0.5 * pench;
+        dir = Math.PI / 2 - perp + (Math.cos(t * 0.12 + a.ph) > 0 ? 0 : Math.PI);
+      } else {
+        // va-et-vient : la garde devant la porte, les corvées entre le bâtiment et un peu plus loin
+        const L = a.geste === 'garde' ? 0.3 : 0.45, perp = a.geste === 'garde' ? a.ang + Math.PI / 2 : a.ang;
+        const u = Math.sin(t * (a.geste === 'garde' ? 0.35 : 0.5) + a.ph);
+        x += Math.cos(perp) * u * L * 0.5; z += Math.sin(perp) * u * L * 0.5;
+        dir = Math.PI / 2 - perp + (Math.cos(t * (a.geste === 'garde' ? 0.35 : 0.5) + a.ph) > 0 ? 0 : Math.PI);
+        a.bras.rotation.x = a.geste === 'garde' ? 0 : Math.sin(t * 6 + a.ph) * 0.3;
+      }
+      a.g.rotation.y = dir;
+      a.g.position.set(x, solEn(x, z) + (a.geste !== 'frappe' ? Math.abs(Math.sin(t * 7 + a.ph * 9)) * 0.01 : 0), z);
     } else if (a.type === 'papillon') {
       // printemps et été, par beau temps
       a.g.visible = (saison === 1 || saison === 2) && climat.oiseaux;
