@@ -34,6 +34,7 @@ pub fn mois(p: &mut Partie, k: usize, rapport: &mut Rapport) {
     }
     let nb_bat = p.batiments.iter().filter(|b| b.proprio == id).count() as f64;
     let r = &mut p.royaumes[k];
+    r.niveau_routes = if an >= 1785 { 3 } else if an >= 1735 { 2 } else { 1 };
     r.or += (15.0 + mes_villes.len() as f64 * 12.0 + nb_bat * 0.8 + if r.commerce && r.statut != "guerre" { 25.0 } else { 0.0 }) * diff;
     // constructions
     let chance = 0.35 * diff * if r.caractere == "batisseur" { 1.4 } else { 1.0 };

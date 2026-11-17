@@ -88,6 +88,7 @@ pub fn executer(p: &mut Partie, c: &Value) -> Result<Value, String> {
                 return Err("Ce bâtiment ne vous appartient pas".into());
             }
             p.demolir(i)?;
+            p.recalculer_routes();
             ok("Démoli (la moitié des matériaux est récupérée)")
         }
         "pause" => {
@@ -196,6 +197,27 @@ pub fn executer(p: &mut Partie, c: &Value) -> Result<Value, String> {
             let case = p.armees[ai].case;
             let nid = p.creer_armee(0, case, part);
             Ok(json!({"ok": true, "msg": "Nouvelle armée formée", "armee": nid}))
+        }
+        "ameliorer_routes" => {
+            let n = p.niveau_routes(0);
+            if n >= 3 {
+                return Err("Vos routes sont déjà des routes royales".into());
+            }
+            let cible = n + 1;
+            if cible == 2 && p.niveau_capitale(0) < 2 {
+                return Err("Il faut une capitale au rang Village".into());
+            }
+            if cible == 3 && !p.a_tech(0, "routes") {
+                return Err("Il faut la technologie « Routes royales et canaux »".into());
+            }
+            let cout = p.cout_routes(cible);
+            if !p.peut_payer(&cout, 1.0) {
+                return Err("Ressources insuffisantes".into());
+            }
+            p.payer(&cout, 1.0);
+            p.royaumes[0].niveau_routes = cible as u32;
+            p.recalculer_routes();
+            ok(if cible == 2 { "🛤️ Vos chemins sont pavés !" } else { "🛤️ Routes royales : larges, empierrées, bordées d'arbres !" })
         }
         "impots" => {
             let n = txt(c, "niveau")?;

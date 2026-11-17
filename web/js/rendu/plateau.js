@@ -21,7 +21,9 @@ export const carte = () => C;
 
 const MAT_SOL = new THREE.MeshLambertMaterial({ vertexColors: true });
 const MAT_VC = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
-export { MAT_VC };
+/** Pour les bâtiments, les routes et les troupes : volumes ronds lissés, faces franches là où la géométrie le dit. */
+const MAT_LISSE = new THREE.MeshLambertMaterial({ vertexColors: true });
+export { MAT_VC, MAT_LISSE };
 
 // ------------------------------------------------------------------ couleurs
 const col = h => new THREE.Color(h);
@@ -61,14 +63,30 @@ function couleurCase(i, s, neige, out) {
 
 // ------------------------------------------------------------------ outils de géométrie
 function coin(x, z, r, k, y) { const a = (60 * k - 30) * Math.PI / 180; return [x + Math.cos(a) * r, y, z + Math.sin(a) * r]; }
-function tri(pos, nor, a, b, c, hint) {
-  const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2], vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
-  let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
-  if (nx * hint[0] + ny * hint[1] + nz * hint[2] < 0) { [b, c] = [c, b]; nx = -nx; ny = -ny; nz = -nz; }
-  const l = Math.hypot(nx, ny, nz) || 1;
-  pos.push(...a, ...b, ...c);
-  for (let k = 0; k < 3; k++) nor.push(nx / l, ny / l, nz / l);
+const SQ3 = Math.sqrt(3), R0 = 0.42, R1 = 1.25;
+const HT = [-0.55, -0.22, -0.2, 0.07, 0.2, 0.5, 0.72];
+const lisse = t => t * t * (3 - 2 * t);
+
+/** Le relief : chaque case a sa hauteur, fondue avec ses voisines (côtes, collines et berges arrondies). */
+function poids(x, z, fn) {
+  const r0 = Math.round(z / 1.5);
+  for (let r = r0 - 1; r <= r0 + 1; r++) {
+    const dec = 0.5 * (r & 1), c0 = Math.round(x / SQ3 - dec);
+    for (let c = c0 - 1; c <= c0 + 1; c++) {
+      const d = Math.hypot(SQ3 * (c + dec) - x, 1.5 * r - z);
+      if (d >= R1) continue;
+      fn(c < 0 || r < 0 || c >= C.l || r >= C.h ? -1 : r * C.l + c, d <= R0 ? 1 : 1 - lisse((d - R0) / (R1 - R0)));
+    }
+  }
 }
+export function hauteurEn(x, z) {
+  if (!C) return 0;
+  let s = 0, w = 0;
+  poids(x, z, (i, k) => { s += k * (i < 0 ? HT[0] : H[i]); w += k; });
+  return w > 0 ? s / w : HT[0];
+}
+/** Hauteur où poser quelque chose (jamais sous l'eau). */
+export const solEn = (x, z) => Math.max(hauteurEn(x, z), 0.0);
 
 // ------------------------------------------------------------------ construction
 export function construire(carteServeur) {
@@ -78,12 +96,13 @@ export function construire(carteServeur) {
   const N = C.l * C.h;
   H = new Array(N);
   for (let i = 0; i < N; i++) {
-    const t = C.terrain[i], j = (hache(i, 7) - 0.5) * 0.05;
-    H[i] = t < 3 ? -0.05 : ({ 3: 0.17, 4: 0.27, 5: 0.52, 6: 0.66 }[t]) + j + (C.foret[i] && t === 4 ? 0.02 : 0);
+    const t = C.terrain[i];
+    H[i] = HT[t] + (t >= 4 ? (hache(i, 7) - 0.5) * 0.05 : 0);
   }
   etatCases.foret = C.foret.slice();
   etatCases.arbres = C.arbres.slice();
   etatCases.proprio = new Array(N).fill(-1);
+  etatCases.couleurs = {};
   etatCases.bati = new Set();
   saisonActuelle = -1;
   construireSol();
@@ -95,70 +114,89 @@ export function construire(carteServeur) {
   majSaison(1, 0);
 }
 
+let solIdx = null, solW = null;
+const PAS = 0.21;
 function construireSol() {
-  const pos = [], nor = [], N = C.l * C.h;
-  plage = new Int32Array(N * 2).fill(-1);
-  const coteBas = [];
-  for (let i = 0; i < N; i++) {
-    if (!TERRE(C.terrain[i])) continue;
-    const { x, z } = posCase(i), h = H[i];
-    const v0 = pos.length / 3;
-    const I = [], O = [], B = [];
-    for (let k = 0; k < 7; k++) { I.push(coin(x, z, 0.84, k, h)); O.push(coin(x, z, 1.0, k, h - 0.06)); B.push(coin(x, z, 1.0, k, -0.7)); }
-    const ctr = [x, h, z];
-    for (let k = 0; k < 6; k++) tri(pos, nor, ctr, I[k], I[k + 1], [0, 1, 0]);
-    for (let k = 0; k < 6; k++) {
-      const a = (60 * k) * Math.PI / 180, hint = [Math.cos(a), 1.2, Math.sin(a)];
-      tri(pos, nor, I[k], O[k], O[k + 1], hint);
-      tri(pos, nor, I[k], O[k + 1], I[k + 1], hint);
-    }
-    const v1 = pos.length / 3;
-    plage[i * 2] = v0; plage[i * 2 + 1] = v1;
-    for (let k = 0; k < 6; k++) {
-      const n = voisin(i, k);
-      if (n >= 0 && TERRE(C.terrain[n]) && H[n] >= h - 0.01) continue;
-      const a = (60 * k) * Math.PI / 180, hint = [Math.cos(a), 0, Math.sin(a)];
-      const s0 = pos.length / 3;
-      tri(pos, nor, O[k], B[k], B[k + 1], hint);
-      tri(pos, nor, O[k], B[k + 1], O[k + 1], hint);
-      coteBas.push([s0, pos.length / 3, n < 0 || !TERRE(C.terrain[n]), i]);
-    }
+  const x0 = -1.1, z0 = -1.3, WX = SQ3 * C.l + 1.2, HZ = 1.5 * C.h + 0.6;
+  const nx = Math.ceil((WX - x0) / PAS) + 1, nz = Math.ceil((HZ - z0) / PAS) + 1, n = nx * nz;
+  const pos = new Float32Array(n * 3);
+  solIdx = new Int32Array(n * 4).fill(-1);
+  solW = new Float32Array(n * 4);
+  for (let iz = 0; iz < nz; iz++) for (let ix = 0; ix < nx; ix++) {
+    const v = iz * nx + ix, x = x0 + ix * PAS, z = z0 + iz * PAS;
+    let s = 0, w = 0;
+    const L = [];
+    poids(x, z, (i, k) => { s += k * (i < 0 ? HT[0] : H[i]); w += k; if (i >= 0 && k > 0.001) L.push([i, k]); });
+    L.sort((a, b) => b[1] - a[1]);
+    for (let q = 0; q < Math.min(4, L.length); q++) { solIdx[v * 4 + q] = L[q][0]; solW[v * 4 + q] = L[q][1] / w; }
+    pos[v * 3] = x; pos[v * 3 + 1] = w > 0 ? s / w : HT[0]; pos[v * 3 + 2] = z;
+  }
+  const idx = [];
+  for (let iz = 0; iz < nz - 1; iz++) for (let ix = 0; ix < nx - 1; ix++) {
+    const a = iz * nx + ix, b = a + 1, c = a + nx, d = c + 1;
+    if (pos[a * 3 + 1] < -0.14 && pos[b * 3 + 1] < -0.14 && pos[c * 3 + 1] < -0.14 && pos[d * 3 + 1] < -0.14) continue; // sous la mer : inutile
+    idx.push(a, c, b, b, c, d);
   }
   const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
-  const colors = new Float32Array(pos.length);
-  // flancs : sable au bord de l'eau, terre ailleurs
-  const c = new THREE.Color();
-  for (const [a, b, eau, i] of coteBas) {
-    c.copy(eau && C.terrain[i] !== 6 ? COTE : TERREC);
-    for (let v = a; v < b; v++) {
-      const y = pos[v * 3 + 1];
-      const k = eau ? (y < 0.05 ? 1 : 0.85) : 0.8;
-      colors[v * 3] = c.r * k; colors[v * 3 + 1] = c.g * k; colors[v * 3 + 2] = c.b * k;
-    }
-  }
-  g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
+  g.setIndex(idx);
+  g.computeVertexNormals();
   solMesh = new THREE.Mesh(g, MAT_SOL);
   solMesh.receiveShadow = true;
   groupe.add(solMesh);
-}
-
-/** Recolore le dessus des cases (saison, neige, bâti). */
-function recolorer(s, neige) {
-  const col = solMesh.geometry.attributes.color, pos = solMesh.geometry.attributes.position, c = new THREE.Color();
+  // le contour des cases, discret, posé sur le relief (comme sur la vidéo)
+  const lv = [];
   for (let i = 0; i < C.l * C.h; i++) {
-    const v0 = plage[i * 2];
-    if (v0 < 0) continue;
-    couleurCase(i, s, neige, c);
-    for (let v = v0; v < plage[i * 2 + 1]; v++) {
-      const x = pos.getX(v), z = pos.getZ(v);
-      // le biseau, un peu plus sombre, dessine le contour des cases (comme sur la vidéo)
-      const n = (0.9 + hache(Math.round(x * 3), Math.round(z * 3), 5) * 0.16) * (v - v0 >= 18 ? 0.84 : 1);
-      col.setXYZ(v, c.r * n, c.g * n, c.b * n);
+    if (!TERRE(C.terrain[i])) continue;
+    const { x, z } = posCase(i);
+    for (let k = 0; k < 6; k++) {
+      const nvo = voisin(i, k);
+      if (nvo >= 0 && TERRE(C.terrain[nvo]) && nvo < i) continue;
+      const a = coin(x, z, 1, k, 0), b = coin(x, z, 1, k + 1, 0);
+      for (let q = 0; q < 4; q++) {
+        const p1 = [a[0] + (b[0] - a[0]) * q / 4, a[2] + (b[2] - a[2]) * q / 4], p2 = [a[0] + (b[0] - a[0]) * (q + 1) / 4, a[2] + (b[2] - a[2]) * (q + 1) / 4];
+        const h1 = hauteurEn(p1[0], p1[1]), h2 = hauteurEn(p2[0], p2[1]);
+        if (h1 < 0.03 || h2 < 0.03) continue;
+        lv.push(p1[0], h1 + 0.012, p1[1], p2[0], h2 + 0.012, p2[1]);
+      }
     }
   }
-  col.needsUpdate = true;
+  const lg = new THREE.BufferGeometry();
+  lg.setAttribute('position', new THREE.Float32BufferAttribute(lv, 3));
+  groupe.add(new THREE.LineSegments(lg, new THREE.LineBasicMaterial({ color: 0x20330f, transparent: true, opacity: 0.2, depthWrite: false })));
+}
+
+/** Recolore le relief (saison, neige, bâti, plages, teinte des territoires). */
+const SABLE = col(0xe6d39a), FOND = col(0xc9b780);
+function recolorer(s, neige) {
+  const N = C.l * C.h, tc = new Float32Array(N * 3), c = new THREE.Color();
+  for (let i = 0; i < N; i++) {
+    if (TERRE(C.terrain[i])) couleurCase(i, s, neige, c); else c.copy(FOND);
+    tc[i * 3] = c.r; tc[i * 3 + 1] = c.g; tc[i * 3 + 2] = c.b;
+  }
+  const cr = {};
+  for (const [k, v] of Object.entries(etatCases.couleurs || {})) cr[k] = new THREE.Color(v);
+  const colA = solMesh.geometry.attributes.color, pos = solMesh.geometry.attributes.position, n = pos.count, pr = etatCases.proprio;
+  for (let v = 0; v < n; v++) {
+    let r = 0, g = 0, b = 0, tr = 0, tg = 0, tb = 0, tw = 0;
+    for (let q = 0; q < 4; q++) {
+      const i = solIdx[v * 4 + q];
+      if (i < 0) break;
+      const w = solW[v * 4 + q];
+      r += w * tc[i * 3]; g += w * tc[i * 3 + 1]; b += w * tc[i * 3 + 2];
+      const o = cr[pr[i]];
+      if (o) { tr += w * o.r; tg += w * o.g; tb += w * o.b; tw += w; }
+    }
+    const h = pos.getY(v), x = pos.getX(v), z = pos.getZ(v);
+    // plage : le sable borde toutes les rives
+    const sb = h < 0.12 ? 1 - lisse(Math.max(0, Math.min(1, (h - 0.02) / 0.1))) : 0;
+    if (sb > 0) { r += (SABLE.r - r) * sb; g += (SABLE.g - g) * sb; b += (SABLE.b - b) * sb; }
+    else if (tw > 0.01) { const k = 0.09 * tw; r += (tr / tw - r) * k; g += (tg / tw - g) * k; b += (tb / tw - b) * k; }
+    const nz = 0.92 + hache(Math.round(x * 2.4), Math.round(z * 2.4), 5) * 0.14;
+    colA.setXYZ(v, r * nz, g * nz, b * nz);
+  }
+  colA.needsUpdate = true;
 }
 
 // ------------------------------------------------------------------ eau
@@ -231,7 +269,7 @@ function construireEau() {
         if (d < m) m = d;
       }
     }
-    dist[v] = Math.max(0, m);
+    dist[v] = Math.max(0, -hauteurEn(x, z) * 3.5) + Math.max(0, m - 1.2);
     const r = Math.round(z / 1.5);
     const c = Math.round(x / Math.sqrt(3) - 0.5 * (r & 1));
     lac[v] = r >= 0 && r < C.h && c >= 0 && c < C.l && C.terrain[r * C.l + c] === 2 ? 1 : 0;
@@ -266,18 +304,27 @@ void main(){
 
 function construireRivieres() {
   const mat = materiauEau(RIV_VS, RIV_FS);
+  mat.side = THREE.DoubleSide;
+  mat.polygonOffset = true; mat.polygonOffsetFactor = -2; mat.polygonOffsetUnits = -2;
   for (const ch of C.rivieres) {
     if (ch.length < 2) continue;
-    const pts = ch.map(i => { const p = posCase(i); return new THREE.Vector3(p.x, TERRE(C.terrain[i]) ? H[i] + 0.012 : 0.01, p.z); });
+    const pts = ch.map(i => { const p = posCase(i); return new THREE.Vector3(p.x, 0, p.z); });
+    // la rivière se jette dans l'eau au bord de la dernière case, pas en son centre
+    const der = pts[pts.length - 1], av = pts[pts.length - 2];
+    if (!TERRE(C.terrain[ch[ch.length - 1]])) der.lerp(av, 0.35);
     const courbe = new THREE.CatmullRomCurve3(pts, false, 'centripetal');
-    const n = ch.length * 8, pos = [], uv = [], idx = [];
+    const n = ch.length * 12, pos = [], uv = [], idx = [];
     let long = 0, prec = null;
     for (let k = 0; k <= n; k++) {
       const t = k / n, p = courbe.getPoint(t), tg = courbe.getTangent(t);
       if (prec) long += p.distanceTo(prec);
       prec = p;
-      const nx = -tg.z, nz = tg.x, l = Math.hypot(nx, nz) || 1, w = 0.13 + 0.05 * t;
-      pos.push(p.x + nx / l * w, p.y, p.z + nz / l * w, p.x - nx / l * w, p.y, p.z - nz / l * w);
+      const nx = -tg.z, nz = tg.x, l = Math.hypot(nx, nz) || 1, w = 0.1 + 0.08 * t;
+      // posée sur le relief, point par point : elle suit les pentes sans jamais passer dessous
+      for (const sgn of [1, -1]) {
+        const x = p.x + sgn * nx / l * w, z = p.z + sgn * nz / l * w;
+        pos.push(x, Math.max(hauteurEn(x, z), hauteurEn(p.x, p.z), 0) + 0.022, z);
+      }
       uv.push(long, 0, long, 1);
       if (k < n) { const a = k * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
     }
@@ -285,9 +332,7 @@ function construireRivieres() {
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
     g.setIndex(idx);
-    const m = new THREE.Mesh(g, mat);
-    m.material.side = THREE.DoubleSide;
-    groupe.add(m);
+    groupe.add(new THREE.Mesh(g, mat));
   }
 }
 
@@ -334,12 +379,13 @@ function construireRelief() {
       const a = hache(i, k, 1) * 6.28, r = k ? 0.38 + hache(i, k, 2) * 0.2 : hache(i, k, 4) * 0.15;
       const w = k ? 0.75 + hache(i, k, 5) * 0.3 : 1.2 + hache(i, k, 6) * 0.3, h = k ? 0.7 + hache(i, k, 7) * 0.4 : 1.15 + hache(i, k, 8) * 0.55;
       const px = x + Math.cos(a) * r, pz = z + Math.sin(a) * r;
-      const g = piece(pic, 0x8b8e88, mat4(px, H[i] - 0.03, pz, w, h, w, a));
+      const yb = hauteurEn(px, pz) - 0.06;
+      const g = piece(pic, 0x8b8e88, mat4(px, yb, pz, w, h, w, a));
       // dégradé : roche sombre en bas, plus claire en haut
       const p = g.attributes.position, c = g.attributes.color;
-      for (let v = 0; v < p.count; v++) { const t = (p.getY(v) - H[i]) / h; const k2 = 0.82 + t * 0.3; c.setXYZ(v, 0.52 * k2, 0.53 * k2, 0.51 * k2); }
+      for (let v = 0; v < p.count; v++) { const t = (p.getY(v) - yb) / h; const k2 = 0.82 + t * 0.3; c.setXYZ(v, 0.52 * k2, 0.53 * k2, 0.51 * k2); }
       geos.push(g);
-      geos.push(piece(pic, 0xf3f6fa, mat4(px, H[i] - 0.03 + h * 0.64, pz, w * 0.37, h * 0.37, w * 0.37, a)));
+      geos.push(piece(pic, 0xf3f6fa, mat4(px, yb + h * 0.64, pz, w * 0.37, h * 0.37, w * 0.37, a)));
     }
   }
   if (geos.length) {
@@ -356,7 +402,8 @@ function construireRelief() {
     const couleur = gis === 'fer' ? 0xb0603a : gis === 'or' ? 0xf0c43a : gis === 'charbon' ? 0x2e2e33 : gis === 'pierre' ? 0xd0cbbf : 0x9c9c94;
     for (let k = 0; k < nb; k++) {
       const a = hache(i, k, 11) * 6.28, r = t === 6 ? 0.66 : 0.2 + hache(i, k, 12) * 0.42, s = 0.7 + hache(i, k, 13) * 0.8;
-      rg.push(piece(caillou, couleur, mat4(x + Math.cos(a) * r, H[i] + 0.04, z + Math.sin(a) * r, s, s * 0.8, s, a)));
+      const rx = x + Math.cos(a) * r, rz = z + Math.sin(a) * r;
+      rg.push(piece(caillou, couleur, mat4(rx, solEn(rx, rz) + 0.04, rz, s, s * 0.8, s, a)));
     }
   }
   if (rg.length) {
@@ -368,7 +415,7 @@ function construireRelief() {
 
 // ------------------------------------------------------------------ arbres
 function houppier() {
-  const s = new THREE.IcosahedronGeometry(0.2, 1);
+  const s = new THREE.IcosahedronGeometry(0.2, 2);
   const parts = [[0, 0.42, 0, 1.15], [0.12, 0.36, 0.06, 0.8], [-0.1, 0.38, -0.07, 0.85]].map(([x, y, z, k]) => {
     const g = s.clone(); g.scale(k, k * 0.95, k); g.translate(x, y, z); return g.toNonIndexed();
   });
@@ -400,8 +447,8 @@ function construireArbres() {
   capArbres = 0;
   for (let i = 0; i < N; i++) if (TERRE(C.terrain[i]) && C.terrain[i] !== 6) capArbres += 12;
   capArbres = Math.max(capArbres, 64);
-  arbresF = new THREE.InstancedMesh(houppier(), balancer(new THREE.MeshLambertMaterial({ flatShading: true })), capArbres);
-  arbresC = new THREE.InstancedMesh(new THREE.ConeGeometry(0.19, 0.62, 7).translate(0, 0.5, 0), balancer(new THREE.MeshLambertMaterial({ flatShading: true })), capArbres);
+  arbresF = new THREE.InstancedMesh(houppier(), balancer(new THREE.MeshLambertMaterial({})), capArbres);
+  arbresC = new THREE.InstancedMesh(new THREE.ConeGeometry(0.19, 0.62, 10).translate(0, 0.5, 0), balancer(new THREE.MeshLambertMaterial({})), capArbres);
   troncs = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.03, 0.05, 0.26, 5).translate(0, 0.13, 0), new THREE.MeshLambertMaterial({ color: 0x7a5232 }), capArbres);
   const c = new THREE.Color(0x5aab3f);
   for (const m of [arbresF, arbresC]) { for (let k = 0; k < capArbres; k++) m.setColorAt(k, c); m.castShadow = true; m.receiveShadow = true; groupe.add(m); }
@@ -419,10 +466,12 @@ function placerArbres() {
     for (let k = 0; k < n; k++) {
       const a = hache(i, k, 21) * 6.283, r = Math.sqrt(hache(i, k, 22)) * 0.66, s = 0.62 + hache(i, k, 23) * 0.5;
       const conif = C.terrain[i] === 5 || hache(i, k, 24) < 0.12;
-      _m.compose(_p.set(x + Math.cos(a) * r, H[i] - 0.01, z + Math.sin(a) * r), _q.setFromAxisAngle(Y, hache(i, k, 25) * 6.28), _s.set(s, s * (conif ? 1.1 : 1), s));
+      const px = x + Math.cos(a) * r, pz = z + Math.sin(a) * r, py = hauteurEn(px, pz) - 0.01;
+      if (py < 0.05) continue; // pas d'arbre dans l'eau ni sur la plage
+      _m.compose(_p.set(px, py, pz), _q.setFromAxisAngle(Y, hache(i, k, 25) * 6.28), _s.set(s, s * (conif ? 1.1 : 1), s));
       troncs.setMatrixAt(nt++, _m);
       if (conif) arbresC.setMatrixAt(nc++, _m); else arbresF.setMatrixAt(nf++, _m);
-      placeArbre.push([conif, conif ? nc - 1 : nf - 1, i, k, s]);
+      placeArbre.push([conif, conif ? nc - 1 : nf - 1, i, k, s, px, py, pz]);
     }
   }
   arbresF.count = nf; arbresC.count = nc; troncs.count = nt;
@@ -430,7 +479,7 @@ function placerArbres() {
 }
 function colorerArbres(s, neige) {
   const c = new THREE.Color(), blanc = NEIGE;
-  for (const [conif, idx, i, k, sc] of placeArbre) {
+  for (const [conif, idx, i, k, sc, px, py, pz] of placeArbre) {
     if (conif) {
       c.setHex(CONIF[Math.floor(hache(i, k, 31) * CONIF.length)]);
       if (neige > 0.2) c.lerp(blanc, 0.45 * neige);
@@ -443,8 +492,8 @@ function colorerArbres(s, neige) {
       else { c.setHex(0x8b7d6b); if (neige > 0.25) c.lerp(blanc, 0.6 * neige); }
       arbresF.setColorAt(idx, c);
       // l'hiver, les feuillus sont nus : houppier réduit
-      const { x, z } = posCase(i), a = hache(i, k, 21) * 6.283, r = Math.sqrt(hache(i, k, 22)) * 0.66, e = s === 0 ? 0.62 : 1;
-      _m.compose(_p.set(x + Math.cos(a) * r, H[i] - 0.01, z + Math.sin(a) * r), _q.setFromAxisAngle(Y, hache(i, k, 25) * 6.28), _s.set(sc * e, sc * e, sc * e));
+      const e = s === 0 ? 0.62 : 1;
+      _m.compose(_p.set(px, py, pz), _q.setFromAxisAngle(Y, hache(i, k, 25) * 6.28), _s.set(sc * e, sc * e, sc * e));
       arbresF.setMatrixAt(idx, _m);
     }
   }
@@ -471,24 +520,22 @@ export function majEtat(etat) {
   const changeBati = bati.size !== etatCases.bati.size || [...bati].some(i => !etatCases.bati.has(i));
   etatCases.bati = bati;
   etatCases.proprio = cs.proprio.slice();
+  etatCases.couleurs = Object.fromEntries(etat.royaumes.map(r => [r.id, r.couleur]));
   if (arbres) { placerArbres(); }
-  if (arbres || changeBati) { saisonActuelle = -1; majSaison(etat.saison, etat.meteo.neige_sol); }
+  saisonActuelle = -1;
+  majSaison(etat.saison, etat.meteo.neige_sol);
   dessinerTerritoires(etat);
 }
 
 function construireSuperpositions() {
   const N = C.l * C.h;
   const hex = new THREE.CircleGeometry(0.97, 6).rotateX(-Math.PI / 2).rotateY(Math.PI / 6);
-  teinte = new THREE.InstancedMesh(hex, new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.16, depthWrite: false }), N);
-  teinte.count = 0;
-  for (let i = 0; i < N; i++) teinte.setColorAt(i, new THREE.Color(0xffffff));
-  groupe.add(teinte);
   const g0 = new THREE.BufferGeometry();
   g0.setAttribute('position', new THREE.Float32BufferAttribute([], 3));
   g0.setAttribute('color', new THREE.Float32BufferAttribute([], 3));
-  liseres = new THREE.Mesh(g0, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide, depthWrite: false, transparent: true }));
+  liseres = new THREE.Mesh(g0, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide, depthWrite: false, transparent: true, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 }));
   groupe.add(liseres);
-  surb = new THREE.InstancedMesh(hex, new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.45, depthWrite: false }), N);
+  surb = new THREE.InstancedMesh(hex, new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.45, depthWrite: false, depthTest: false }), N);
   surb.count = 0;
   for (let i = 0; i < N; i++) surb.setColorAt(i, new THREE.Color(0xe6ff4a));
   groupe.add(surb);
@@ -499,10 +546,10 @@ function construireSuperpositions() {
   }
   const gr = new THREE.BufferGeometry();
   gr.setAttribute('position', new THREE.Float32BufferAttribute(ring, 3));
-  anneau = new THREE.Mesh(gr, new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide, transparent: true, depthWrite: false }));
+  anneau = new THREE.Mesh(gr, new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide, transparent: true, depthWrite: false, depthTest: false }));
   anneau.visible = false;
   groupe.add(anneau);
-  points = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.09, 0.09, 0.04, 10), new THREE.MeshBasicMaterial({ color: 0xffe066 }), 500);
+  points = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.09, 0.09, 0.04, 10), new THREE.MeshBasicMaterial({ color: 0xffe066, depthTest: false, transparent: true }), 500);
   points.count = 0;
   groupe.add(points);
 }
@@ -514,29 +561,26 @@ function dessinerTerritoires(etat) {
   for (const r of etat.royaumes) couleurs[r.id] = new THREE.Color(r.couleur);
   couleurs[99] = new THREE.Color('#4b4b4b');
   const pr = etat.cases.proprio, N = pr.length;
-  let n = 0;
-  const pos = [], cols = [], c = new THREE.Color(), sombre = new THREE.Color(0x1a1a1a);
+  const pos = [], cols = [], c = new THREE.Color(), sombre = new THREE.Color(0x1a1a1a), gris = new THREE.Color(0x888888);
   for (let i = 0; i < N; i++) {
     const p = pr[i];
     if (p < 0) continue;
-    const { x, z } = posCase(i), y = dessus(i);
-    _m.makeTranslation(x, y + 0.012, z);
-    teinte.setMatrixAt(n, _m);
-    teinte.setColorAt(n, couleurs[p] || c.set(0x888888));
-    n++;
+    const { x, z } = posCase(i);
     for (let k = 0; k < 6; k++) {
       const v = voisin(i, k);
       if (v >= 0 && pr[v] === p) continue;
-      for (const [r1, r2, dy, cc] of [[1.0, 0.8, 0.026, sombre], [0.98, 0.86, 0.034, c.copy(couleurs[p] || c).offsetHSL(0, 0.12, 0.14)]]) {
-        const o1 = coin(x, z, r1, k, y + dy), o2 = coin(x, z, r1, k + 1, y + dy), i1 = coin(x, z, r2, k, y + dy), i2 = coin(x, z, r2, k + 1, y + dy);
-        pos.push(...o1, ...o2, ...i2, ...o1, ...i2, ...i1);
-        for (let q = 0; q < 6; q++) cols.push(cc.r, cc.g, cc.b);
+      // liseré double (sombre dessous, couleur du royaume dessus), posé sur le relief
+      for (const [r1, r2, dy, cc] of [[1.0, 0.8, 0.02, sombre], [0.98, 0.86, 0.03, c.copy(couleurs[p] || gris).offsetHSL(0, 0.12, 0.14)]]) {
+        const A = coin(x, z, r1, k, 0), B = coin(x, z, r1, k + 1, 0), A2 = coin(x, z, r2, k, 0), B2 = coin(x, z, r2, k + 1, 0);
+        for (let q = 0; q < 3; q++) {
+          const P = (U1, U2, t) => { const px = U1[0] + (U2[0] - U1[0]) * t, pz = U1[2] + (U2[2] - U1[2]) * t; return [px, solEn(px, pz) + dy, pz]; };
+          const o1 = P(A, B, q / 3), o2 = P(A, B, (q + 1) / 3), i1 = P(A2, B2, q / 3), i2 = P(A2, B2, (q + 1) / 3);
+          pos.push(...o1, ...o2, ...i2, ...o1, ...i2, ...i1);
+          for (let w = 0; w < 6; w++) cols.push(cc.r, cc.g, cc.b);
+        }
       }
     }
   }
-  teinte.count = n;
-  teinte.instanceMatrix.needsUpdate = true;
-  if (teinte.instanceColor) teinte.instanceColor.needsUpdate = true;
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));

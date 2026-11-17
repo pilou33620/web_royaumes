@@ -5,6 +5,7 @@ import * as plateau from './rendu/plateau.js';
 import { initMonde, synchroniser, jouerMois, selectionnerArmee } from './rendu/monde.js';
 import { majVie } from './rendu/vie.js';
 import { appliquerMeteo } from './rendu/meteo.js';
+import { majRoutes, effacerRoutes } from './rendu/routes.js';
 import { toutEffacer, effet } from './rendu/etiquettes.js';
 import * as ui from './ui.js';
 
@@ -33,6 +34,7 @@ async function apercu() {
   if (n !== demande || !c || c.ok === false) return;
   J.carte = c;
   plateau.construire(c);
+  effacerRoutes();
   toutEffacer();
   const ex = { cases: { proprio: new Array(c.l * c.h).fill(-1), arbres: c.arbres, foret: c.foret, bois: [] }, batiments: [], royaumes: [], saison: 2, meteo: { neige_sol: 0 } };
   plateau.majEtat(ex);
@@ -56,6 +58,7 @@ async function chargerCarte() {
   J.carte = c;
   J.versionCarte = c.version;
   plateau.construire(c);
+  effacerRoutes();
   cadrer(c);
 }
 function appliquer(etat) {
@@ -63,6 +66,7 @@ function appliquer(etat) {
   plateau.majEtat(etat);
   plateau.majSaison(etat.saison, etat.meteo.neige_sol);
   synchroniser(etat);
+  majRoutes(etat.routes);
   majVie(etat);
   appliquerMeteo(etat.meteo, etat.saison);
   ui.majHUD();
@@ -232,6 +236,7 @@ async function menu(v) {
   if (v === 'aide') ui.modale('❓ Comment jouer', `<p><b>Tour par tour</b> — un tour = un mois. Ordres pendant le mois, puis « Fin du mois » : chantiers, récoltes, marches et batailles se jouent.</p>
     <p><b>Saisons</b> — le blé pousse au printemps et se récolte l'été et l'automne ; rien l'hiver. Greniers et pêche aident à passer l'hiver ; le froid consomme du bois.</p>
     <p><b>Météo</b> — neige : armées ralenties de moitié ; pluie : boue et poudre mouillée ; canicule et sécheresse : mauvaises récoltes et incendies ; tempête : pas de pêche.</p>
+    <p><b>Routes</b> — elles se tracent toutes seules entre vos bâtiments et vos villes. Dans 📊 Royaume, pavez-les puis faites-en des routes royales : production et marches plus rapides.</p>
     <p><b>Chaînes</b> — bois → planches ; blé → farine → pain ; minerai + bois (puis charbon) → fer → outils / fusils ; laine → drap.</p>
     <p><b>Époques</b> — 1700 Ancien Régime, 1750 Lumières, 1789 Révolution et Empire, 1816 Révolution industrielle : les technologies changent bâtiments et armées.</p>
     <p><b>Guerre</b> — recrutez à la caserne, au haras, à l'arsenal ; touchez une armée puis « Donner une destination ». Tours, bastions et citadelles défendent vos villes.</p>`, [{ l: 'Compris', v: true }]);

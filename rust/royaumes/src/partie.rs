@@ -82,6 +82,8 @@ pub struct Royaume {
     pub demande: Vec<String>,
     pub noms_villes: Vec<String>,
     pub attitude: f64,
+    /// 1 chemins de terre, 2 routes pavées, 3 routes royales (0 : ancienne sauvegarde, vaut 1)
+    pub niveau_routes: u32,
 }
 
 impl Royaume {
@@ -246,6 +248,9 @@ pub struct Partie {
     pub sans_victoire: bool,
     /// numéro de version de la carte (le terrain a changé : l'interface la recharge)
     pub version_carte: u32,
+    /// Les routes, tracées toutes seules : [case, case voisine, royaume qui l'entretient].
+    #[serde(default)]
+    pub routes: Vec<[usize; 3]>,
 }
 
 impl Partie {
@@ -392,6 +397,7 @@ impl Partie {
             fin: None,
             sans_victoire: false,
             version_carte: 1,
+            routes: Vec::new(),
         };
         p.meteo = Meteo::tirer(&Meteo { temperature: 9.0, ..Meteo::default() }, TOUR_DEPART, &mut p.hasard);
         for (k, &s) in departs.iter().enumerate() {
@@ -433,6 +439,7 @@ impl Partie {
             u.insert("mousquetaire".to_string(), if k == 0 { 2 } else { 3 });
             p.creer_armee(k as i32, case, u);
         }
+        p.recalculer_routes();
         p.noter(format!("{} : vous fondez {}.", meteo::date_texte(TOUR_DEPART), p.villes[0].nom));
         p
     }
@@ -824,7 +831,7 @@ impl Partie {
 
     pub fn cout_case(&self, case: usize) -> f64 {
         let k = &self.carte.cases[case];
-        if !k.terre() {
+        let base = if !k.terre() {
             1.5
         } else if k.t == Terrain::Colline {
             2.0
@@ -832,7 +839,133 @@ impl Partie {
             1.5
         } else {
             1.0
+        };
+        // une route fait gagner du temps, d'autant plus qu'elle est bonne
+        base * [1.0, 0.8, 0.65, 0.5][(k.route as usize).min(3)]
+    }
+
+    // ------------------------------------------------------------------ routes
+    pub fn niveau_routes(&self, id: i32) -> u8 {
+        if id < 0 || id == BRIGANDS {
+            return 1;
         }
+        self.royaumes.get(id as usize).map(|r| r.niveau_routes.clamp(1, 3) as u8).unwrap_or(1)
+    }
+
+    pub fn segments_routes(&self, id: i32) -> usize {
+        self.routes.iter().filter(|r| r[2] as i32 == id).count()
+    }
+
+    /// Ce que coûte au joueur le passage de ses routes au niveau `cible`.
+    pub fn cout_routes(&self, cible: u8) -> Panier {
+        let n = self.segments_routes(0).max(4) as f64;
+        if cible <= 2 {
+            Panier::from([("pierre".to_string(), n * 2.0), ("or".to_string(), 100.0)])
+        } else {
+            Panier::from([("pierre".to_string(), n * 3.0), ("outils".to_string(), (n * 0.3).ceil()), ("or".to_string(), 300.0)])
+        }
+    }
+
+    fn cout_trace(&self, c: usize) -> f64 {
+        let k = &self.carte.cases[c];
+        let mut v = if k.t == Terrain::Colline { 2.0 } else if k.foret { 1.6 } else { 1.0 };
+        if k.bat.is_some() {
+            v += 3.0; // on contourne les bâtiments
+        }
+        if k.riviere {
+            v += 0.6; // un pont coûte
+        }
+        v
+    }
+
+    /// Plus courts chemins depuis `depart` sur les cases que `passe` accepte : (distances, précédents).
+    fn plus_courts(&self, depart: usize, passe: &dyn Fn(usize) -> bool, max: f64) -> (Vec<f64>, Vec<usize>) {
+        let n = self.carte.cases.len();
+        let mut dist = vec![f64::INFINITY; n];
+        let mut parent = vec![usize::MAX; n];
+        let mut tas = BinaryHeap::new();
+        dist[depart] = 0.0;
+        tas.push(Reverse((0u64, depart)));
+        while let Some(Reverse((d, c))) = tas.pop() {
+            let dc = d as f64 / 1000.0;
+            if dc > dist[c] + 1e-6 || dc > max {
+                continue;
+            }
+            for v in self.carte.voisins(c) {
+                if !passe(v) {
+                    continue;
+                }
+                let nd = dist[c] + self.cout_trace(v);
+                if nd < dist[v] - 1e-9 {
+                    dist[v] = nd;
+                    parent[v] = c;
+                    tas.push(Reverse(((nd * 1000.0) as u64, v)));
+                }
+            }
+        }
+        (dist, parent)
+    }
+
+    /// Retrace toutes les routes : chaque bâtiment achevé est relié à l'hôtel de ville de sa ville
+    /// (dans le territoire), et les villes d'un même royaume sont reliées à leur capitale.
+    pub fn recalculer_routes(&mut self) {
+        let mut aretes: BTreeMap<(usize, usize), usize> = BTreeMap::new();
+        let suivre = |aretes: &mut BTreeMap<(usize, usize), usize>, parent: &[usize], de: usize, vers: usize, o: usize| {
+            let mut c = de;
+            while c != vers {
+                let p = parent[c];
+                if p == usize::MAX {
+                    break;
+                }
+                aretes.entry((c.min(p), c.max(p))).or_insert(o);
+                c = p;
+            }
+        };
+        for v in &self.villes {
+            let o = v.proprio;
+            if o < 0 || o == BRIGANDS {
+                continue;
+            }
+            let passe = |c: usize| {
+                let k = &self.carte.cases[c];
+                k.terre() && k.t != Terrain::Montagne && k.proprio == o
+            };
+            let (dist, parent) = self.plus_courts(v.case, &passe, 60.0);
+            for b in &self.batiments {
+                if b.proprio == o && b.fini() && b.case != v.case && b.ville == Some(v.id) && dist[b.case].is_finite() {
+                    suivre(&mut aretes, &parent, b.case, v.case, o as usize);
+                }
+            }
+        }
+        for r in &self.royaumes {
+            if !r.vivant {
+                continue;
+            }
+            let o = r.id as i32;
+            let Some(ci) = self.capitale(o) else { continue };
+            let cap = self.villes[ci].case;
+            let passe = |c: usize| {
+                let k = &self.carte.cases[c];
+                k.terre() && k.t != Terrain::Montagne
+            };
+            let (dist, parent) = self.plus_courts(cap, &passe, 40.0);
+            for v in &self.villes {
+                if v.proprio == o && v.case != cap && dist[v.case].is_finite() {
+                    suivre(&mut aretes, &parent, v.case, cap, r.id);
+                }
+            }
+        }
+        for k in self.carte.cases.iter_mut() {
+            k.route = 0;
+        }
+        let mut routes = Vec::with_capacity(aretes.len());
+        for ((a, b), o) in aretes {
+            let niv = self.niveau_routes(o as i32);
+            self.carte.cases[a].route = self.carte.cases[a].route.max(niv);
+            self.carte.cases[b].route = self.carte.cases[b].route.max(niv);
+            routes.push([a, b, o]);
+        }
+        self.routes = routes;
     }
 
     /// Plus court chemin (A*) de `de` à `vers` pour une armée de `id` ; sans la case de départ.

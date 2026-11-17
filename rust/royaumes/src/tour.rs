@@ -104,6 +104,7 @@ impl Partie {
             self.evt(&mut rapport, format!("📜 Objectif accompli : {} (+{} 🪙)", q.texte, prime), "or", None);
             self.royaumes[0].quete += 1;
         }
+        self.recalculer_routes();
         self.victoire(&mut rapport);
         if self.fin.as_ref().is_some_and(|f| !f.victoire) {
             self.propositions.clear();
@@ -487,6 +488,7 @@ impl Partie {
         let j = &self.royaumes[0];
         let ecole = if j.a("vapeur") { 1.0 } else { 1.0 };
         let humeur = 0.75 + j.bonheur / 200.0;
+        let routes_niv = self.niveau_routes(0) as f64;
         let (assol, engrais, vapeur, carto) = (j.a("assolement"), j.a("engrais"), j.a("vapeur"), j.a("cartographie"));
         let cap: BTreeMap<String, f64> = rg.ressources.iter().map(|r| (r.cle.clone(), self.capacite(&s, &r.cle))).collect();
         for i in 0..self.batiments.len() {
@@ -557,6 +559,8 @@ impl Partie {
             if d.cat == "artisanat" && vapeur {
                 f *= 1.2;
             }
+            // de bonnes routes : les charrois vont plus vite
+            f *= 1.0 + 0.05 * (routes_niv - 1.0);
             if b.cle == "mine_or" && saison == 0 {
                 f *= 0.8;
             }

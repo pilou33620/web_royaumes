@@ -126,3 +126,28 @@ fn sauvegarde_relue() {
     assert_eq!(a.date, b.date);
     assert_eq!(p.joueur().pop, q.joueur().pop, "même partie, même suite");
 }
+
+#[test]
+fn routes_tracees_et_ameliorees() {
+    let mut p = Partie::nouvelle(Options { graine: 77, ..Options::default() });
+    // dès le départ, les chaumières sont reliées à l'hôtel de ville
+    assert!(p.segments_routes(0) >= 1, "routes de départ");
+    assert!(p.routes.iter().all(|r| p.carte.dist(r[0], r[1]) == 1), "une route relie deux cases voisines");
+    assert!(construire(&mut p, "bucheron"));
+    p.fin_du_mois();
+    p.fin_du_mois();
+    let b = p.batiments.iter().find(|b| b.proprio == 0 && b.cle == "bucheron").unwrap().case;
+    assert!(p.carte.cases[b].route == 1, "le bûcheron achevé est relié");
+    // amélioration : refusée au rang Hameau, acceptée ensuite
+    assert!(executer(&mut p, &json!({"action": "ameliorer_routes"})).is_err());
+    let ci = p.capitale(0).unwrap();
+    p.villes[ci].niveau = 2;
+    p.royaumes[0].stock.insert("pierre".into(), 500.0);
+    p.royaumes[0].stock.insert("or".into(), 500.0);
+    assert!(executer(&mut p, &json!({"action": "ameliorer_routes"})).is_ok());
+    assert_eq!(p.carte.cases[b].route, 2);
+    let avant = p.cout_case(b);
+    p.royaumes[0].niveau_routes = 1;
+    p.recalculer_routes();
+    assert!(avant < p.cout_case(b), "une meilleure route est plus rapide");
+}

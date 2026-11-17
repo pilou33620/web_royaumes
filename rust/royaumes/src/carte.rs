@@ -134,6 +134,9 @@ pub struct Case {
     pub bat: Option<u32>,
     /// Composante terrestre (pour savoir si deux lieux sont reliés à pied).
     pub comp: i32,
+    /// Route qui passe sur la case : 0 aucune, 1 chemin de terre, 2 route pavée, 3 route royale.
+    #[serde(default)]
+    pub route: u8,
 }
 
 impl Case {
@@ -283,6 +286,7 @@ impl Carte {
                     proprio: -1,
                     bat: None,
                     comp: -1,
+                    route: 0,
                 });
             }
         }

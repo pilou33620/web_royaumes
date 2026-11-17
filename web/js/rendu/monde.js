@@ -2,7 +2,7 @@
 // Joue aussi le mois sous les yeux du joueur : marches des armées et batailles.
 import { THREE, scene, posCase, chaqueImage, lerp, hache } from './scene.js';
 import { maillageBatiment, maillageChantier, geometrieArmee } from './modeles.js';
-import { dessus, MAT_VC } from './plateau.js';
+import { dessus, solEn, MAT_LISSE } from './plateau.js';
 import { etiquette, balayer, banniere, effet, deplacer } from './etiquettes.js';
 import { bouffee } from './vie.js';
 
@@ -132,7 +132,7 @@ function majArmee(a, epoque, fantome) {
   const { x, z } = posCase(a.case);
   if (!v || v.cle !== cle) {
     if (v) groupe.remove(v.mesh);
-    const mesh = new THREE.Mesh(geometrieArmee(couleurs[a.proprio], epoque, c), MAT_VC);
+    const mesh = new THREE.Mesh(geometrieArmee(couleurs[a.proprio], epoque, c), MAT_LISSE);
     mesh.castShadow = true;
     const old = v;
     v = { mesh, x: old ? old.x : x, z: old ? old.z : z, cle, anim: old?.anim || null, proprio: a.proprio };
@@ -200,9 +200,8 @@ chaqueImage((dt, t) => {
       v.mesh.rotation.y = -Math.atan2(q.z - p.z, q.x - p.x) + Math.PI / 2;
       v.pas = (v.pas || 0) + dt * 14;
     }
-    const ci = caseSous(v.x, v.z);
     const bob = v.anim ? Math.abs(Math.sin(v.pas || 0)) * 0.04 : 0;
-    v.mesh.position.set(v.x, (ci >= 0 ? dessus(ci) : 0.05) + bob, v.z);
+    v.mesh.position.set(v.x, solEn(v.x, v.z) + 0.02 + bob, v.z);
     deplacer('a' + id, v.x, 0.95, v.z);
   }
   for (const a of parts.ailes) a.obj.rotation.z += dt * (1.2 + vent.v * 3);
@@ -214,4 +213,3 @@ chaqueImage((dt, t) => {
   }
 });
 export const vent = { v: 0.3, dir: 0 };
-import { caseA as caseSous } from './scene.js';

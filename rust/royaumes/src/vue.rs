@@ -69,6 +69,15 @@ pub fn etat(p: &Partie) -> Value {
     for b in ["caserne", "haras", "arsenal"] {
         dispo.insert(b.into(), json!(p.unites_dispo(0, b)));
     }
+    let nr = p.niveau_routes(0);
+    let nom_routes = ["", "Chemins de terre", "Routes pavées", "Routes royales"][nr as usize];
+    let routes_joueur = json!({
+        "niveau": nr,
+        "nom": nom_routes,
+        "segments": p.segments_routes(0),
+        "cout": if nr < 3 { json!(p.cout_routes(nr + 1)) } else { Value::Null },
+        "verrou": if nr == 1 && p.niveau_capitale(0) < 2 { json!("Capitale au rang Village") } else if nr == 2 && !j.a("routes") { json!("Technologie « Routes royales et canaux »") } else { Value::Null },
+    });
     json!({
         "tour": p.tour,
         "date": meteo::date_texte(p.tour),
@@ -103,6 +112,7 @@ pub fn etat(p: &Partie) -> Value {
             "port": s.port,
             "niveau_capitale": p.niveau_capitale(0),
             "quete": quete,
+            "routes": routes_joueur,
             "unites_dispo": dispo,
             "remise_recrues": if j.a("levee_masse") { 0.75 } else { 1.0 },
         },
@@ -138,6 +148,7 @@ pub fn etat(p: &Partie) -> Value {
             "foret": p.carte.cases.iter().map(|k| k.foret as u8).collect::<Vec<_>>(),
             "bois": p.carte.cases.iter().map(|k| k.bois.round() as i32).collect::<Vec<_>>(),
         },
+        "routes": p.routes.iter().map(|r| json!([r[0], r[1], p.niveau_routes(r[2] as i32)])).collect::<Vec<_>>(),
         "propositions": p.propositions,
         "journal": p.journal.iter().take(40).collect::<Vec<_>>(),
         "rapport": p.rapport,

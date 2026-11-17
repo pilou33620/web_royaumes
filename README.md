@@ -17,6 +17,13 @@ qui s'ouvre dans le navigateur, comme web_conquete.
   avec écume et reflets, rivières qui coulent, arbres en bouquets qui ondulent au vent, bannières des villes,
   liserés des territoires, fumées des cheminées et des forges, ailes des moulins, drapeaux, barques et voiliers,
   passants et charrettes, moutons, oiseaux, nuages et leurs ombres.
+- **Relief lissé** : côtes, plages, collines et berges arrondies (le contour des cases reste visible, discret) ; les
+  rivières suivent le relief et passent sous des ponts.
+- **Routes automatiques** : chaque bâtiment achevé est relié à l'hôtel de ville, les villes à leur capitale. Elles
+  s'améliorent dans 📊 Royaume : chemins de terre → routes pavées → routes royales bordées d'arbres (production et
+  marches plus rapides), et changent d'aspect.
+- **Bâtiments détaillés qui changent avec l'époque** : colombages et chaume, puis crépi et volets, puis pierre de
+  taille et toits à la Mansart, puis brique, ardoise et réverbères ; l'hôtel de ville devient mairie à campanile.
 - **Saisons** : fleurs au printemps, blés dorés l'été, forêts rousses à l'automne, arbres nus et neige l'hiver.
   Le blé ne pousse pas l'hiver, les vendanges sont à l'automne, le froid consomme du bois de chauffage.
 - **Météo tirée chaque mois** (climat tempéré du petit âge glaciaire) : soleil, nuages, pluie, orage et grêle,
@@ -82,7 +89,7 @@ rust/royaumes/        le moteur et le serveur (Rust)
   src/vue.rs          ce que reçoit l'interface
   src/serveur.rs      serveur HTTP (web_tools_commun), sauvegardes, options, mise à jour
 web/                  l'interface (index.html, css/, js/, vendor/three r186)
-  js/rendu/           plateau 3D, modèles, vie de la carte, météo, étiquettes
+  js/rendu/           plateau 3D (relief), modèles, routes, vie de la carte, météo, étiquettes
 tests/navigateur.py   banc d'essai de l'interface dans Chrome (Playwright)
 ```
 

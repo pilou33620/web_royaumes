@@ -143,6 +143,7 @@ async function clic(el) {
     case 'ktab': ongletRoyaume = d.v; rafraichir(); break;
     case 'impots': await envoyer({ action: 'impots', niveau: d.v }); break;
     case 'tech': await envoyer({ action: 'rechercher', tech: d.v }); break;
+    case 'routes': await envoyer({ action: 'ameliorer_routes' }); break;
     case 'menu': A.menu(d.v); break;
   }
 }
@@ -321,6 +322,8 @@ function vueRoyaume() {
     h += `<div class="boite"><h4>👥 Population</h4><div class="ligne"><span class="k">Habitants / logements</span><span class="v">${j.pop} / ${j.logement}</span></div><div class="ligne"><span class="k">Ouvriers libres</span><span class="v">👷 ${j.ouvriers_libres}</span></div><div class="ligne"><span class="k">Soldats</span><span class="v">🛡 ${j.soldats}</span></div><div class="ligne"><span class="k">Consommation</span><span class="v">🍽️ ${(j.pop * 0.3).toFixed(1)}/mois · variété ${j.variete}</span></div></div>`;
     h += `<div class="boite"><h4>${j.bonheur >= 60 ? '😊' : j.bonheur >= 35 ? '😐' : '😠'} Bonheur ${Math.round(j.bonheur)} %</h4>${(j.detail_bonheur || []).map(([k, v]) => `<div class="ligne"><span class="k">${e(k)}</span><span class="v" style="color:${v > 0 ? '#8f8' : v < 0 ? '#f98' : '#ccc'}">${v > 0 ? '+' : ''}${Math.round(v)}</span></div>`).join('') || '<div class="mini">Calculé à la fin du premier mois.</div>'}</div>`;
     h += `<div class="boite"><h4>🪙 Finances du mois</h4><div class="ligne"><span class="k">Impôts</span><span class="v">+${(rv.impots || 0).toFixed(0)}</span></div><div class="ligne"><span class="k">Routes commerciales</span><span class="v">+${(rv.commerce || 0).toFixed(0)}</span></div><div class="ligne"><span class="k">Entretien</span><span class="v">−${(rv.entretien || 0).toFixed(0)}</span></div><div class="ligne"><span class="k">Taux d'imposition</span><span class="v btns" style="margin:0">${[['bas', 'Bas'], ['normal', 'Normal'], ['eleve', 'Élevé']].map(([k, n]) => `<button class="onglet ${j.impots === k ? 'on' : ''}" data-a="impots" data-v="${k}">${n}</button>`).join('')}</span></div></div>`;
+    const rt = j.routes;
+    h += `<div class="boite"><h4>🛤️ ${e(rt.nom)} (niveau ${rt.niveau}/3)</h4><div class="mini">${rt.segments} tronçons tracés tout seuls entre vos bâtiments et vos villes. ${['', 'Sentiers de terre battue.', 'Pavées : production +5 %, marches plus rapides.', 'Routes royales bordées d\'arbres : production +10 %, marches deux fois plus rapides.'][rt.niveau]}</div>${rt.cout ? `<div class="couts">${couts(rt.cout)}</div><div class="btns"><button class="btn" data-a="routes" ${rt.verrou || !peutPayer(rt.cout) ? 'disabled' : ''}>${rt.verrou ? '🔒 ' + e(rt.verrou) : rt.niveau === 1 ? 'Paver les routes' : 'Passer aux routes royales'}</button></div>` : ''}</div>`;
   } else if (ongletRoyaume === 'sciences') {
     const cours = j.recherche ? tech(j.recherche) : null;
     h += `<div class="boite"><div class="ligne"><span class="k">Savoir accumulé</span><span class="v">💡 ${Math.floor(j.savoir)} (+${j.savoir_mois.toFixed(1)}/mois)</span></div>${cours ? `<div class="mini">Recherche : <b>${e(cours.nom)}</b> — ${Math.floor(j.savoir)}/${cours.cout}</div><div class="jauge"><i style="width:${Math.min(100, j.savoir / cours.cout * 100)}%"></i></div>` : '<div class="mini">Choisissez une technologie : le savoir vient de la population, des écoles et des académies.</div>'}</div>`;

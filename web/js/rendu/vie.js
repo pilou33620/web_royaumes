@@ -1,7 +1,7 @@
 // La vie de la carte : fumées des cheminées et des ateliers, nuages et leurs ombres, oiseaux, barques et voiliers,
 // villageois et charrettes, moutons. Tout est décor : rien ici ne touche aux règles.
 import { THREE, scene, posCase, chaqueImage, hache, cam, voisins, lerp } from './scene.js';
-import { dessus, carte, TERRE } from './plateau.js';
+import { dessus, carte, TERRE, solEn } from './plateau.js';
 import { parts, couleurDe } from './monde.js';
 
 export const climat = { froid: true, vent: 0.3, dir: 0, nuages: 6, gris: 0, oiseaux: true };
@@ -126,8 +126,22 @@ let acteurs = [];
 const groupeActeurs = new THREE.Group();
 groupe.add(groupeActeurs);
 
+let liensRoutes = new Map();
+/** Le trajet par la route d'une case à l'autre (à défaut : tout droit). */
+function trajet(de, vers) {
+  const vu = new Map([[de, -1]]), file = [de];
+  while (file.length) {
+    const c = file.shift();
+    if (c === vers) { const p = []; for (let x = vers; x !== -1; x = vu.get(x)) p.unshift(x); return p; }
+    for (const n of liensRoutes.get(c) || []) if (!vu.has(n)) { vu.set(n, c); file.push(n); }
+  }
+  return [de, vers];
+}
+
 /** Replace barques, passants et moutons d'après l'état (villes et bâtiments). */
 export function majVie(etat) {
+  liensRoutes = new Map();
+  for (const [a, b] of etat.routes || []) { for (const [x, y] of [[a, b], [b, a]]) { if (!liensRoutes.has(x)) liensRoutes.set(x, []); liensRoutes.get(x).push(y); } }
   while (groupeActeurs.children.length) groupeActeurs.remove(groupeActeurs.children[0]);
   acteurs = [];
   const C = carte();
@@ -153,6 +167,7 @@ export function majVie(etat) {
         const tete = new THREE.Mesh(new THREE.SphereGeometry(0.03, 6, 4), matTeteM); tete.position.set(0.08, 0.09, 0); g.add(tete);
         groupeActeurs.add(g);
         acteurs.push({ g, type: 'mouton', cx: x + 0.12, cz: z + 0.12, ph: hache(b.id, k) * 6, y: dessus(b.case) });
+        void solEn;
       }
     }
   }
@@ -170,7 +185,7 @@ export function majVie(etat) {
         const ch = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.08, 0.1).translate(0.14, 0.08, 0), matCoque); ch.castShadow = true; g.add(ch);
       }
       groupeActeurs.add(g);
-      acteurs.push({ g, type: 'passant', a: v.case, b: b.case, ph: hache(v.id, k, 6), v: 0.06 + hache(v.id, k, 7) * 0.05 });
+      acteurs.push({ g, type: 'passant', a: v.case, b: b.case, chemin: trajet(v.case, b.case), ph: hache(v.id, k, 6), v: 0.06 + hache(v.id, k, 7) * 0.05 });
     }
   }
   // quelques voiliers au large
@@ -192,10 +207,12 @@ function majActeurs(dt, t) {
       a.g.rotation.y = -ang;
       a.g.rotation.z = Math.sin(t * 1.6 + a.ph) * 0.06 * (0.5 + climat.vent);
     } else if (a.type === 'passant') {
-      const u = (Math.sin(t * a.v * 2 + a.ph * 6.28) + 1) / 2, p = posCase(a.a), q = posCase(a.b);
-      const x = lerp(p.x, q.x, u), z = lerp(p.z, q.z, u);
-      a.g.position.set(x, lerp(dessus(a.a), dessus(a.b), u) + Math.abs(Math.sin(t * 9 + a.ph * 9)) * 0.012, z);
-      const dir = Math.cos(t * a.v * 2 + a.ph * 6.28) > 0 ? 1 : -1;
+      // les passants suivent la route, case après case
+      const u = (Math.sin(t * a.v * 2 / Math.max(1, a.chemin.length - 1) * 1.6 + a.ph * 6.28) + 1) / 2, f = u * (a.chemin.length - 1), n0 = Math.min(a.chemin.length - 2, Math.floor(f));
+      const p = posCase(a.chemin[n0]), q = posCase(a.chemin[n0 + 1]);
+      const x = lerp(p.x, q.x, f - n0), z = lerp(p.z, q.z, f - n0);
+      a.g.position.set(x, solEn(x, z) + 0.02 + Math.abs(Math.sin(t * 9 + a.ph * 9)) * 0.012, z);
+      const dir = Math.cos(t * a.v * 2 / Math.max(1, a.chemin.length - 1) * 1.6 + a.ph * 6.28) > 0 ? 1 : -1;
       a.g.rotation.y = -Math.atan2((q.z - p.z) * dir, (q.x - p.x) * dir);
     } else if (a.type === 'mouton') {
       const ang = a.ph + Math.sin(t * 0.15 + a.ph) * 2;
