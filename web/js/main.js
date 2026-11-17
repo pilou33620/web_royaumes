@@ -5,7 +5,7 @@ import * as plateau from './rendu/plateau.js';
 import { initMonde, synchroniser, jouerMois, selectionnerArmee } from './rendu/monde.js';
 import { majVie } from './rendu/vie.js';
 import { appliquerMeteo } from './rendu/meteo.js';
-import { majRoutes, effacerRoutes } from './rendu/routes.js';
+import { majRoutes, effacerRoutes, niveauRoutes } from './rendu/routes.js';
 import { toutEffacer, effet } from './rendu/etiquettes.js';
 import * as ui from './ui.js';
 
@@ -61,13 +61,14 @@ async function chargerCarte() {
   effacerRoutes();
   cadrer(c);
 }
-function appliquer(etat) {
+function appliquer(etat, rapport) {
   J.etat = etat;
   plateau.majEtat(etat);
   plateau.majSaison(etat.saison, etat.meteo.neige_sol);
   synchroniser(etat);
+  niveauRoutes(etat.joueur?.routes?.niveau || 1);
   majRoutes(etat.routes);
-  majVie(etat);
+  majVie(etat, rapport);
   appliquerMeteo(etat.meteo, etat.saison);
   ui.majHUD();
 }
@@ -112,7 +113,7 @@ async function finTour() {
     if (!r || !r.ok) { ui.annonce('❌ ' + (r?.msg || 'Erreur du serveur'), 'guerre'); return; }
     await jouerMois(r.rapport, r.etat);
     if (r.etat.version_carte !== J.versionCarte) await chargerCarte();
-    appliquer(r.etat);
+    appliquer(r.etat, r.rapport);
     for (const c of r.rapport.termines || []) { const p = posCase(c); effet(p.x, plateau.dessus(c) + 0.8, p.z, '🔨', 1400); }
     for (const ev of r.rapport.evenements.slice(0, 3)) ui.annonce(ev.texte, ev.genre);
     ui.recap(r.rapport, r.etat);
