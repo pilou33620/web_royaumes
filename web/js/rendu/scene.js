@@ -40,28 +40,24 @@ export const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, power
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.05;
 
 export const scene = new THREE.Scene();
-export const CIEL = new THREE.Color(0x1d5c96);
+export const CIEL = new THREE.Color(0x1b211a); // le fond vert très sombre de web_power
 scene.background = CIEL.clone();
 scene.fog = new THREE.Fog(CIEL.clone(), 40, 120);
 export const camera = new THREE.PerspectiveCamera(36, 1, 0.3, 600);
 
-export const hemi = new THREE.HemisphereLight(0xdcefff, 0x41592f, 1.05);
+export const hemi = new THREE.HemisphereLight(0xeef7ff, 0x7d8466, 1.5);
 scene.add(hemi);
-export const soleil = new THREE.DirectionalLight(0xfff0d8, 2.6);
+export const soleil = new THREE.DirectionalLight(0xfff0d4, 2.6);
 soleil.castShadow = true;
 soleil.shadow.mapSize.set(2048, 2048);
 soleil.shadow.bias = -0.0005;
 soleil.shadow.normalBias = 0.03;
 scene.add(soleil, soleil.target);
-export const ambiance = new THREE.AmbientLight(0xffffff, 0.25);
-scene.add(ambiance);
 
 // réglages modifiés par la météo et la saison
-export const lumiere = { soleil: 2.6, hemi: 1.25, couleurSoleil: new THREE.Color(0xfff0d8), ciel: CIEL.clone(), brume: 1, hauteurSoleil: 1 };
+export const lumiere = { soleil: 2.6, hemi: 1.5, couleurSoleil: new THREE.Color(0xfff0d4), couleurHemi: new THREE.Color(0xeef7ff), ciel: CIEL.clone(), brume: 1, hauteurSoleil: 1 };
 
 function redimensionner() {
   const w = innerWidth, h = innerHeight;
@@ -177,6 +173,7 @@ function placerCamera(dt) {
   soleil.intensity += (lumiere.soleil - soleil.intensity) * a;
   hemi.intensity += (lumiere.hemi - hemi.intensity) * a;
   soleil.color.lerp(lumiere.couleurSoleil, a);
+  hemi.color.lerp(lumiere.couleurHemi, a);
   scene.background.lerp(lumiere.ciel, a);
   scene.fog.color.copy(scene.background);
 }

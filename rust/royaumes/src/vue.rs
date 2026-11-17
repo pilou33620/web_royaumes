@@ -125,7 +125,7 @@ pub fn etat(p: &Partie) -> Value {
                 "caractere": nom_caractere(&r.caractere), "vivant": r.vivant, "statut": r.statut,
                 "relation": r.relation, "commerce": r.commerce, "puissance": p.puissance(r.id as i32),
                 "surplus": r.surplus, "demande": r.demande, "tresor": r.or.floor(), "prix": prix_,
-                "techs": r.techs.len(),
+                "techs": r.techs.len(), "techs_liste": r.techs,
             })
         }).collect::<Vec<_>>(),
         "villes": p.villes.iter().enumerate().map(|(i, v)| json!({
