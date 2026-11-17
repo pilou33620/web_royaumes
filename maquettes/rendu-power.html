@@ -63,6 +63,7 @@ figure { margin: 0; }
         <li>Même lumière : ciel bleuté, soleil chaud, ombres portées ; soleil doré à l'aube, lune bleutée la nuit et fenêtres allumées.</li>
         <li>Toits en matériaux de l'époque, une teinte par maison : chaume et tuiles brunes en 1700, tuiles rouges et orangées aux Lumières, ardoise et tuiles sous l'Empire, ardoise et brique à l'ère industrielle. La couleur du royaume reste sur les drapeaux, les volets et les uniformes.</li>
         <li>Routes de web_power selon l'époque : chemins de terre, puis pavés (Empire), puis chaussées empierrées (Industrie), avec des charrettes à cheval.</li>
+        <li>Armée en formation, construite comme le reste : une ligne de fusiliers devant, baïonnette au canon, le porte-drapeau et un officier à cheval au centre, les cavaliers derrière, deux canons et leurs servants sur le flanc ; tricorne, puis bicorne sous l'Empire, puis shako.</li>
         <li>Vie de la carte de web_power : vaches dans les prés, cerfs, biches, sangliers et renards aux lisières, bateaux, vol d'oiseaux en V.</li>
       </ul>
     </section>
@@ -208,7 +209,7 @@ for (const cle of ['eglise', 'moulin', 'marche', 'caserne', 'forge', 'taverne', 
 for (const cle of ['usine', 'filature', 'haut_fourneau']) prendre(libres.filter(k => k.t === 'plaine' || k.t === 'prairie'), cle, 'industrie');
 function actif(p) { return !p.ere || p.ere === EPOQUE; }
 for (const p of PLAN) p.k.bati = !p.ere;
-const ARMEE = libres.find(k => !prises.has(k));
+const ARMEE = libres.find(k => !prises.has(k) && (k.t === 'prairie' || k.t === 'plaine')); // en terrain découvert
 function topDe(k) { return TERR[k.bati ? 'bati' : k.t].h; }
 function chemin(a, b, deja) {
   const d = new Map([[a, 0]]), prev = new Map([[a, null]]), vu = new Set();
@@ -256,7 +257,7 @@ function construirePlateau() {
     const n = g.attributes.normal, a = new Float32Array(n.count * 3);
     for (let i = 0; i < n.count; i++) { const f = n.getY(i) > 0.5 ? 1 : 0.62; a.set([c.r * f, c.g * f, c.b * f], i * 3); }
     g.setAttribute('color', new THREE.BufferAttribute(a, 3)); TUILES.g.push(g);
-    if (k.bati) continue;
+    if (k.bati || k === ARMEE) continue;
     const y = k.top, rr = () => { const an = rnd() * Math.PI * 2, l = Math.sqrt(rnd()) * R * 0.62; return [k.x + Math.cos(an) * l, k.z + Math.sin(an) * l]; };
     const s0 = 0.11; // décor de web_power ramené à des cases de 1
     if (k.t === 'foret') for (let i = 0, nb = 5 + (rnd() * 3 | 0); i < nb; i++) {
@@ -458,6 +459,42 @@ const BATR = {
   },
 };
 
+// ---- armée en formation : une ligne d'infanterie devant (+z), la cavalerie derrière, deux canons sur le flanc droit
+const PEAU = 0xf0c9a0, BLANC = 0xf2efe6, NOIR = 0x1f1f1f;
+function chapeau(L, x, y, z) {
+  if (EPOQUE === 'empire') put(L, boite(0.9, 0.35, 0.3), NOIR, x, y + 0.1, z, 0, 0.06); // bicorne
+  else if (EPOQUE === 'industrie') { put(L, cyl(0.3, 0.27, 0.5, 8), NOIR, x, y + 0.2, z, 0, 0.06); put(L, boite(0.1, 0.18, 0.1), 0xd9d9d9, x, y + 0.5, z + 0.2, 0, 0); } // shako et plumet
+  else put(L, cone(0.55, 0.3, 3), NOIR, x, y + 0.1, z, Math.PI, 0.06); // tricorne
+}
+function fantassin(L, x, z, habit) {
+  for (const dx of [-0.16, 0.16]) put(L, boite(0.24, 0.9, 0.3), BLANC, x + dx, 0.45, z, 0, 0.06);
+  put(L, boite(0.75, 0.95, 0.5), habit, x, 1.35, z, 0, 0.08);
+  put(L, boite(0.8, 0.12, 0.55), BLANC, x, 1.15, z, 0, 0);
+  put(L, sphere(0.28, 1), PEAU, x, 2.1, z, 0, 0.06); chapeau(L, x, 2.32, z);
+  put(L, boite(0.09, 2.2, 0.09), 0x5b3a1e, x + 0.42, 1.5, z + 0.18, 0, 0); put(L, boite(0.04, 0.4, 0.04), 0xd9d9d9, x + 0.42, 2.8, z + 0.18, 0, 0); // fusil et baïonnette
+}
+function cavalier(L, x, z, habit) {
+  put(L, boite(0.7, 0.85, 1.9), 0x6b4226, x, 1.35, z, 0, 0.08); put(L, boite(0.4, 0.9, 0.45), 0x6b4226, x, 1.95, z + 0.95, 0, 0.06); put(L, boite(0.35, 0.35, 0.7), 0x5a3720, x, 2.3, z + 1.25, 0, 0.06);
+  for (const [dx, dz] of [[-0.22, -0.7], [0.22, -0.7], [-0.22, 0.7], [0.22, 0.7]]) put(L, boite(0.16, 0.95, 0.16), 0x4a2c18, x + dx, 0.47, z + dz, 0, 0);
+  put(L, boite(0.12, 0.6, 0.12), 0x2a1d14, x, 1.5, z - 1.05, 0, 0); // queue
+  put(L, boite(0.6, 0.8, 0.45), habit, x, 2.15, z - 0.1, 0, 0.07); put(L, sphere(0.25, 1), PEAU, x, 2.8, z - 0.1, 0, 0.06); chapeau(L, x, 3, z - 0.1);
+  put(L, boite(0.06, 0.06, 1.1), 0xd9d9d9, x + 0.4, 2.3, z + 0.35, 0, 0); // sabre
+}
+function canon(L, x, z) {
+  const fut = cyl(0.22, 0.32, 2.4, 10); fut.rotateX(Math.PI / 2 - 0.15); put(L, fut, 0x2b2b2b, x, 0.95, z + 0.3, 0, 0.08);
+  put(L, boite(0.6, 0.35, 1.8), 0x6b4a2a, x, 0.55, z - 0.3, 0, 0.06);
+  for (const dx of [-0.55, 0.55]) { const r = cyl(0.55, 0.55, 0.14, 12); r.rotateZ(Math.PI / 2); put(L, r, 0x4a3420, x + dx, 0.55, z, 0, 0.06); }
+  for (let i = 0; i < 3; i++) put(L, sphere(0.16, 0), 0x2b2b2b, x - 0.3 + i * 0.3, 0.16, z - 1.6, 0, 0);
+}
+function armeeWP(L, ex, habit) {
+  for (let i = 0; i < 6; i++) fantassin(L, -3.4 + i * 1.15, 2.4, habit);          // la ligne, devant
+  for (let i = 0; i < 3; i++) cavalier(L, -2.6 + i * 2, -2.8, habit);              // la cavalerie, derrière
+  canon(L, 5.4, 1.6); canon(L, 5.6, -1.4);                                         // l'artillerie, sur le flanc
+  fantassin(L, 4.4, 0.2, habit); fantassin(L, 6.6, -2.8, habit);                   // les servants
+  put(L, boite(0.14, 4.6, 0.14), 0x4a3420, -0.2, 2.3, 0.4, 0, 0.06); ex.drap.push([-0.2, 4, 0.4]); fantassin(L, 0.2, 0.4, habit); // le porte-drapeau
+  cavalier(L, -1.6, 0, habit);                                                     // l'officier
+}
+
 // ---------------------------------------------------------------- bâtiments, armée et pièces animées
 let BATIS = null, EPOQUE = 'ancien';
 const ailes = [], drapeaux = [], cheminees = [];
@@ -490,8 +527,10 @@ function construireBatiments() {
     }
   }
   if (ARMEE) {
-    const g = MOD.geometrieArmee(ROYAUME, EPOQUE, { inf: 3, cav: 2, art: 1 });
-    const grp = meshBatiment({ geo: g }); grp.position.set(ARMEE.x, ARMEE.top, ARMEE.z); grp.rotation.y = 0.5; BATIS.add(grp);
+    const L = lot(), ex = { drap: [] };
+    armeeWP(L, ex, ROYAUME);
+    const grp = fige(L, BATIS); grp.scale.setScalar(ECH_BAT); grp.position.set(ARMEE.x, ARMEE.top, ARMEE.z); grp.rotation.y = 0.5; grp.updateMatrixWorld(true);
+    for (const a of ex.drap) { const f = new THREE.Mesh(new THREE.PlaneGeometry(0.22, 0.13, 6, 1).translate(0.11, 0, 0), new THREE.MeshToonMaterial({ color: ROYAUME, gradientMap: degrade, side: THREE.DoubleSide })); f.position.copy(new THREE.Vector3(...a).applyMatrix4(grp.matrixWorld)); BATIS.add(f); drapeaux.push(f); }
   }
 }
 
