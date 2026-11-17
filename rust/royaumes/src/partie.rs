@@ -12,6 +12,8 @@ use crate::meteo::{self, Meteo};
 use crate::regles::{regles, Panier};
 
 pub const VERSION_SAUVEGARDE: u32 = 1;
+/// La partie commence en avril 1700 (le printemps : on sème avant l'hiver).
+pub const TOUR_DEPART: u32 = 3;
 /// Les brigands : un « royaume » à part, ennemi de tous.
 pub const BRIGANDS: i32 = 99;
 
@@ -377,7 +379,7 @@ impl Partie {
             options: o,
             hasard: h,
             carte,
-            tour: 0,
+            tour: TOUR_DEPART,
             royaumes,
             villes: Vec::new(),
             batiments: Vec::new(),
@@ -386,12 +388,12 @@ impl Partie {
             journal: Vec::new(),
             rapport: Rapport::default(),
             prochain_id: 1,
-            prochains_brigands: 20,
+            prochains_brigands: TOUR_DEPART + 20,
             fin: None,
             sans_victoire: false,
             version_carte: 1,
         };
-        p.meteo = Meteo::tirer(&Meteo { temperature: 4.0, ..Meteo::default() }, 0, &mut p.hasard);
+        p.meteo = Meteo::tirer(&Meteo { temperature: 9.0, ..Meteo::default() }, TOUR_DEPART, &mut p.hasard);
         for (k, &s) in departs.iter().enumerate() {
             let nom = if k == 0 { p.options.capitale.clone() } else { ROYAUMES[ordre[k]].villes[0].to_string() };
             p.fonder_ville(k as i32, s, nom, if k == 0 { 1 } else { 2 }, true);
@@ -431,7 +433,7 @@ impl Partie {
             u.insert("mousquetaire".to_string(), if k == 0 { 2 } else { 3 });
             p.creer_armee(k as i32, case, u);
         }
-        p.noter(format!("{} : vous fondez {}.", meteo::date_texte(0), p.villes[0].nom));
+        p.noter(format!("{} : vous fondez {}.", meteo::date_texte(TOUR_DEPART), p.villes[0].nom));
         p
     }
 

@@ -38,6 +38,12 @@ fn ok(msg: impl Into<String>) -> Result<Value, String> {
 }
 
 pub fn executer(p: &mut Partie, c: &Value) -> Result<Value, String> {
+    // lecture seule : les cases où l'on peut poser un bâtiment (surbrillance du mode construction)
+    if c.get("action").and_then(Value::as_str) == Some("cases_valides") {
+        let cle = txt(c, "cle")?;
+        let v: Vec<usize> = (0..p.carte.cases.len()).filter(|&i| p.peut_construire(cle, i, 0).is_ok()).collect();
+        return Ok(json!({"ok": true, "cases": v}));
+    }
     if p.fin.is_some() && !p.sans_victoire {
         if txt(c, "action")? == "continuer" && p.fin.as_ref().is_some_and(|f| f.victoire) {
             p.sans_victoire = true;

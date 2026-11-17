@@ -1,0 +1,373 @@
+// L'interface : barre du haut, panneaux (construire, diplomatie, armées, royaume, menu), fiche d'une case,
+// récapitulatif du mois, propositions des autres royaumes, annonces.
+import { echapper as e } from './rendu/etiquettes.js';
+
+const $ = s => document.querySelector(s);
+let J = null, A = null;
+const SAISON_ICONE = ['❄️', '🌸', '☀️', '🍂'];
+const ICONE_METEO = { soleil: '☀️', nuages: '⛅', pluie: '🌧️', orage: '⛈️', brouillard: '🌫️', neige: '🌨️', gel: '🥶', canicule: '🥵', tempete: '🌪️' };
+const NOM_METEO = { soleil: 'Ensoleillé', nuages: 'Nuageux', pluie: 'Pluvieux', orage: 'Orageux', brouillard: 'Brumeux', neige: 'Neigeux', gel: 'Grand froid', canicule: 'Canicule', tempete: 'Tempête' };
+const STATUT = { guerre: '⚔️ Guerre', neutre: '😐 Neutre', paix: '🕊️ Paix', alliance: '🤝 Alliance' };
+
+export function installerUI(jeu, actions) {
+  J = jeu; A = actions;
+  $('#feuille-fermer').onclick = fermerFeuille;
+  $('#feuille').addEventListener('pointerdown', () => (tenue = performance.now() + 1500));
+  $('#annuler-mode').onclick = () => A.annulerMode();
+  $('#fin-tour').onclick = () => A.finTour();
+  $('#ressources').onclick = () => panneau('royaume');
+  $('#date').onclick = () => panneau('royaume');
+  $('#meteo').onclick = panneauMeteo;
+  $('#quete').onclick = () => $('#quete').classList.toggle('replie');
+  document.querySelectorAll('#bas .nb').forEach(b => (b.onclick = () => { A.annulerMode(); panneau(b.dataset.panneau); }));
+  addEventListener('keydown', ev => { if (ev.key === 'Escape') { A.annulerMode(); fermerFeuille(); } if (ev.key === 'Enter' && !$('#modale').classList.contains('ouverte') && J.etat) A.finTour(); });
+}
+
+// ------------------------------------------------------------------ utilitaires
+const R = () => J.R;
+const res = cle => R().ressources.find(r => r.cle === cle) || { nom: cle, icone: '' };
+const bat = cle => R().batiments.find(b => b.cle === cle);
+const unite = cle => R().unites.find(u => u.cle === cle);
+const tech = cle => R().techs.find(t => t.cle === cle);
+const nomNiveau = n => R().niveaux.find(x => x.niveau === n)?.nom || '';
+const fmt = n => (Math.abs(n) >= 10000 ? Math.round(n / 1000) + 'k' : Math.floor(n));
+const roy = id => J.etat.royaumes.find(r => r.id === id) || { nom: 'Brigands', couleur: '#4b4b4b' };
+const pastille = id => `<span class="pastille" style="--c:${roy(id).couleur}"></span>`;
+function couts(cout, mult = 1) {
+  const st = J.etat.joueur.stock;
+  return Object.entries(cout || {}).map(([r, n]) => { const v = Math.ceil(r === 'or' ? n * mult : n); return `<span class="cout ${(st[r] || 0) < v ? 'non' : ''}">${res(r).icone}${v}</span>`; }).join('');
+}
+const peutPayer = (cout, mult = 1) => Object.entries(cout || {}).every(([r, n]) => (J.etat.joueur.stock[r] || 0) >= (r === 'or' ? n * mult : n) - 1e-9);
+
+export function annonce(msg, genre = '') {
+  const d = document.createElement('div');
+  d.className = 'annonce ' + genre;
+  d.textContent = msg;
+  const box = $('#annonces');
+  box.prepend(d);
+  while (box.children.length > 4) box.lastChild.remove();
+  setTimeout(() => d.remove(), 4300);
+}
+
+// ------------------------------------------------------------------ barre du haut
+export function majHUD() {
+  const E = J.etat, j = E.joueur, st = j.stock, b = j.bilan || {};
+  const delta = r => (b[r] ? `<small class="${b[r] > 0 ? 'p' : 'm'}">${b[r] > 0 ? '+' : ''}${Math.round(b[r])}</small>` : '');
+  const puce = (icone, val, cls = '', titre = '', d = '') => `<div class="puce ${cls}" title="${titre}">${icone} ${val}${d}</div>`;
+  const nourr = R().nourriture.reduce((s, r) => s + (st[r] || 0), 0);
+  const rs = r => puce(res(r).icone, fmt(st[r] || 0), (st[r] || 0) >= (j.capacite[r] || 1e9) - 0.5 ? 'plein' : (st[r] || 0) < 3 ? 'bas' : '', res(r).nom, delta(r));
+  $('#ressources').innerHTML =
+    puce('🪙', fmt(st.or), '', 'Or', delta('or')) +
+    puce('👥', `${j.pop}/${j.logement}`, j.pop >= j.logement ? 'plein' : '', 'Habitants / logements') +
+    puce(j.bonheur >= 60 ? '😊' : j.bonheur >= 35 ? '😐' : '😠', Math.round(j.bonheur) + '%', j.bonheur < 35 ? 'bas' : '', 'Bonheur') +
+    puce('🍽️', fmt(nourr), j.famine ? 'bas' : '', 'Nourriture') +
+    ['bois', 'planches', 'pierre', 'outils', 'ble', 'farine', 'pain', 'poisson', 'minerai', 'charbon', 'fer', 'armes', 'biere', 'vin', 'laine', 'tissu'].map(rs).join('');
+  $('#date').textContent = `${SAISON_ICONE[E.saison]} ${E.date} · ${E.epoque.nom}`;
+  $('#meteo').textContent = `${ICONE_METEO[E.meteo.genre] || '🌤️'} ${NOM_METEO[E.meteo.genre] || ''} ${Math.round(E.meteo.temperature)}°C`;
+  const q = j.quete;
+  $('#quete').innerHTML = q ? `<div class="q1">📜 OBJECTIF ${q.n}</div><div class="q2">${e(q.texte)}${q.prime ? ` <span style="color:#ffd56b">+${q.prime} 🪙</span>` : ''}</div>` : '';
+  const mois = R && E ? E.mois_nom : '';
+  $('#fin-tour-mois').textContent = `${mois} → ${['Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre', 'Janvier'][E.mois]}`;
+  $('#nb-diplo').classList.toggle('alerte', E.royaumes.some(r => !r.joueur && r.vivant && r.statut === 'guerre'));
+  $('#nb-armees').classList.toggle('alerte', E.armees.some(a => a.proprio !== 0 && a.chemin.length && estEnnemi(a.proprio)));
+  $('#nb-royaume').classList.toggle('alerte', !j.recherche && R().techs.some(t => !j.techs.includes(t.cle) && t.annee <= E.annee));
+  if (sheet && sheet.vivante && performance.now() > tenue) rafraichir();
+}
+const estEnnemi = id => id === 99 || roy(id).statut === 'guerre';
+
+// ------------------------------------------------------------------ feuille
+let sheet = null, tenue = 0;
+export function ouvrirFeuille(titre, fn, vivante = true) {
+  sheet = { fn, vivante };
+  $('#feuille-titre').innerHTML = titre;
+  rafraichir();
+  $('#feuille').classList.add('ouverte');
+  document.body.classList.add('feuille');
+  $('#feuille-corps').scrollTop = 0;
+}
+export function rafraichir() {
+  if (!sheet) return;
+  const c = $('#feuille-corps'), sc = c.scrollTop, h = sheet.fn();
+  if (h == null) { fermerFeuille(); return; }
+  c.innerHTML = h;
+  c.scrollTop = sc;
+  c.querySelectorAll('[data-a]').forEach(el => (el.onclick = ev => { ev.stopPropagation(); clic(el); }));
+}
+export function fermerFeuille() { sheet = null; $('#feuille').classList.remove('ouverte'); document.body.classList.remove('feuille'); A?.surFermeture?.(); }
+export const feuilleOuverte = () => !!sheet;
+
+// ------------------------------------------------------------------ modale (rend une promesse)
+const fileModale = [];
+export function modale(titre, html, boutons) {
+  return new Promise(res => {
+    fileModale.push({ titre, html, boutons, res });
+    if (fileModale.length === 1) montrerModale();
+  });
+}
+function montrerModale() {
+  const m = fileModale[0];
+  if (!m) return;
+  $('#modale-boite').innerHTML = `<h3>${m.titre}</h3>${m.html}<div class="btns" style="justify-content:flex-end;margin-top:12px">${m.boutons.map((b, i) => `<button class="btn ${b.c || ''}" data-i="${i}">${b.l}</button>`).join('')}</div>`;
+  $('#modale').classList.add('ouverte');
+  $('#modale-boite').querySelectorAll('button[data-i]').forEach(el => (el.onclick = () => {
+    const b = m.boutons[+el.dataset.i];
+    $('#modale').classList.remove('ouverte');
+    fileModale.shift();
+    m.res(b.v);
+    setTimeout(montrerModale, 60);
+  }));
+}
+export const modaleOuverte = () => fileModale.length > 0;
+
+// ------------------------------------------------------------------ actions des boutons
+async function clic(el) {
+  const d = el.dataset, a = d.a;
+  const envoyer = async (cmd, ok) => { const r = await A.cmd(cmd); if (r.ok) { if (r.msg) annonce(r.msg, 'bon'); ok && ok(r); } else if (r.msg) annonce('❌ ' + r.msg, 'guerre'); return r; };
+  switch (a) {
+    case 'cat': ongletConstruire = d.v; rafraichir(); break;
+    case 'bat': A.modeConstruire(d.v); break;
+    case 'ici': await envoyer({ action: 'construire', cle: d.v, case: +d.c }, () => fermerFeuille()); break;
+    case 'demolir': if (await modale('Démolir ?', '<p>La moitié des matériaux sera récupérée.</p>', [{ l: 'Démolir', c: 'rouge', v: true }, { l: 'Annuler', c: 'b2', v: false }])) await envoyer({ action: 'demolir', case: +d.c }, () => fermerFeuille()); break;
+    case 'pause': await envoyer({ action: 'pause', batiment: +d.v }); break;
+    case 'recruter': await envoyer({ action: 'recruter', batiment: +d.b, unite: d.v }); break;
+    case 'ameliorer': await envoyer({ action: 'ameliorer', ville: +d.v }); break;
+    case 'armee': A.choisirArmee(+d.v); break;
+    case 'deplacer': A.modeDeplacer(+d.v); break;
+    case 'halte': await envoyer({ action: 'halte', armee: +d.v }); break;
+    case 'centrer': A.centrer(+d.v); break;
+    case 'diviser': diviser(+d.v); break;
+    case 'diplo': if (d.v === 'guerre' && !await modale('Déclarer la guerre ?', `<p>Vous allez entrer en guerre contre <b>${e(roy(+d.r).nom)}</b>. Les autres royaumes vous jugeront belliqueux.</p>`, [{ l: '⚔️ Guerre !', c: 'rouge', v: true }, { l: 'Annuler', c: 'b2', v: false }])) break; await envoyer({ action: 'diplo', royaume: +d.r, acte: d.v }); break;
+    case 'marche': marcheDe = +d.r; rafraichir(); break;
+    case 'retour': marcheDe = null; rafraichir(); break;
+    case 'echange': await envoyer({ action: 'echanger', royaume: +d.r, ressource: d.v, achat: d.s === '1' }); break;
+    case 'ktab': ongletRoyaume = d.v; rafraichir(); break;
+    case 'impots': await envoyer({ action: 'impots', niveau: d.v }); break;
+    case 'tech': await envoyer({ action: 'rechercher', tech: d.v }); break;
+    case 'menu': A.menu(d.v); break;
+  }
+}
+
+// ------------------------------------------------------------------ panneaux
+export function panneau(nom) {
+  if (!J.etat) return;
+  if (nom === 'construire') ouvrirFeuille('🏗️ Construire', vueConstruire);
+  if (nom === 'diplomatie') { marcheDe = null; ouvrirFeuille('🤝 Diplomatie', vueDiplomatie); }
+  if (nom === 'armees') ouvrirFeuille('⚔️ Armées', vueArmees);
+  if (nom === 'royaume') ouvrirFeuille('📊 Royaume', vueRoyaume);
+  if (nom === 'menu') ouvrirFeuille('☰ Menu', vueMenu, false);
+}
+
+let ongletConstruire = 'habitat';
+function dispo(b) {
+  const j = J.etat.joueur;
+  if (b.niveau > j.niveau_capitale) return `🔒 ${nomNiveau(b.niveau)}`;
+  if (b.tech && !j.techs.includes(b.tech)) return `🔒 ${tech(b.tech)?.nom || b.tech}`;
+  return '';
+}
+function metaBat(b) {
+  return [b.ouvriers ? `👷${b.ouvriers}` : '', b.logement ? `👥+${b.logement}` : '', Object.entries(b.prod || {}).map(([r, v]) => `${res(r).icone}${v}/mois`).join(' '),
+    Object.keys(b.conso || {}).length ? '← ' + Object.keys(b.conso).map(r => res(r).icone).join('') : '', b.duree ? `⏳${b.duree} mois` : ''].filter(Boolean).join(' · ');
+}
+function vueConstruire() {
+  let h = `<div class="onglets">${R().categories.map(c => `<button class="onglet ${c.cle === ongletConstruire ? 'on' : ''}" data-a="cat" data-v="${c.cle}">${c.icone} ${c.nom}</button>`).join('')}</div><div class="grille-cartes">`;
+  for (const b of R().batiments) {
+    if (b.cat !== ongletConstruire) continue;
+    const v = dispo(b);
+    h += `<div class="fiche ${v ? 'verrou' : ''}" data-a="bat" data-v="${b.cle}">${v ? `<div class="verrou-t">${v}</div>` : ''}<div class="fi">${b.icone}</div><div class="fn">${e(b.nom)}</div><div class="fd">${e(b.desc)}</div><div class="couts">${couts(b.cout)}</div><div class="meta">${metaBat(b)}</div></div>`;
+  }
+  return h + `</div><p class="mini" style="margin-top:10px">Capitale : <b>${nomNiveau(J.etat.joueur.niveau_capitale)}</b> · ${J.etat.epoque.nom}. Les travaux avancent d'un mois à chaque tour.</p>`;
+}
+
+// --- fiche d'une case
+const NOM_T = ['🌊 Océan', '🌊 Haut-fond', '💧 Lac', '🏖️ Plage', '🌿 Plaine', '⛰️ Colline', '🏔️ Montagne'];
+export function titreCase(i) {
+  const E = J.etat, b = E.batiments.find(x => x.case === i);
+  if (b) { const v = b.cle === 'hotel' && E.villes.find(x => x.case === i); return v ? `🏰 ${e(v.nom)}` : `${bat(b.cle).icone} ${e(bat(b.cle).nom)}`; }
+  return NOM_T[J.carte.terrain[i]];
+}
+export function vueCase(i) {
+  const E = J.etat, C = J.carte, j = E.joueur;
+  const b = E.batiments.find(x => x.case === i), pr = E.cases.proprio[i];
+  let h = `<div class="boite"><div class="ligne"><span class="k">Terrain</span><span class="v">${NOM_T[C.terrain[i]]}${C.riviere[i] ? ' · rivière' : ''}${C.fertile[i] ? ' · fertile' : ''}</span></div>`;
+  if (C.gisement[i]) h += `<div class="ligne"><span class="k">Gisement</span><span class="v">${{ pierre: '🪨 Pierre', fer: '⛏️ Fer', or: '💰 Or', charbon: '⚫ Charbon' }[C.gisement[i]]}</span></div>`;
+  if (C.poissons[i]) h += `<div class="ligne"><span class="k">Ressource</span><span class="v">🐟 Banc de poissons</span></div>`;
+  if (E.cases.foret[i]) h += `<div class="ligne"><span class="k">Bois sur pied</span><span class="v">🪵 ${E.cases.bois[i]}</span></div>`;
+  h += `<div class="ligne"><span class="k">Territoire</span><span class="v">${pr >= 0 ? pastille(pr) + e(roy(pr).nom) : 'Terres libres'}</span></div></div>`;
+  for (const a of E.armees.filter(x => x.case === i)) {
+    h += `<div class="boite"><h4>${pastille(a.proprio)}Armée — ${e(roy(a.proprio).nom)}</h4><div class="mini">${unitesTexte(a.unites)}</div>${a.proprio === 0 ? `<div class="btns"><button class="btn" data-a="armee" data-v="${a.id}">Commander</button></div>` : ''}</div>`;
+  }
+  if (!b) {
+    if (pr === 0 && C.terrain[i] >= 3 && C.terrain[i] !== 6) h += `<div class="mini">Choisissez un bâtiment dans 🏗️ Construire pour voir où le poser.</div>`;
+    return h;
+  }
+  const d = bat(b.cle), mien = b.proprio === 0;
+  if (b.cle === 'hotel') return h + vueVille(E.villes.find(v => v.case === i));
+  if (b.reste > 0) {
+    const f = 1 - b.reste / Math.max(1, d.duree);
+    return h + `<div class="boite"><h4>🏗️ En construction</h4><div class="jauge"><i style="width:${Math.round(f * 100)}%"></i></div><div class="mini" style="margin-top:4px">${b.reste} mois restant(s)</div></div>` + (mien ? `<div class="btns"><button class="btn rouge" data-a="demolir" data-c="${i}">Annuler (50 % remboursés)</button></div>` : '');
+  }
+  h += `<div class="boite"><div class="mini" style="margin-bottom:5px">${e(d.desc)}</div>`;
+  if (!mien) return h + `<div class="ligne"><span class="k">Propriétaire</span><span class="v">${pastille(b.proprio)}${e(roy(b.proprio).nom)}</span></div></div>`;
+  if (d.ouvriers) h += `<div class="ligne"><span class="k">Ouvriers</span><span class="v">👷 ${b.ouvriers}/${d.ouvriers}</span></div>`;
+  if (b.etat) h += `<div class="ligne"><span class="k">Ce mois</span><span class="v">${e(b.etat)}</span></div>`;
+  if (d.logement) h += `<div class="ligne"><span class="k">Logements</span><span class="v">👥 ${d.logement}</span></div>`;
+  if (d.saison) h += `<div class="ligne"><span class="k">Saison</span><span class="v">${['Hiver', 'Printemps', 'Été', 'Automne'][E.saison]} · météo ×${E.meteo.cultures.toFixed(2)}</span></div>`;
+  h += '</div>';
+  if ((d.unites || []).length) {
+    h += `<div class="boite"><h4>Recrutement (2 par mois)</h4>`;
+    const ok = j.unites_dispo[b.cle] || [];
+    for (const u of d.unites) {
+      const ud = unite(u);
+      if (!ok.includes(u)) continue;
+      h += `<div class="ligne"><span>${ud.icone} <b>${e(ud.nom)}</b> <span class="mini">⚔${ud.att} 🛡${ud.def}${ud.siege ? ' · siège ×' + ud.siege : ''} · 🚶${ud.vitesse}</span><br><span class="couts" style="display:inline-flex">${couts(ud.cout, j.remise_recrues)}</span></span><button class="btn" data-a="recruter" data-b="${b.id}" data-v="${u}" ${peutPayer(ud.cout, j.remise_recrues) ? '' : 'disabled'}>Recruter</button></div>`;
+    }
+    h += `<div class="mini">File : ${b.file.map(u => unite(u).icone).join(' ') || 'vide'}</div></div>`;
+  }
+  return h + `<div class="btns">${d.ouvriers ? `<button class="btn b2" data-a="pause" data-v="${b.id}">${b.pause ? '▶ Reprendre' : '⏸ Pause'}</button>` : ''}<button class="btn rouge" data-a="demolir" data-c="${i}">🗑 Démolir</button></div>`;
+}
+function vueVille(v) {
+  const E = J.etat;
+  let h = `<div class="boite"><div class="ligne"><span class="k">Rang</span><span class="v">${v.niveau} · ${e(v.rang)}${v.capitale ? ' 👑' : ''}</span></div><div class="ligne"><span class="k">Royaume</span><span class="v">${pastille(v.proprio)}${e(roy(v.proprio).nom)}</span></div><div class="ligne"><span class="k">Défense</span><span class="v">🛡 ${v.defense}</span></div><div class="ligne"><span class="k">Rayon du territoire</span><span class="v">${2 + v.niveau} cases</span></div></div>`;
+  if (v.proprio === 0) {
+    const nx = R().niveaux.find(n => n.niveau === v.niveau + 1);
+    if (nx) {
+      const ok = E.joueur.pop >= nx.pop && peutPayer(nx.cout) && (v.capitale || v.niveau < E.joueur.niveau_capitale);
+      h += `<div class="boite"><h4>⬆️ Passer au rang ${e(nx.nom)}</h4><div class="ligne"><span class="k">Habitants</span><span class="v" style="color:${E.joueur.pop >= nx.pop ? '#8f8' : '#f98'}">${E.joueur.pop}/${nx.pop}</span></div><div class="couts">${couts(nx.cout)}</div><div class="mini" style="margin-top:4px">Débloque des bâtiments et agrandit le territoire.</div><div class="btns"><button class="btn" data-a="ameliorer" data-v="${v.id}" ${ok ? '' : 'disabled'}>Améliorer</button></div></div>`;
+    } else h += `<div class="boite"><h4>🌟 Rang maximal</h4></div>`;
+  } else {
+    const r = roy(v.proprio);
+    h += `<div class="boite"><h4>Relations</h4>${relation(r)}<div class="btns"><button class="btn b2" data-a="menu" data-v="diplomatie">🤝 Diplomatie</button></div></div>`;
+  }
+  return h;
+}
+const unitesTexte = u => Object.entries(u).filter(([, n]) => n > 0).map(([k, n]) => `${unite(k)?.icone || ''} ${n} ${e(unite(k)?.nom || k)}`).join(' · ') || '—';
+
+// --- armées
+export function vueArmee(id) {
+  const a = J.etat.armees.find(x => x.id === id);
+  if (!a) return null;
+  const v = J.etat.villes.find(x => x.case === a.case);
+  return `<div class="boite"><div class="ligne"><span class="k">Position</span><span class="v">${v ? '🏰 ' + e(v.nom) : NOM_T[J.carte.terrain[a.case]]}</span></div><div class="ligne"><span class="k">Effectif</span><span class="v">${a.effectif} soldats</span></div><div class="ligne"><span class="k">Puissance</span><span class="v">⚔ ${Math.round(a.att)} · 🛡 ${Math.round(a.def)}</span></div><div class="ligne"><span class="k">Ordres</span><span class="v">${a.chemin.length ? `🚶 En marche : ${a.chemin.length} cases, ~${a.mois} mois` : '⛺ Stationnée'}</span></div><div class="mini" style="margin-top:4px">${unitesTexte(a.unites)}</div></div>
+  <div class="btns"><button class="btn" data-a="deplacer" data-v="${a.id}">🚩 Donner une destination</button><button class="btn b2" data-a="diviser" data-v="${a.id}">✂️ Diviser</button><button class="btn b2" data-a="centrer" data-v="${a.id}">🎯</button>${a.chemin.length ? `<button class="btn rouge" data-a="halte" data-v="${a.id}">✋ Halte</button>` : ''}</div>
+  <p class="mini">Les armées marchent à la fin du mois (neige : moitié moins vite, boue sous la pluie). Une armée sur une ville la défend ; sur une ville ennemie, elle l'assiège. ${J.etat.joueur.port ? '⚓ Votre port permet de traverser la mer.' : 'Un port permet de traverser la mer.'}</p>`;
+}
+function vueArmees() {
+  const E = J.etat, mien = E.armees.filter(a => a.proprio === 0), menaces = E.armees.filter(a => a.proprio !== 0 && estEnnemi(a.proprio) && a.chemin.length);
+  let h = mien.length ? '' : '<p class="mini">Aucune armée. Construisez une Caserne pour recruter.</p>';
+  for (const a of mien) {
+    const v = E.villes.find(x => x.case === a.case);
+    h += `<div class="boite"><h4>${v ? '🏰 ' + e(v.nom) : '⛺ ' + NOM_T[J.carte.terrain[a.case]]} · ${a.effectif} soldats</h4><div class="mini">${unitesTexte(a.unites)}</div><div class="mini">${a.chemin.length ? `🚶 En marche (~${a.mois} mois)` : 'Stationnée'} · ⚔ ${Math.round(a.att)} 🛡 ${Math.round(a.def)}</div><div class="btns"><button class="btn" data-a="armee" data-v="${a.id}">Commander</button><button class="btn b2" data-a="centrer" data-v="${a.id}">🎯</button></div></div>`;
+  }
+  if (menaces.length) h += `<div class="boite" style="border-color:#c0392b"><h4>⚠️ Menaces en approche</h4>${menaces.map(a => { const fin = a.chemin[a.chemin.length - 1], v = E.villes.find(x => x.case === fin); return `<div class="ligne"><span>${pastille(a.proprio)}${e(roy(a.proprio).nom)} · ${a.effectif} soldats → ${v ? e(v.nom) : '?'} (~${a.mois} mois)</span><button class="btn b2" data-a="centrer" data-v="${a.id}">🎯</button></div>`; }).join('')}</div>`;
+  return h + `<p class="mini">Solde : ${(E.joueur.soldats * 0.5).toFixed(0)} 🪙 par mois pour ${E.joueur.soldats} soldats.</p>`;
+}
+let partage = {};
+async function diviser(id) {
+  const a = J.etat.armees.find(x => x.id === id);
+  if (!a) return;
+  partage = {};
+  for (const u in a.unites) partage[u] = Math.floor(a.unites[u] / 2);
+  const html = `<p>Unités de la nouvelle armée :</p>${Object.keys(a.unites).map(u => `<div class="ligne"><span>${unite(u).icone} ${e(unite(u).nom)} <span class="mini">(${a.unites[u]})</span></span><span class="pas"><button data-u="${u}" data-d="-1">−</button><b id="pt_${u}">${partage[u]}</b><button data-u="${u}" data-d="1">+</button></span></div>`).join('')}`;
+  const p = modale('✂️ Diviser l\'armée', html, [{ l: 'Former', v: true }, { l: 'Annuler', c: 'b2', v: false }]);
+  setTimeout(() => document.querySelectorAll('#modale-boite .pas button').forEach(b => (b.onclick = () => { const u = b.dataset.u; partage[u] = Math.max(0, Math.min(a.unites[u], partage[u] + +b.dataset.d)); document.getElementById('pt_' + u).textContent = partage[u]; })), 20);
+  if (!await p) return;
+  const r = await A.cmd({ action: 'diviser', armee: id, unites: partage });
+  if (!r.ok) return annonce('❌ ' + r.msg, 'guerre');
+  annonce(r.msg, 'bon');
+  A.choisirArmee(r.armee);
+  A.modeDeplacer(r.armee);
+}
+
+// --- diplomatie
+let marcheDe = null;
+function relation(r) { const p = (r.relation + 100) / 2; return `<div class="relation"><i style="left:calc(${p}% - 2px)"></i></div><div class="mini">Relation : <b>${Math.round(r.relation)}</b> · ${e(r.caractere)}</div>`; }
+function vueDiplomatie() {
+  const E = J.etat;
+  if (marcheDe != null) return vueMarche(roy(marcheDe));
+  const P = E.royaumes[0].puissance, com = E.joueur.comptoir || E.joueur.port;
+  let h = `<p class="mini">Votre puissance : <b>${P}</b>. ${com ? '⚖️ Commerce possible.' : 'Construisez un Comptoir de commerce pour commercer.'}</p>`;
+  for (const r of E.royaumes.filter(x => !x.joueur)) {
+    if (!r.vivant) { h += `<div class="boite" style="opacity:.5"><h4>${pastille(r.id)}${e(r.nom)}</h4><div class="mini">☠️ Anéanti</div></div>`; continue; }
+    const villes = E.villes.filter(v => v.proprio === r.id);
+    h += `<div class="boite"><div style="display:flex;justify-content:space-between;align-items:center"><h4 style="margin:0">${pastille(r.id)}${e(r.nom)}</h4><span class="statut ${r.statut}">${STATUT[r.statut] || r.statut}</span></div>${relation(r)}
+    <div class="mini">🏰 ${villes.map(v => `${e(v.nom)} (${v.niveau})`).join(', ')} · ⚔ ${r.puissance}${r.puissance > P * 1.3 ? ' <span style="color:#f98">(plus fort)</span>' : r.puissance < P * 0.7 ? ' <span style="color:#8f8">(plus faible)</span>' : ''} · 💡 ${r.techs} techs${r.commerce ? ' · 🛤️ route' : ''}</div>
+    <div class="mini">Vend bon marché : ${r.surplus.map(x => res(x).icone).join(' ')} · Achète cher : ${r.demande.map(x => res(x).icone).join(' ')}</div>
+    <div class="btns"><button class="btn b2" data-a="diplo" data-r="${r.id}" data-v="cadeau">🎁 Cadeau 100🪙</button>
+    ${r.statut === 'guerre' ? `<button class="btn vert" data-a="diplo" data-r="${r.id}" data-v="paix">🕊️ Paix</button>` : `<button class="btn rouge" data-a="diplo" data-r="${r.id}" data-v="guerre">⚔️ Guerre</button>`}
+    ${r.statut !== 'guerre' && r.statut !== 'alliance' ? `<button class="btn b2" data-a="diplo" data-r="${r.id}" data-v="alliance">🤝 Alliance</button>` : ''}
+    ${r.statut !== 'guerre' && !r.commerce ? `<button class="btn b2" data-a="diplo" data-r="${r.id}" data-v="route">🛤️ Route 150🪙</button>` : ''}
+    ${r.statut !== 'guerre' ? `<button class="btn" data-a="marche" data-r="${r.id}">⚖️ Marché</button>` : ''}
+    <button class="btn b2" data-a="diplo" data-r="${r.id}" data-v="tribut">💰 Tribut</button></div></div>`;
+  }
+  return h;
+}
+function vueMarche(r) {
+  const E = J.etat;
+  let h = `<div class="btns" style="margin-bottom:8px"><button class="btn b2" data-a="retour">← Retour</button></div><div class="mini" style="margin-bottom:6px">${pastille(r.id)}<b>${e(r.nom)}</b> · trésor ${r.tresor} 🪙 · lots de 10</div>`;
+  if (!E.joueur.comptoir && !E.joueur.port) return h + '<p>Il vous faut un <b>Comptoir de commerce</b> ou un <b>Port</b>.</p>';
+  for (const [k, [achat, vente]] of Object.entries(r.prix)) {
+    const tag = r.surplus.includes(k) ? ' 🟢' : r.demande.includes(k) ? ' 🔴' : '';
+    h += `<div class="ligne"><span>${res(k).icone} ${e(res(k).nom)}${tag} <span class="mini">(${Math.floor(E.joueur.stock[k] || 0)})</span></span><span style="display:flex;gap:5px"><button class="btn b2" data-a="echange" data-r="${r.id}" data-v="${k}" data-s="1">Acheter ${achat}🪙</button><button class="btn" data-a="echange" data-r="${r.id}" data-v="${k}" data-s="0">Vendre +${vente}🪙</button></span></div>`;
+  }
+  return h + '<p class="mini">🟢 surplus (achat avantageux) · 🔴 demande (vente avantageuse). De bonnes relations améliorent les prix.</p>';
+}
+
+// --- royaume
+let ongletRoyaume = 'apercu';
+function vueRoyaume() {
+  const E = J.etat, j = E.joueur, rv = j.revenus || {};
+  let h = `<div class="onglets">${[['apercu', '👑 Aperçu'], ['sciences', '💡 Sciences'], ['stocks', '📦 Stocks'], ['victoire', '🏆 Victoire'], ['journal', '📜 Journal']].map(([k, n]) => `<button class="onglet ${ongletRoyaume === k ? 'on' : ''}" data-a="ktab" data-v="${k}">${n}</button>`).join('')}</div>`;
+  if (ongletRoyaume === 'apercu') {
+    h += `<div class="boite"><h4>👥 Population</h4><div class="ligne"><span class="k">Habitants / logements</span><span class="v">${j.pop} / ${j.logement}</span></div><div class="ligne"><span class="k">Ouvriers libres</span><span class="v">👷 ${j.ouvriers_libres}</span></div><div class="ligne"><span class="k">Soldats</span><span class="v">🛡 ${j.soldats}</span></div><div class="ligne"><span class="k">Consommation</span><span class="v">🍽️ ${(j.pop * 0.3).toFixed(1)}/mois · variété ${j.variete}</span></div></div>`;
+    h += `<div class="boite"><h4>${j.bonheur >= 60 ? '😊' : j.bonheur >= 35 ? '😐' : '😠'} Bonheur ${Math.round(j.bonheur)} %</h4>${(j.detail_bonheur || []).map(([k, v]) => `<div class="ligne"><span class="k">${e(k)}</span><span class="v" style="color:${v > 0 ? '#8f8' : v < 0 ? '#f98' : '#ccc'}">${v > 0 ? '+' : ''}${Math.round(v)}</span></div>`).join('') || '<div class="mini">Calculé à la fin du premier mois.</div>'}</div>`;
+    h += `<div class="boite"><h4>🪙 Finances du mois</h4><div class="ligne"><span class="k">Impôts</span><span class="v">+${(rv.impots || 0).toFixed(0)}</span></div><div class="ligne"><span class="k">Routes commerciales</span><span class="v">+${(rv.commerce || 0).toFixed(0)}</span></div><div class="ligne"><span class="k">Entretien</span><span class="v">−${(rv.entretien || 0).toFixed(0)}</span></div><div class="ligne"><span class="k">Taux d'imposition</span><span class="v btns" style="margin:0">${[['bas', 'Bas'], ['normal', 'Normal'], ['eleve', 'Élevé']].map(([k, n]) => `<button class="onglet ${j.impots === k ? 'on' : ''}" data-a="impots" data-v="${k}">${n}</button>`).join('')}</span></div></div>`;
+  } else if (ongletRoyaume === 'sciences') {
+    const cours = j.recherche ? tech(j.recherche) : null;
+    h += `<div class="boite"><div class="ligne"><span class="k">Savoir accumulé</span><span class="v">💡 ${Math.floor(j.savoir)} (+${j.savoir_mois.toFixed(1)}/mois)</span></div>${cours ? `<div class="mini">Recherche : <b>${e(cours.nom)}</b> — ${Math.floor(j.savoir)}/${cours.cout}</div><div class="jauge"><i style="width:${Math.min(100, j.savoir / cours.cout * 100)}%"></i></div>` : '<div class="mini">Choisissez une technologie : le savoir vient de la population, des écoles et des académies.</div>'}</div>`;
+    for (const t of R().techs) {
+      const a = j.techs.includes(t.cle), tot = E.annee < t.annee, enc = j.recherche === t.cle;
+      h += `<div class="tech ${a ? 'acquise' : ''} ${enc ? 'en-cours' : ''}"><span><b>${a ? '✅' : tot ? '⏳' : '💡'} ${e(t.nom)}</b> <span class="mini">(${t.annee})</span><br><span class="mini">${e(t.desc)}</span></span>${a ? '' : tot ? `<span class="mini">dès ${t.annee}</span>` : enc ? '<span class="mini">en cours</span>' : `<button class="btn b2" data-a="tech" data-v="${t.cle}">${t.cout} 💡</button>`}</div>`;
+    }
+  } else if (ongletRoyaume === 'stocks') {
+    h += `<div class="boite">${R().ressources.map(r => `<div class="ligne"><span>${r.icone} ${e(r.nom)}</span><span class="v">${Math.floor(j.stock[r.cle] || 0)}${r.cle === 'or' ? '' : ' / ' + Math.floor(j.capacite[r.cle])}${j.bilan[r.cle] ? ` <small style="color:${j.bilan[r.cle] > 0 ? '#8f8' : '#f98'}">${j.bilan[r.cle] > 0 ? '+' : ''}${Math.round(j.bilan[r.cle])}</small>` : ''}</span></div>`).join('')}</div><p class="mini">Entrepôts : +200 par ressource · Greniers : +300 de vivres. Les fermes ne produisent rien l'hiver : stockez !</p>`;
+  } else if (ongletRoyaume === 'victoire') {
+    const ais = E.royaumes.filter(r => !r.joueur), vivants = ais.filter(r => r.vivant);
+    h += `<div class="boite"><h4>⚔️ Conquête</h4><div class="mini">Anéantir tous les rivaux : ${ais.length - vivants.length}/${ais.length}</div></div>
+    <div class="boite"><h4>👑 Prospérité</h4><div class="mini">Capitale au rang Cité (${j.niveau_capitale}/5) · Palais royal ${E.batiments.some(b => b.proprio === 0 && b.cle === 'palais' && !b.reste) ? '✅' : '❌'} · 400 habitants (${j.pop})</div></div>
+    <div class="boite"><h4>🤝 Diplomatie</h4><div class="mini">Alliance avec tous les survivants : ${vivants.filter(r => r.statut === 'alliance').length}/${vivants.length}</div></div>
+    <div class="boite"><h4>⏳ 1850</h4><div class="mini">En décembre 1850, le royaume le plus puissant l'emporte.</div></div>`;
+  } else h += `<div class="boite mini">${E.journal.map(l => `<div class="evt">${e(l)}</div>`).join('') || 'Rien à signaler.'}</div>`;
+  return h;
+}
+
+// --- menu
+function vueMenu() {
+  return `<div class="btns" style="flex-direction:column">
+    <button class="btn" data-a="menu" data-v="sauver">💾 Sauvegarder la partie</button>
+    <button class="btn b2" data-a="menu" data-v="charger">📂 Charger une partie</button>
+    <button class="btn b2" data-a="menu" data-v="nouvelle">🗺️ Nouvelle partie (régler la carte)</button>
+    <button class="btn b2" data-a="menu" data-v="ombres">🌗 Ombres : ${J.ombres ? 'oui' : 'non'}</button>
+    <button class="btn b2" data-a="menu" data-v="aide">❓ Comment jouer</button>
+    <button class="btn b2" data-a="menu" data-v="reseau">📱 Jouer depuis un autre appareil</button></div>
+    <p class="mini" style="margin-top:10px">Clavier : ZQSD / flèches = déplacer · E / R = tourner · Entrée = fin du mois · Échap = annuler. Version ${e(J.info?.version || '')}. ${e(J.info?.maj || '')}</p>`;
+}
+
+// --- météo
+function panneauMeteo() {
+  const E = J.etat, m = E.meteo;
+  ouvrirFeuille(`${ICONE_METEO[m.genre]} ${E.date}`, () => `<div class="boite"><div class="ligne"><span class="k">Temps du mois</span><span class="v">${ICONE_METEO[m.genre]} ${NOM_METEO[m.genre]}</span></div><div class="ligne"><span class="k">Température</span><span class="v">${m.temperature.toFixed(1)} °C</span></div><div class="ligne"><span class="k">Vent</span><span class="v">${m.vent > 0.8 ? 'Violent' : m.vent > 0.5 ? 'Fort' : m.vent > 0.25 ? 'Modéré' : 'Faible'}</span></div><div class="ligne"><span class="k">Neige au sol</span><span class="v">${Math.round(m.neige_sol * 100)} %</span></div>${m.secheresse > 0.6 ? `<div class="ligne"><span class="k">Sécheresse</span><span class="v">${m.secheresse > 1 ? 'grave' : 'menace'}</span></div>` : ''}</div>
+  ${m.historique ? `<div class="boite"><h4>📜 Histoire</h4><div class="mini">${e(m.historique)}</div></div>` : ''}
+  <div class="boite"><h4>Effets ce mois-ci</h4>${(m.effets || []).map(x => `<div class="evt">${e(x)}</div>`).join('') || '<div class="mini">Aucun effet notable.</div>'}<div class="mini">Récoltes ×${m.cultures.toFixed(2)} (en plus de la saison) · marches ×${m.mouvement.toFixed(2)}</div></div>
+  <div class="boite"><h4>Prévisions du mois prochain</h4><div class="prev">${E.previsions.map(p => `<span>${ICONE_METEO[p.genre]} ${p.pourcent} %</span>`).join('')}</div></div>`);
+}
+
+// --- récapitulatif du mois
+export function recap(rapport, etat) {
+  const b = rapport.bilan || {}, j = etat.joueur;
+  const lignes = Object.entries(b).filter(([, v]) => Math.abs(v) >= 1).sort((x, y) => y[1] - x[1]);
+  ouvrirFeuille(`📜 ${e(rapport.date)} — bilan`, () => `${rapport.effets_meteo?.length ? `<div class="boite"><h4>${ICONE_METEO[rapport.meteo?.genre] || ''} ${NOM_METEO[rapport.meteo?.genre] || ''}</h4>${rapport.effets_meteo.map(x => `<div class="evt meteo">${e(x)}</div>`).join('')}</div>` : ''}
+    <div class="boite"><h4>Événements</h4>${rapport.evenements.map(ev => `<div class="evt ${ev.genre}">${e(ev.texte)}</div>`).join('') || '<div class="mini">Un mois paisible.</div>'}</div>
+    <div class="boite"><h4>Stocks</h4><div class="prev">${lignes.map(([r, v]) => `<span style="color:${v > 0 ? '#9f9' : '#f99'}">${res(r).icone} ${v > 0 ? '+' : ''}${Math.round(v)}</span>`).join('') || '<span>—</span>'}</div>
+    <div class="mini" style="margin-top:6px">👥 ${rapport.pop_avant} → ${rapport.pop_apres} habitants · bonheur ${Math.round(j.bonheur)} %</div></div>
+    <div class="boite"><h4>${ICONE_METEO[etat.meteo.genre]} ${e(etat.date)} : ${NOM_METEO[etat.meteo.genre]}, ${Math.round(etat.meteo.temperature)} °C</h4>${(etat.meteo.effets || []).map(x => `<div class="evt">${e(x)}</div>`).join('') || '<div class="mini">Pas d\'effet particulier.</div>'}</div>`, false);
+}

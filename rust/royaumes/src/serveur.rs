@@ -102,6 +102,9 @@ impl App {
                     ("GET", "/api/etat") => (200, vue::etat(p)),
                     ("POST", "/api/cmd") => {
                         let r = commandes::executer(p, &entree);
+                        if entree.get("action").and_then(Value::as_str) == Some("cases_valides") {
+                            return (200, r.unwrap_or_else(|m| json!({"ok": false, "msg": m})));
+                        }
                         let etat = vue::etat(p);
                         match r {
                             Ok(mut v) => {
@@ -430,7 +433,7 @@ mod essais {
         app.partie = Some(Partie::nouvelle(Options::default()));
         let (c, v) = app.api("GET", "/api/etat", b"");
         assert_eq!(c, 200);
-        assert_eq!(v["date"], "Janvier 1700");
+        assert_eq!(v["date"], "Avril 1700");
         let (_, v) = app.api("POST", "/api/cmd", br#"{"action":"impots","niveau":"bas"}"#);
         assert_eq!(v["ok"], true);
         assert_eq!(v["etat"]["joueur"]["impots"], "bas");

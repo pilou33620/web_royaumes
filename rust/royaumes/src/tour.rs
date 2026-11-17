@@ -105,6 +105,9 @@ impl Partie {
             self.royaumes[0].quete += 1;
         }
         self.victoire(&mut rapport);
+        if self.fin.as_ref().is_some_and(|f| !f.victoire) {
+            self.propositions.clear();
+        }
         // mois suivant
         self.tour += 1;
         self.meteo = Meteo::tirer(&self.meteo, self.tour, &mut self.hasard);
@@ -932,7 +935,7 @@ mod essais {
             let r = p.fin_du_mois();
             assert!(!r.date.is_empty());
         }
-        assert_eq!(p.tour, 24);
+        assert_eq!(p.tour, 24 + crate::partie::TOUR_DEPART);
         assert!(p.joueur().pop >= 1);
         assert!(p.batiments.iter().any(|b| b.cle == "bucheron" && b.fini()));
         assert!(p.joueur().stock["bois"] >= 0.0);
