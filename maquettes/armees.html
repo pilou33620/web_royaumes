@@ -128,7 +128,7 @@ function canon(L, P, x, z) {
 }
 function fourgon(L, x, z) {
   put(L, boite(1.5, 0.5, 2.6), 0x8a6a4a, x, 0.9, z, 0, 0.05);
-  put(L, new THREE.CylinderGeometry(0.78, 0.78, 2.6, 12, 1, false, -Math.PI / 2, Math.PI).rotateX(Math.PI / 2), 0xe9e2d0, x, 1.15, z, 0, 0.05);
+  put(L, new THREE.CylinderGeometry(0.78, 0.78, 2.6, 12, 1, false, -Math.PI / 2, Math.PI).rotateX(-Math.PI / 2), 0xe9e2d0, x, 1.15, z, 0, 0.05);
   for (const [dx, dz] of [[-0.8, -0.8], [0.8, -0.8], [-0.8, 0.8], [0.8, 0.8]]) { const r = cyl(0.42, 0.42, 0.12, 12); r.rotateZ(Math.PI / 2); put(L, r, 0x4a3420, x + dx, 0.42, z + dz, 0, 0.05); }
   cheval(L, x, z + 2.7);
 }
@@ -148,7 +148,7 @@ function armee(P, roy) {
   put(L, boite(0.05, 1.1, 1.6), roy, -0.2, 3.95, 1.25, 0, 0.04); put(L, boite(0.06, 0.25, 1.6), BLANC, -0.2, 3.95, 1.25, 0, 0); put(L, boite(0.06, 1.1, 0.25), BLANC, -0.2, 3.95, 1.25, 0, 0);
   fantassin(L, P, 0.2, 0.4, roy);
   cavalier(L, P, -1.6, 0, roy, P.cav === 'cuirassier' ? 'officier' : P.cav);
-  if (P.fourgon) fourgon(L, 3.2, -4.6);
+  if (P.fourgon) fourgon(L, -5.8, -3); // sur le flanc gauche, à l'écart des attelages
   // le sol : une case de pré
   put(L, cyl(9.65, 10, 1, 6), 0x84c450, 1.2, -0.5, 0, 0, 0);
   return fige(L);

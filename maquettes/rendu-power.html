@@ -45,6 +45,8 @@ figure { margin: 0; }
       <button data-epoque="ancien" aria-pressed="true">1700</button><button data-epoque="lumieres" aria-pressed="false">Lumières</button><button data-epoque="empire" aria-pressed="false">Empire</button><button data-epoque="industrie" aria-pressed="false">Industrie</button></div>
     <div class="groupe" role="group" aria-label="Saison"><span>Saison</span>
       <button data-saison="1" aria-pressed="false">Printemps</button><button data-saison="2" aria-pressed="true">Été</button><button data-saison="3" aria-pressed="false">Automne</button><button data-saison="0" aria-pressed="false">Hiver</button></div>
+    <div class="groupe" role="group" aria-label="Armée"><span>Armée</span>
+      <button data-palier="0" aria-pressed="true" title="Mousquets et piques">1700</button><button data-palier="1" aria-pressed="false" title="Fusil à silex et baïonnette">Silex</button><button data-palier="2" aria-pressed="false" title="Système Gribeauval">Gribeauval</button><button data-palier="3" aria-pressed="false" title="Levée en masse">Levée en masse</button><button data-palier="4" aria-pressed="false" title="Fusil à percussion">Percussion</button><button data-palier="5" aria-pressed="false" title="Chemin de fer">Chemin de fer</button></div>
     <div class="groupe" role="group" aria-label="Heure"><span>Heure</span>
       <button data-heure="jour" aria-pressed="true">Jour</button><button data-heure="aube" aria-pressed="false">Aube</button><button data-heure="nuit" aria-pressed="false">Nuit</button></div>
   </div>
@@ -63,7 +65,7 @@ figure { margin: 0; }
         <li>Même lumière : ciel bleuté, soleil chaud, ombres portées ; soleil doré à l'aube, lune bleutée la nuit et fenêtres allumées.</li>
         <li>Toits en matériaux de l'époque, une teinte par maison : chaume et tuiles brunes en 1700, tuiles rouges et orangées aux Lumières, ardoise et tuiles sous l'Empire, ardoise et brique à l'ère industrielle. La couleur du royaume reste sur les drapeaux, les volets et les uniformes.</li>
         <li>Routes de web_power selon l'époque : chemins de terre, puis pavés (Empire), puis chaussées empierrées (Industrie), avec des charrettes à cheval.</li>
-        <li>Armée en formation, construite comme le reste : une ligne de fusiliers devant, baïonnette au canon, le porte-drapeau et un officier à cheval au centre, les cavaliers derrière, deux canons et leurs servants sur le flanc ; tricorne, puis bicorne sous l'Empire, puis shako.</li>
+        <li>L'armée est une icône fixe (ligne d'infanterie devant, drapeau et officier au centre, cavalerie derrière, deux canons sur le flanc) dont l'allure suit la technologie militaire : piques et mousquets en 1700, baïonnettes et grenadiers avec le fusil à silex, canons Gribeauval attelés, bicornes, cuirassiers et hussards avec la levée en masse, shakos, capotes, pantalons garance et tirailleurs avec la percussion, képis et fourgon avec le chemin de fer. Elle suit l'époque choisie, ou les boutons « Armée ».</li>
         <li>Vie de la carte de web_power : vaches dans les prés, cerfs, biches, sangliers et renards aux lisières, bateaux, vol d'oiseaux en V.</li>
       </ul>
     </section>
@@ -470,44 +472,101 @@ const BATR = {
   },
 };
 
-// ---- armée en formation : une ligne d'infanterie devant (+z), la cavalerie derrière, deux canons sur le flanc droit
-const PEAU = 0xf0c9a0, BLANC = 0xf2efe6, NOIR = 0x1f1f1f;
-function chapeau(L, x, y, z) {
-  if (EPOQUE === 'empire') put(L, boite(0.9, 0.35, 0.3), NOIR, x, y + 0.1, z, 0, 0.06); // bicorne
-  else if (EPOQUE === 'industrie') { put(L, cyl(0.3, 0.27, 0.5, 8), NOIR, x, y + 0.2, z, 0, 0.06); put(L, boite(0.1, 0.18, 0.1), 0xd9d9d9, x, y + 0.5, z + 0.2, 0, 0); } // shako et plumet
-  else put(L, cone(0.55, 0.3, 3), NOIR, x, y + 0.1, z, Math.PI, 0.06); // tricorne
+// ---- armées : une icône fixe dont l'allure suit le palier technologique (même code que maquettes/armees.html)
+const PEAU = 0xf0c9a0, BLANC = 0xf2efe6, NOIR = 0x1f1f1f, ACIER = 0xd9d9d9, BRONZE = 0xb08d57, FER = 0x2b2b2b, GARANCE = 0xb8322a, CHEVAL = 0x6b4226;
+const PALIERS = [
+  { date: '1700 · au départ', nom: 'Mousquets et piques', tete: 'tricorne', habit: 'long', piques: true, baionnette: false, cav: 'dragon', art: 'ancienne',
+    notes: ['Mousquetaires en justaucorps long et tricorne, mousquet sans baïonnette.', 'Deux piquiers au centre de la ligne, longues piques dressées.', 'Dragons à cheval, tricorne.', 'Lourds canons de bronze sur affûts rouges à grandes roues.'] },
+  { date: '1703 · Fusil à silex et baïonnette', nom: 'Fini les piques', tete: 'tricorne', habit: 'long', piques: false, baionnette: true, grenadiers: true, cav: 'dragon', art: 'ancienne',
+    notes: ['Les piques disparaissent : toute la ligne a le fusil et la baïonnette.', 'Deux grenadiers en bonnet à plaque au bout de la ligne.', 'Cavalerie et canons inchangés.'] },
+  { date: '1765 · Système Gribeauval', nom: 'Artillerie moderne', tete: 'tricorne', habit: 'long', piques: false, baionnette: true, grenadiers: true, cav: 'dragon', art: 'gribeauval',
+    notes: ['Canons plus courts et plus légers, affûts peints en vert olive.', 'Avant-train attelé de deux chevaux derrière chaque pièce.', 'Infanterie et cavalerie inchangées.'] },
+  { date: '1793 · Levée en masse', nom: 'Les armées de la nation', tete: 'bicorne', habit: 'court', piques: false, baionnette: true, grenadiers: true, cav: 'cuirassier', hussard: true, art: 'gribeauval',
+    notes: ['Fusiliers en habit court et bicorne, guêtres blanches.', 'Cuirassiers : casque à crinière et cuirasse d\'acier.', 'Un hussard en colback et pelisse rejoint la cavalerie.'] },
+  { date: '1825 · Fusil à percussion', nom: 'Capotes et pantalons garance', tete: 'shako', habit: 'capote', pantalon: GARANCE, piques: false, baionnette: true, chasseurs: true, cav: 'cuirassier', lanciers: true, art: 'gribeauval',
+    notes: ['Shako, capote longue et pantalon rouge garance.', 'Deux chasseurs à pied vert sombre déployés en tirailleurs devant la ligne.', 'Un lancier à fanion dans la cavalerie.'] },
+  { date: '1832 · Chemin de fer', nom: 'Le train des équipages', tete: 'kepi', habit: 'capote', pantalon: GARANCE, piques: false, baionnette: true, chasseurs: true, cav: 'cuirassier', lanciers: true, art: 'gribeauval', fourgon: true,
+    notes: ['Le képi remplace le shako.', 'Un fourgon bâché du train des équipages suit l\'armée.', 'Le reste comme au palier précédent.'] },
+];
+
+function tete(L, P, x, y, z, couleurRoy) {
+  if (P.tete === 'bicorne') put(L, boite(0.95, 0.35, 0.3), NOIR, x, y + 0.1, z, 0, 0.05);
+  else if (P.tete === 'shako') { put(L, cyl(0.3, 0.26, 0.5, 8), NOIR, x, y + 0.2, z, 0, 0.05); put(L, boite(0.1, 0.2, 0.1), couleurRoy, x, y + 0.52, z + 0.18, 0, 0); }
+  else if (P.tete === 'kepi') { put(L, cyl(0.24, 0.28, 0.32, 8), couleurRoy, x, y + 0.12, z, 0, 0.05); put(L, boite(0.4, 0.04, 0.2), NOIR, x, y, z + 0.2, 0, 0); }
+  else put(L, cone(0.55, 0.3, 3), NOIR, x, y + 0.1, z, Math.PI, 0.05); // tricorne
 }
-function fantassin(L, x, z, habit) {
-  for (const dx of [-0.16, 0.16]) put(L, boite(0.24, 0.9, 0.3), BLANC, x + dx, 0.45, z, 0, 0.06);
-  put(L, boite(0.75, 0.95, 0.5), habit, x, 1.35, z, 0, 0.08);
-  put(L, boite(0.8, 0.12, 0.55), BLANC, x, 1.15, z, 0, 0);
-  put(L, sphere(0.28, 1), PEAU, x, 2.1, z, 0, 0.06); chapeau(L, x, 2.32, z);
-  put(L, boite(0.09, 2.2, 0.09), 0x5b3a1e, x + 0.42, 1.5, z + 0.18, 0, 0); put(L, boite(0.04, 0.4, 0.04), 0xd9d9d9, x + 0.42, 2.8, z + 0.18, 0, 0); // fusil et baïonnette
+function fantassin(L, P, x, z, roy, genre = 'ligne') {
+  const habit = genre === 'chasseur' ? 0x2f4a32 : roy, pant = P.pantalon || BLANC;
+  for (const dx of [-0.16, 0.16]) put(L, boite(0.24, 0.9, 0.3), pant, x + dx, 0.45, z, 0, 0.05);
+  const long = P.habit === 'long' || P.habit === 'capote';
+  put(L, boite(0.75, long ? 1.25 : 0.95, 0.5), P.habit === 'capote' && genre !== 'chasseur' ? 0x5a6a86 : habit, x, long ? 1.2 : 1.35, z, 0, 0.07);
+  if (P.habit === 'capote' && genre !== 'chasseur') put(L, boite(0.78, 0.25, 0.52), roy, x, 1.75, z, 0, 0); // col et épaulettes à la couleur du royaume
+  put(L, boite(0.8, 0.1, 0.55), BLANC, x, 1.15, z, 0, 0);
+  put(L, sphere(0.28, 1), PEAU, x, 2.1, z, 0, 0.05);
+  if (genre === 'grenadier') { put(L, cone(0.3, 0.8, 4), roy, x, 2.65, z, Math.PI / 4, 0.05); put(L, boite(0.4, 0.5, 0.06), BRONZE, x, 2.55, z + 0.2, 0, 0); }
+  else if (genre === 'piquier') { tete(L, P, x, 2.32, z, roy); put(L, boite(0.08, 4.6, 0.08), BOIS, x + 0.4, 2.3, z + 0.15, 0, 0); put(L, cone(0.1, 0.4, 4), ACIER, x + 0.4, 4.8, z + 0.15, 0, 0); return; }
+  else tete(L, P, x, 2.32, z, roy);
+  put(L, boite(0.09, 2.2, 0.09), BOIS, x + 0.42, 1.5, z + 0.18, 0, 0);
+  if (P.baionnette) put(L, boite(0.04, 0.45, 0.04), ACIER, x + 0.42, 2.82, z + 0.18, 0, 0);
 }
-function cavalier(L, x, z, habit) {
-  put(L, boite(0.7, 0.85, 1.9), 0x6b4226, x, 1.35, z, 0, 0.08); put(L, boite(0.4, 0.9, 0.45), 0x6b4226, x, 1.95, z + 0.95, 0, 0.06); put(L, boite(0.35, 0.35, 0.7), 0x5a3720, x, 2.3, z + 1.25, 0, 0.06);
+function cheval(L, x, z, robe = CHEVAL) {
+  put(L, boite(0.7, 0.85, 1.9), robe, x, 1.35, z, 0, 0.07); put(L, boite(0.4, 0.9, 0.45), robe, x, 1.95, z + 0.95, 0, 0.05); put(L, boite(0.35, 0.35, 0.7), robe, x, 2.3, z + 1.25, 0, 0.05);
   for (const [dx, dz] of [[-0.22, -0.7], [0.22, -0.7], [-0.22, 0.7], [0.22, 0.7]]) put(L, boite(0.16, 0.95, 0.16), 0x4a2c18, x + dx, 0.47, z + dz, 0, 0);
-  put(L, boite(0.12, 0.6, 0.12), 0x2a1d14, x, 1.5, z - 1.05, 0, 0); // queue
-  put(L, boite(0.6, 0.8, 0.45), habit, x, 2.15, z - 0.1, 0, 0.07); put(L, sphere(0.25, 1), PEAU, x, 2.8, z - 0.1, 0, 0.06); chapeau(L, x, 3, z - 0.1);
-  put(L, boite(0.06, 0.06, 1.1), 0xd9d9d9, x + 0.4, 2.3, z + 0.35, 0, 0); // sabre
+  put(L, boite(0.12, 0.6, 0.12), 0x2a1d14, x, 1.5, z - 1.05, 0, 0);
 }
-function canon(L, x, z) {
-  const fut = cyl(0.22, 0.32, 2.4, 10); fut.rotateX(Math.PI / 2 - 0.15); put(L, fut, 0x2b2b2b, x, 0.95, z + 0.3, 0, 0.08);
-  put(L, boite(0.6, 0.35, 1.8), 0x6b4a2a, x, 0.55, z - 0.3, 0, 0.06);
-  for (const dx of [-0.55, 0.55]) { const r = cyl(0.55, 0.55, 0.14, 12); r.rotateZ(Math.PI / 2); put(L, r, 0x4a3420, x + dx, 0.55, z, 0, 0.06); }
-  for (let i = 0; i < 3; i++) put(L, sphere(0.16, 0), 0x2b2b2b, x - 0.3 + i * 0.3, 0.16, z - 1.6, 0, 0);
+function cavalier(L, P, x, z, roy, genre) {
+  cheval(L, x, z, genre === 'hussard' ? 0x8a5a32 : CHEVAL);
+  const habit = genre === 'hussard' ? 0x3f6f9a : roy;
+  put(L, boite(0.6, 0.8, 0.45), habit, x, 2.15, z - 0.1, 0, 0.06);
+  put(L, sphere(0.25, 1), PEAU, x, 2.8, z - 0.1, 0, 0.05);
+  if (genre === 'cuirassier') { put(L, boite(0.64, 0.55, 0.5), ACIER, x, 2.25, z - 0.1, 0, 0.05); put(L, new THREE.SphereGeometry(0.3, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), ACIER, x, 2.95, z - 0.1, 0, 0.04); put(L, boite(0.08, 0.3, 0.55), NOIR, x, 3.2, z - 0.2, 0, 0); }
+  else if (genre === 'hussard') { put(L, cyl(0.28, 0.3, 0.5, 8), NOIR, x, 3.15, z - 0.1, 0, 0.05); put(L, boite(0.3, 0.6, 0.5), GARANCE, x - 0.42, 2.2, z - 0.1, 0, 0.04); }
+  else if (genre === 'lancier') { tete(L, P, x, 3, z - 0.1, roy); put(L, boite(0.07, 4, 0.07), BOIS, x + 0.42, 3, z + 0.1, 0, 0); put(L, boite(0.04, 0.35, 0.6), roy, x + 0.42, 4.6, z + 0.45, 0, 0); put(L, boite(0.04, 0.17, 0.6), BLANC, x + 0.42, 4.37, z + 0.45, 0, 0); }
+  else tete(L, P, x, 3, z - 0.1, roy);
+  if (genre !== 'lancier') put(L, boite(0.06, 0.06, 1.1), ACIER, x + 0.4, 2.3, z + 0.35, 0, 0);
 }
-function armeeWP(L, ex, habit) {
-  for (let i = 0; i < 6; i++) fantassin(L, -3.4 + i * 1.15, 2.4, habit);          // la ligne, devant
-  for (let i = 0; i < 3; i++) cavalier(L, -2.6 + i * 2, -2.8, habit);              // la cavalerie, derrière
-  canon(L, 5.4, 1.6); canon(L, 5.6, -1.4);                                         // l'artillerie, sur le flanc
-  fantassin(L, 4.4, 0.2, habit); fantassin(L, 6.6, -2.8, habit);                   // les servants
-  put(L, boite(0.14, 4.6, 0.14), 0x4a3420, -0.2, 2.3, 0.4, 0, 0.06); ex.drap.push([-0.2, 4, 0.4]); fantassin(L, 0.2, 0.4, habit); // le porte-drapeau
-  cavalier(L, -1.6, 0, habit);                                                     // l'officier
+function canon(L, P, x, z) {
+  const gri = P.art === 'gribeauval';
+  const fut = cyl(gri ? 0.2 : 0.24, gri ? 0.3 : 0.36, gri ? 2 : 2.9, 10); fut.rotateX(Math.PI / 2 - 0.12); put(L, fut, BRONZE, x, 1, z + (gri ? 0.3 : 0.5), 0, 0.06);
+  const affut = gri ? 0x6b7a4a : 0x8a3a2a;
+  put(L, boite(0.6, 0.35, 1.9), affut, x, 0.6, z - 0.35, 0, 0.05);
+  for (const dx of [-0.58, 0.58]) { const r = cyl(gri ? 0.55 : 0.68, gri ? 0.55 : 0.68, 0.14, 12); r.rotateZ(Math.PI / 2); put(L, r, gri ? affut : 0x4a3420, x + dx, gri ? 0.55 : 0.68, z, 0, 0.05); }
+  if (gri) { // avant-train attelé
+    put(L, boite(1.1, 0.5, 0.8), affut, x, 0.75, z - 2.1, 0, 0.05);
+    for (const dx of [-0.6, 0.6]) { const r = cyl(0.45, 0.45, 0.12, 12); r.rotateZ(Math.PI / 2); put(L, r, affut, x + dx, 0.45, z - 2.1, 0, 0.05); }
+    put(L, boite(0.08, 0.08, 1.4), BOIS, x, 0.7, z - 2.9, 0, 0);
+    for (const dx of [-0.45, 0.45]) cheval(L, x + dx, z - 4.3);
+  } else for (let i = 0; i < 3; i++) put(L, sphere(0.16, 0), FER, x - 0.3 + i * 0.3, 0.16, z - 1.7, 0, 0);
+}
+function fourgon(L, x, z) {
+  put(L, boite(1.5, 0.5, 2.6), 0x8a6a4a, x, 0.9, z, 0, 0.05);
+  put(L, new THREE.CylinderGeometry(0.78, 0.78, 2.6, 12, 1, false, -Math.PI / 2, Math.PI).rotateX(-Math.PI / 2), 0xe9e2d0, x, 1.15, z, 0, 0.05);
+  for (const [dx, dz] of [[-0.8, -0.8], [0.8, -0.8], [-0.8, 0.8], [0.8, 0.8]]) { const r = cyl(0.42, 0.42, 0.12, 12); r.rotateZ(Math.PI / 2); put(L, r, 0x4a3420, x + dx, 0.42, z + dz, 0, 0.05); }
+  cheval(L, x, z + 2.7);
+}
+function armee(P, roy) {
+  const L = lot();
+  // la ligne, devant : piquiers au centre au départ, grenadiers au bout ensuite
+  for (let i = 0; i < 6; i++) fantassin(L, P, -3.4 + i * 1.15, 2.4, roy, P.piques && (i === 2 || i === 3) ? 'piquier' : P.grenadiers && i === 5 ? 'grenadier' : 'ligne');
+  if (P.chasseurs) { fantassin(L, P, -2.6, 4.6, roy, 'chasseur'); fantassin(L, P, 1.4, 5.0, roy, 'chasseur'); } // tirailleurs en avant
+  // la cavalerie, derrière
+  const cav = [P.cav, P.hussard ? 'hussard' : P.lanciers ? 'lancier' : P.cav, P.cav];
+  cav.forEach((g, i) => cavalier(L, P, -2.6 + i * 2, -2.8, roy, g));
+  // l'artillerie, sur le flanc
+  canon(L, P, 5.4, 1.8); canon(L, P, 7.2, 1.2);
+  fantassin(L, P, 4.4, 0.4, roy); fantassin(L, P, 6.4, 0, roy);
+  // le drapeau et l'officier
+  put(L, boite(0.14, 4.6, 0.14), 0x4a3420, -0.2, 2.3, 0.4, 0, 0.05);
+  put(L, boite(0.05, 1.1, 1.6), roy, -0.2, 3.95, 1.25, 0, 0.04); put(L, boite(0.06, 0.25, 1.6), BLANC, -0.2, 3.95, 1.25, 0, 0); put(L, boite(0.06, 1.1, 0.25), BLANC, -0.2, 3.95, 1.25, 0, 0);
+  fantassin(L, P, 0.2, 0.4, roy);
+  cavalier(L, P, -1.6, 0, roy, P.cav === 'cuirassier' ? 'officier' : P.cav);
+  if (P.fourgon) fourgon(L, -5.8, -3); // sur le flanc gauche, à l'écart des attelages
+  return L;
 }
 
+
 // ---------------------------------------------------------------- bâtiments, armée et pièces animées
-let BATIS = null, EPOQUE = 'ancien';
+let BATIS = null, EPOQUE = 'ancien', PALIER = 0;
 const ailes = [], drapeaux = [], cheminees = [];
 const ROYAUME = '#2f5fa8';
 function meshBatiment(r) {
@@ -538,10 +597,8 @@ function construireBatiments() {
     }
   }
   if (ARMEE) {
-    const L = lot(), ex = { drap: [] };
-    armeeWP(L, ex, ROYAUME);
-    const grp = fige(L, BATIS); grp.scale.setScalar(ECH_BAT); grp.position.set(ARMEE.x, ARMEE.top, ARMEE.z); grp.rotation.y = 0.5; grp.updateMatrixWorld(true);
-    for (const a of ex.drap) { const f = new THREE.Mesh(new THREE.PlaneGeometry(0.22, 0.13, 6, 1).translate(0.11, 0, 0), new THREE.MeshToonMaterial({ color: ROYAUME, gradientMap: degrade, side: THREE.DoubleSide })); f.position.copy(new THREE.Vector3(...a).applyMatrix4(grp.matrixWorld)); BATIS.add(f); drapeaux.push(f); }
+    const grp = fige(armee(PALIERS[PALIER], ROYAUME), BATIS);
+    grp.scale.setScalar(ECH_BAT); grp.position.set(ARMEE.x, ARMEE.top, ARMEE.z); grp.rotation.y = 0.5; grp.translateX(-0.12);
   }
 }
 
@@ -646,7 +703,7 @@ function appliquerHeure() {
 }
 
 // ---------------------------------------------------------------- caméra : glisser pour tourner, molette ou pincer pour zoomer
-const vue = { lacet: 0.5, tangage: 0.78, d: 9.5, cible: new THREE.Vector3(centre.x, 0, centre.z), auto: true };
+const vue = { lacet: 0.5, tangage: 0.78, d: 9.5, cible: new THREE.Vector3((centre.x * 2 + (ARMEE || centre).x) / 3, 0, (centre.z * 2 + (ARMEE || centre).z) / 3), auto: true }; // la ville et l'armée dans le cadre
 const pointeurs = new Map(); let pince = 0;
 toile.addEventListener('pointerdown', e => { pointeurs.set(e.pointerId, [e.clientX, e.clientY]); toile.setPointerCapture(e.pointerId); vue.auto = false; });
 toile.addEventListener('pointermove', e => {
@@ -688,7 +745,11 @@ function choisir(attr, fn) {
   const bs = document.querySelectorAll(`[${attr}]`);
   bs.forEach(b => b.addEventListener('click', () => { fn(b.getAttribute(attr)); bs.forEach(x => x.setAttribute('aria-pressed', String(x === b))); }));
 }
-choisir('data-epoque', v => { EPOQUE = v; construirePlateau(); construireBatiments(); majFenetres(); });
+// l'armée suit l'époque (on peut aussi choisir son palier à la main)
+const PALIER_EPOQUE = { ancien: 0, lumieres: 2, empire: 3, industrie: 5 };
+function majPalier(n) { PALIER = n; document.querySelectorAll('[data-palier]').forEach(b => b.setAttribute('aria-pressed', String(+b.dataset.palier === n))); }
+choisir('data-epoque', v => { EPOQUE = v; majPalier(PALIER_EPOQUE[v]); construirePlateau(); construireBatiments(); majFenetres(); });
+choisir('data-palier', v => { PALIER = +v; construireBatiments(); });
 choisir('data-heure', v => { HEURE = v; appliquerHeure(); });
 choisir('data-saison', v => { SAISON = +v; construirePlateau(); construireBatiments(); });
 
