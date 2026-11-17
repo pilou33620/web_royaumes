@@ -3,6 +3,7 @@
 import { THREE, scene, posCase, chaqueImage, hache, cam, voisins, lerp } from './scene.js';
 import { dessus, carte, TERRE, solEn, U } from './plateau.js';
 import { parts, couleurDe } from './monde.js';
+import { DODU } from './modeles.js';
 
 export const climat = { froid: true, vent: 0.3, dir: 0, nuages: 6, gris: 0, oiseaux: true };
 const groupe = new THREE.Group();
@@ -118,7 +119,7 @@ function barque(voile) {
   return g;
 }
 const geoVillageois = new THREE.CylinderGeometry(0.03, 0.04, 0.12, 6).translate(0, 0.06, 0);
-const geoTete = new THREE.SphereGeometry(0.03, 6, 4).translate(0, 0.15, 0);
+const geoTete = DODU ? new THREE.SphereGeometry(0.042, 10, 7).translate(0, 0.16, 0) : new THREE.SphereGeometry(0.03, 6, 4).translate(0, 0.15, 0);
 const matPeau = new THREE.MeshLambertMaterial({ color: 0xf0c9a0 });
 const HABITS = [0x8b3a2a, 0x3b5998, 0x6b8e23, 0x8b6914, 0x5a4a7a, 0xcfc6b0].map(c => new THREE.MeshLambertMaterial({ color: c }));
 const matMouton = new THREE.MeshLambertMaterial({ color: 0xf4f2ea }), matTeteM = new THREE.MeshLambertMaterial({ color: 0x2b2b2b });

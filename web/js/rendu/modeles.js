@@ -32,6 +32,74 @@ const G = {
   })(),
 };
 
+// ------------------------------------------------------------------ style dodu (à l'essai : ?dodu dans l'adresse)
+// Les mêmes bâtiments, en formes plus rondes et plus trapues : boîtes aux coins arrondis, toits épais qui débordent,
+// cylindres bombés, cônes gonflés, têtes plus grosses.
+export const DODU = new URLSearchParams(location.search).has('dodu');
+/** Boîte unité (posée sur y=0) aux arêtes arrondies de rayon r ; normales exactes, donc ombrage doux. */
+function boiteRonde(r) {
+  const g = new THREE.BoxGeometry(1, 1, 1, 3, 3, 3), p = g.attributes.position, n = g.attributes.normal;
+  const v = new THREE.Vector3(), c = new THREE.Vector3();
+  for (let i = 0; i < p.count; i++) {
+    v.fromBufferAttribute(p, i);
+    // la grille à 3 segments (±1/2, ±1/6) devient : bord à ±1/2, début de l'arrondi à ±(1/2 - r)
+    v.set(...v.toArray().map(x => (Math.abs(x) < 0.4 ? Math.sign(x) * (0.5 - r) : x)));
+    c.set(...v.toArray().map(x => Math.max(-0.5 + r, Math.min(0.5 - r, x))));
+    const d = v.sub(c);
+    if (d.lengthSq() > 1e-9) d.normalize(); else d.fromBufferAttribute(n, i);
+    n.setXYZ(i, d.x, d.y, d.z);
+    p.setXYZ(i, c.x + d.x * r, c.y + d.y * r, c.z + d.z * r);
+  }
+  return g.translate(0, 0.5, 0);
+}
+function bombe(g, k) {
+  const p = g.attributes.position;
+  for (let i = 0; i < p.count; i++) { const y = p.getY(i), f = 1 + k * Math.sin(Math.PI * Math.min(1, Math.max(0, y))); p.setX(i, p.getX(i) * f); p.setZ(i, p.getZ(i) * f); }
+  g.computeVertexNormals(); return g;
+}
+/** Cône ou pyramide gonflés, avec un petit débord à la base. */
+function coneGonfle(r, cotes) {
+  const pts = [new THREE.Vector2(0, -0.03), new THREE.Vector2(r * 1.12, -0.03), new THREE.Vector2(r * 1.12, 0.03)];
+  for (let i = 1; i <= 8; i++) { const t = i / 8; pts.push(new THREE.Vector2(r * 1.05 * Math.pow(1 - t, 0.75), 0.03 + t * 0.97)); }
+  const g = new THREE.LatheGeometry(pts, cotes);
+  if (cotes === 4) g.rotateY(Math.PI / 4);
+  g.computeVertexNormals(); return g;
+}
+/** Toit à deux pans épais qui débordent, faîtage rond, pignons pleins (même gabarit que G.pignon). */
+function pignonDodu() {
+  const geos = [G.pignon.clone().scale(0.96, 0.96, 0.96)];
+  const a = Math.atan2(1, 0.5), L = Math.hypot(1, 0.5) + 0.2, e = 0.13;
+  for (const s of [1, -1]) {
+    const pan = boiteRonde(0.3).translate(0, -0.5, 0).scale(1.14, e, L);
+    pan.applyMatrix4(new THREE.Matrix4().makeRotationX(s * a));
+    const c = L / 2 - 0.06;
+    pan.translate(0, 1 - Math.sin(a) * c + e * 0.35, s * Math.cos(a) * c);
+    geos.push(pan);
+  }
+  geos.push(new THREE.CylinderGeometry(0.1, 0.1, 1.16, 10).rotateZ(Math.PI / 2).translate(0, 1.02, 0));
+  return fusionner(geos);
+}
+function fusionner(geos) {
+  const nx = geos.map(g => (g.index ? g.toNonIndexed() : g));
+  let n = 0; for (const g of nx) n += g.attributes.position.count;
+  const P = new Float32Array(n * 3), N = new Float32Array(n * 3); let o = 0;
+  for (const g of nx) { if (!g.attributes.normal) g.computeVertexNormals(); P.set(g.attributes.position.array, o * 3); N.set(g.attributes.normal.array, o * 3); o += g.attributes.position.count; }
+  const r = new THREE.BufferGeometry(); r.setAttribute('position', new THREE.BufferAttribute(P, 3)); r.setAttribute('normal', new THREE.BufferAttribute(N, 3)); return r;
+}
+const BOITE_RONDE = boiteRonde(0.2);
+if (DODU) {
+  const lèvre = boiteRonde(0.4).scale(1.14, 0.09, 1.14).translate(0, -0.03, 0);
+  Object.assign(G, {
+    cyl: bombe(new THREE.CylinderGeometry(0.5, 0.5, 1, 14, 4).translate(0, 0.5, 0), 0.09),
+    cone: coneGonfle(0.5, 12), pyr: coneGonfle(0.7071, 4),
+    boule: new THREE.SphereGeometry(0.5, 12, 8),
+    pignon: pignonDodu(),
+    mansarde: fusionner([G.mansarde.clone().scale(1.04, 1, 1.04), lèvre]),
+  });
+}
+// trapu : un peu plus bas et plus large
+const TRAPU = new THREE.Matrix4().makeScale(1.08, 0.85, 1.08);
+
 const Y = new THREE.Vector3(0, 1, 0), X = new THREE.Vector3(1, 0, 0), Z = new THREE.Vector3(0, 0, 1);
 function mat(x, y, z, sx, sy, sz, ry = 0, rx = 0, rz = 0) {
   const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz, 'YXZ'));
@@ -40,7 +108,9 @@ function mat(x, y, z, sx, sy, sz, ry = 0, rx = 0, rz = 0) {
 
 class Kit {
   constructor() { this.g = []; this.anim = []; }
-  p(geo, c, x, y, z, sx, sy, sz, ry = 0, rx = 0, rz = 0) { this.g.push(piece(geo, c, mat(x, y, z, sx, sy, sz, ry, rx, rz))); return this; }
+  p(geo, c, x, y, z, sx, sy, sz, ry = 0, rx = 0, rz = 0) {
+    if (DODU && geo === G.boite && Math.min(sx, sy, sz) > 0.05) geo = BOITE_RONDE;
+    this.g.push(piece(geo, c, mat(x, y, z, sx, sy, sz, ry, rx, rz))); return this; }
   boite(w, h, d, c, x, y, z, ry = 0) { return this.p(G.boite, c, x, y, z, w, h, d, ry); }
   groupe(x, z, ry, s, fn, y = 0) {
     const k = new Kit(); fn(k);
@@ -277,6 +347,7 @@ export function geometrieBatiment(v) {
     case 'colonie': maison(k, 0, 0, 1, S, 0); drapeau(k, 0.3, 0.2, 0.9, v.couleur); rondins(k, -0.3, 0.3); break;
     default: maison(k, 0, 0, 1, S, 0);
   }
+  if (DODU) { for (const g of k.g) g.applyMatrix4(TRAPU); for (const a of k.anim) a.pos = [a.pos[0] * 1.08, a.pos[1] * 0.85, a.pos[2] * 1.08]; }
   const r = { geo: k.geometrie(), anim: k.anim };
   cache.set(cle, r);
   if (cache.size > 900) cache.delete(cache.keys().next().value);
@@ -311,18 +382,19 @@ export function geometrieArmee(couleur, epoque, compo) {
   const habit = new THREE.Color(couleur).getHex();
   const soldat = (x, z) => {
     k.boite(0.035, 0.09, 0.04, 0xf2efe6, x - 0.025, 0, z); k.boite(0.035, 0.09, 0.04, 0xf2efe6, x + 0.025, 0, z);
-    k.boite(0.1, 0.11, 0.07, habit, x, 0.09, z);
+    const t = DODU ? 1.35 : 1; // tête plus grosse en style dodu
+    k.boite(DODU ? 0.12 : 0.1, 0.11, DODU ? 0.085 : 0.07, habit, x, 0.09, z);
     k.boite(0.11, 0.015, 0.075, 0xf2efe6, x, 0.15, z);
-    k.p(G.boule, 0xf0c9a0, x, 0.235, z, 0.07, 0.07, 0.07);
-    if (chapeau === 'tricorne') k.p(G.cone, 0x1f1f1f, x, 0.26, z, 0.11, 0.05, 0.11);
-    else if (chapeau === 'bicorne') k.boite(0.13, 0.05, 0.04, 0x1f1f1f, x, 0.26, z);
-    else { k.p(G.cyl, 0x1f1f1f, x, 0.26, z, 0.065, 0.07, 0.065); k.boite(0.02, 0.03, 0.02, 0xd9d9d9, x, 0.33, z + 0.02); }
+    k.p(G.boule, 0xf0c9a0, x, 0.235, z, 0.07 * t, 0.07 * t, 0.07 * t);
+    if (chapeau === 'tricorne') k.p(G.cone, 0x1f1f1f, x, 0.26 + (DODU ? 0.02 : 0), z, 0.11, 0.05, 0.11);
+    else if (chapeau === 'bicorne') k.boite(0.13, 0.05, 0.04, 0x1f1f1f, x, 0.26 + (DODU ? 0.02 : 0), z);
+    else { k.p(G.cyl, 0x1f1f1f, x, 0.26 + (DODU ? 0.02 : 0), z, 0.065, 0.07, 0.065); k.boite(0.02, 0.03, 0.02, 0xd9d9d9, x, 0.33 + (DODU ? 0.02 : 0), z + 0.02); }
     k.boite(0.012, 0.3, 0.012, 0x5b3a1e, x + 0.06, 0.03, z + 0.02);
   };
   const cavalier = (x, z) => {
     k.boite(0.22, 0.1, 0.08, 0x6b4226, x, 0.1, z); k.boite(0.06, 0.12, 0.06, 0x6b4226, x + 0.12, 0.16, z);
     for (const [dx, dz] of [[-0.08, -0.025], [-0.08, 0.025], [0.08, -0.025], [0.08, 0.025]]) k.boite(0.025, 0.1, 0.025, 0x4a2c18, x + dx, 0, z + dz);
-    k.boite(0.08, 0.1, 0.06, habit, x, 0.2, z); k.p(G.boule, 0xf0c9a0, x, 0.32, z, 0.06, 0.06, 0.06);
+    k.boite(0.08, 0.1, 0.06, habit, x, 0.2, z); k.p(G.boule, 0xf0c9a0, x, 0.32, z, DODU ? 0.08 : 0.06, DODU ? 0.08 : 0.06, DODU ? 0.08 : 0.06);
     k.p(chapeau === 'shako' ? G.cyl : G.cone, 0x1f1f1f, x, 0.34, z, 0.08, 0.05, 0.08);
   };
   const canon = (x, z) => {
