@@ -1,46 +1,37 @@
 // Ce qui vit sur le plateau et suit l'état de la partie : bâtiments (et chantiers), armées, bannières.
 // Joue aussi le mois sous les yeux du joueur : marches des armées et batailles.
 import { THREE, scene, posCase, chaqueImage, lerp, hache } from './scene.js';
-import { maillageBatiment, maillageChantier, geometrieArmee } from './modeles.js';
-import { dessus, solEn, MAT_LISSE } from './plateau.js';
+import { maillageBatiment, maillageChantier, maillageArmee, palierDe } from './modeles.js';
+import { dessus, solEn } from './plateau.js';
+import { toon, lot, put, fige } from './toon.js';
 import { etiquette, balayer, banniere, effet, deplacer } from './etiquettes.js';
 import { bouffee } from './vie.js';
 
 const groupe = new THREE.Group();
 scene.add(groupe);
 const batis = new Map();     // id → { cle, mesh, chantier, parts }
-const armees = new Map();    // id → { mesh, x, z, cible, anim, cle }
+let casesBaties = new Set(); // cases portant un bâtiment : l'armée s'y range au bord
+const armees = new Map();    // id → { mesh (THREE.Group), x, z, anim, cle, proprio, marche }
 export const parts = { ailes: [], drapeaux: [], cheminees: [], fumees: [] };
 let R = null;                // règles
 let couleurs = {};
+let paliers = {};            // id du royaume → palier de son armée (0 à 5)
 let selArmee = null;
 
 export function initMonde(regles) { R = regles; }
 export const couleurDe = id => couleurs[id] || '#888';
 
-function compo(unites) {
-  const c = { inf: 0, cav: 0, art: 0 };
-  for (const [u, n] of Object.entries(unites)) {
-    const d = R.unites.find(x => x.cle === u);
-    if (!d || !n) continue;
-    if (d.genre === 'cavalerie') c.cav += n; else if (d.genre === 'artillerie') c.art += n; else c.inf += n;
-  }
-  return { inf: c.inf ? Math.min(3, Math.max(1, Math.ceil(c.inf / 4))) : 0, cav: c.cav ? Math.min(2, Math.ceil(c.cav / 4)) : 0, art: c.art ? 1 : 0 };
-}
-
 function viderParts(p) {
   for (const k of ['ailes', 'drapeaux', 'cheminees', 'fumees']) parts[k] = parts[k].filter(x => x.batiment !== p);
 }
 
-const geoAiles = (() => {
-  const g = [];
-  const b = new THREE.BoxGeometry(0.05, 0.44, 0.012).translate(0, 0.22, 0);
-  for (let i = 0; i < 4; i++) g.push(b.clone().rotateZ(i * Math.PI / 2));
-  const t = new THREE.BoxGeometry(0.16, 0.012, 0.004).translate(0, 0.3, 0.008);
-  for (let i = 0; i < 4; i++) g.push(t.clone().rotateZ(i * Math.PI / 2));
-  return g;
+// les ailes du moulin (unités du plateau, comme la maquette) : quatre bras de bois et leurs toiles
+const lotAiles = (() => {
+  const La = lot();
+  for (let j = 0; j < 4; j++) { put(La, new THREE.BoxGeometry(0.05, 0.44, 0.014).translate(0, 0.22, 0).rotateZ(j * Math.PI / 2), 0x8b5a2b, 0, 0, 0, 0, 0.008); put(La, new THREE.BoxGeometry(0.16, 0.012, 0.006).translate(0, 0.3, 0.01).rotateZ(j * Math.PI / 2), 0xe9dcc0, 0, 0, 0, 0, 0); }
+  return La;
 })();
-const matAiles = new THREE.MeshLambertMaterial({ color: 0x8b5a2b });
+const geoAiles = fige(lotAiles).children.map(m => [m.geometry, m.material]);
 const geoDrapeau = new THREE.PlaneGeometry(0.22, 0.13, 6, 1).translate(0.11, 0, 0);
 
 function creerParts(b, mesh, anim, couleur) {
@@ -48,14 +39,15 @@ function creerParts(b, mesh, anim, couleur) {
     const p = new THREE.Vector3(...a.pos).applyMatrix4(mesh.matrixWorld);
     if (a.type === 'ailes') {
       const grp = new THREE.Group();
-      for (const g of geoAiles) grp.add(new THREE.Mesh(g, matAiles));
+      for (const [g, m] of geoAiles) grp.add(new THREE.Mesh(g, m));
       grp.position.copy(p);
+      grp.rotation.order = 'YXZ';
       grp.rotation.y = mesh.rotation.y;
-      grp.children.forEach(c => (c.castShadow = true));
+      grp.children[0].castShadow = true;
       const pivot = new THREE.Group(); pivot.add(grp); groupe.add(pivot);
       parts.ailes.push({ batiment: b.id, obj: grp, pivot });
     } else if (a.type === 'drapeau') {
-      const m = new THREE.Mesh(geoDrapeau.clone(), new THREE.MeshLambertMaterial({ color: new THREE.Color(a.couleur || couleur), side: THREE.DoubleSide }));
+      const m = new THREE.Mesh(geoDrapeau.clone(), toon(new THREE.Color(a.couleur || couleur), { side: THREE.DoubleSide }));
       m.position.copy(p);
       groupe.add(m);
       parts.drapeaux.push({ batiment: b.id, obj: m, phase: hache(b.id) * 6 });
@@ -66,9 +58,14 @@ function creerParts(b, mesh, anim, couleur) {
 
 /** Met les bâtiments, les armées et les bannières d'accord avec l'état. */
 export function synchroniser(etat) {
+  casesBaties = new Set(etat.batiments.map(b => b.case));
   couleurs = {};
   for (const r of etat.royaumes) couleurs[r.id] = r.couleur;
   couleurs[99] = '#4b4b4b';
+  // palier de l'armée : la technologie militaire la plus avancée du royaume (brigands : 0)
+  paliers = {};
+  for (const r of etat.royaumes) paliers[r.id] = palierDe(r.joueur ? etat.joueur?.techs : r.techs_liste);
+  paliers[99] = 0;
   const villes = new Map(etat.villes.map(v => [v.id, v]));
   const vus = new Set();
   for (const b of etat.batiments) {
@@ -86,10 +83,10 @@ export function synchroniser(etat) {
     let chantier = null;
     if (b.reste > 0) {
       const duree = Math.max(1, def?.duree || 1), fait = 1 - b.reste / duree;
-      mesh.scale.set(1, Math.max(0.12, fait * 0.85), 1);
+      mesh.scale.y *= Math.max(0.12, fait * 0.85);
       chantier = maillageChantier();
       chantier.position.set(x, y, z);
-      chantier.rotation.y = (b.face || 0) + 0.3;
+      chantier.rotation.y = b.face || 0;
       groupe.add(chantier);
     }
     groupe.add(mesh);
@@ -113,7 +110,7 @@ export function synchroniser(etat) {
   const ids = new Set();
   for (const a of etat.armees) {
     ids.add(a.id);
-    majArmee(a, etat.epoque.cle, false);
+    majArmee(a, false);
   }
   for (const [id, a] of armees) if (!ids.has(id) && !a.anim) { groupe.remove(a.mesh); armees.delete(id); }
   for (const [id] of armees) if (!ids.has(id)) continue;
@@ -125,21 +122,23 @@ function balayerArmees(ids) {
   balayer('a');
 }
 
-function majArmee(a, epoque, fantome) {
-  const c = compo(a.unites || { milice: 4 });
-  const cle = `${couleurs[a.proprio]}|${epoque}|${c.inf}|${c.cav}|${c.art}`;
+function majArmee(a, fantome) {
+  const cle = `${couleurs[a.proprio]}|${paliers[a.proprio] || 0}`;
   let v = armees.get(a.id);
   const { x, z } = posCase(a.case);
   if (!v || v.cle !== cle) {
     if (v) groupe.remove(v.mesh);
-    const mesh = new THREE.Mesh(geometrieArmee(couleurs[a.proprio], epoque, c), MAT_LISSE);
-    mesh.castShadow = true;
+    const mesh = maillageArmee(couleurs[a.proprio], paliers[a.proprio] || 0);
     const old = v;
+    mesh.rotation.y = old ? old.mesh.rotation.y : 0.5;
     v = { mesh, x: old ? old.x : x, z: old ? old.z : z, cle, anim: old?.anim || null, proprio: a.proprio };
     groupe.add(mesh);
     armees.set(a.id, v);
   }
-  if (!v.anim) { v.x = x; v.z = z; }
+  // sur une case bâtie, l'armée se range au bord de la case, un peu plus petite, pour ne pas recouvrir le bâtiment
+  const bati = casesBaties.has(a.case);
+  if (!v.anim) { v.x = x; v.z = z + (bati ? 0.52 : 0); }
+  v.mesh.scale.setScalar(bati && !v.anim ? 0.075 : 0.1);
   v.n = a.effectif ?? Object.values(a.unites || {}).reduce((s, n) => s + n, 0);
   v.marche = (a.chemin || []).length > 0;
   v.fantome = fantome;
@@ -164,7 +163,7 @@ export function jouerMois(rapport, apres, duree = 2800) {
     let v = armees.get(m.armee);
     if (!v) {
       const a = apres.armees.find(x => x.id === m.armee) || { id: m.armee, proprio: m.proprio, case: m.trajet[0], unites: { milice: 6 }, chemin: [] };
-      v = majArmee({ ...a, case: m.trajet[0] }, apres.epoque.cle, true);
+      v = majArmee({ ...a, case: m.trajet[0] }, true);
     }
     v.anim = { trajet: m.trajet, t0, duree: duree * (m.trajet.length - 1) / etapes };
     v.marche = true;
@@ -213,3 +212,8 @@ chaqueImage((dt, t) => {
   }
 });
 export const vent = { v: 0.3, dir: 0 };
+
+/** Les armées posées sur le plateau, pour la vie (exercice, marche au tambour, bivouac) : groupe = leur THREE.Group dans la scène. */
+export function listeArmees() {
+  return [...armees].map(([id, v]) => ({ id, proprio: v.proprio, groupe: v.mesh, enMarche: !!(v.marche || v.anim) }));
+}

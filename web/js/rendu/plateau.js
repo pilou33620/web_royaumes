@@ -387,16 +387,3 @@ export function animer(dt, t) {
   if (surb && surb.count) surb.material.opacity = 0.36 + Math.sin(t * 4.5) * 0.16;
 }
 
-// ------------------------------------------------------------------ compatibilité provisoire
-// shortcut: modeles.js, monde.js et vie.js (anciens) importent encore ceci ; à retirer quand ils seront passés à toon.js.
-export { fusion };
-export const MAT_LISSE = new THREE.MeshLambertMaterial({ vertexColors: true });
-export function piece(g, couleur, m) {
-  const x = g.index ? g.toNonIndexed() : g.clone();
-  if (m) x.applyMatrix4(m);
-  if (!x.attributes.normal) x.computeVertexNormals();
-  const c = new THREE.Color(couleur), n = x.attributes.position.count, a = new Float32Array(n * 3);
-  for (let k = 0; k < n; k++) a.set([c.r, c.g, c.b], k * 3);
-  x.setAttribute('color', new THREE.BufferAttribute(a, 3));
-  return x;
-}
