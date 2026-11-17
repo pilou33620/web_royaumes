@@ -13,17 +13,23 @@ qui s'ouvre dans le navigateur, comme web_conquete.
 
 - **Carte générée et réglable** : taille, graine, part d'océans, densité de forêt, nombre de lacs et de rivières,
   montagnes, richesse minière (pierre, fer, charbon, or), bancs de poissons, terres fertiles au bord de l'eau.
-- **Rendu 3D façon carte animée** : cases biseautées aux couleurs de la saison, mer turquoise qui fonce vers le large
-  avec écume et reflets, rivières qui coulent, arbres en bouquets qui ondulent au vent, bannières des villes,
-  liserés des territoires, fumées des cheminées et des forges, ailes des moulins, drapeaux, barques et voiliers,
-  passants et charrettes, moutons, oiseaux, nuages et leurs ombres.
-- **Relief lissé** : côtes, plages, collines et berges arrondies (le contour des cases reste visible, discret) ; les
-  rivières suivent le relief et passent sous des ponts.
+- **Rendu 3D façon dessin animé** (le même que web_power) : ombrage en trois tons et contours brun foncé, plateau
+  d'hexagones étagés (mer translucide, côtes, plaines, collines, montagnes enneigées), forêts, champs en parcellaire
+  avec sillons, rivières bordées de sable et leurs cascades, liserés des territoires.
+- **Une carte vivante** : marché, enfants sur la place, lavandières, forgeron, bûcheron, meunier, mineurs, pêcheurs,
+  travaux des champs selon la saison, vignes et vendanges, bétail et faune des lisières, bateaux, oiseaux, nuages et
+  leurs ombres ; cycle lent du jour et de la nuit (fenêtres allumées, lucioles) ; fête au village après une montée de
+  rang, une paix, une alliance ou la victoire, et chaque septembre ; train entre la gare et les usines avec le chemin
+  de fer.
 - **Routes automatiques** : chaque bâtiment achevé est relié à l'hôtel de ville, les villes à leur capitale. Elles
   s'améliorent dans 📊 Royaume : chemins de terre → routes pavées → routes royales bordées d'arbres (production et
   marches plus rapides), et changent d'aspect.
-- **Bâtiments détaillés qui changent avec l'époque** : colombages et chaume, puis crépi et volets, puis pierre de
-  taille et toits à la Mansart, puis brique, ardoise et réverbères ; l'hôtel de ville devient mairie à campanile.
+- **Bâtiments qui changent avec l'époque**, chacun sur sa dalle : colombages et chaume, puis crépi, volets et tuiles,
+  puis pierre, ardoise et étages, puis brique et ardoise ; la mairie passe du beffroi à l'horloge, à la coupole dorée,
+  puis au campanile ; les usines sortent de terre à l'ère industrielle.
+- **Armées en icône** (ligne d'infanterie, cavalerie, canons) dont l'allure suit la technologie militaire du royaume :
+  piques et mousquets, baïonnettes et grenadiers, canons Gribeauval, bicornes et cuirassiers, shakos et pantalons
+  garance, képis et fourgon ; exercice en garnison, tambour en marche, bivouac la nuit.
 - **Saisons** : fleurs au printemps, blés dorés l'été, forêts rousses à l'automne, arbres nus et neige l'hiver.
   Le blé ne pousse pas l'hiver, les vendanges sont à l'automne, le froid consomme du bois de chauffage.
 - **Météo tirée chaque mois** (climat tempéré du petit âge glaciaire) : soleil, nuages, pluie, orage et grêle,
