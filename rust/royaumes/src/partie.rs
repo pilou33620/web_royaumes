@@ -98,6 +98,8 @@ pub struct Royaume {
     pub commerce_mer: f64,
     /// (ordinateur) la case où un détachement part bâtir une redoute
     pub projet_fort: Option<usize>,
+    /// (ordinateur) la campagne en cours et la mémoire de l'IA militaire
+    pub militaire: crate::ia_militaire::EtatMilitaire,
 }
 
 impl Royaume {

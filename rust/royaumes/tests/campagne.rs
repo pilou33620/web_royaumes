@@ -19,7 +19,8 @@ fn construire(p: &mut Partie, cle: &str) -> bool {
     }
 }
 
-fn robot(p: &mut Partie) {
+/// Le robot joueur ; sans `militaire`, il ne lève aucun soldat et refuse paix, alliances et tributs.
+fn robot(p: &mut Partie, militaire: bool) {
     let s = p.stats(0);
     let j = p.joueur().clone();
     let nb = |p: &Partie, cle: &str| p.batiments.iter().filter(|b| b.proprio == 0 && b.cle == cle).count();
@@ -48,6 +49,16 @@ fn robot(p: &mut Partie) {
     if econome {
         if nb(p, "bucheron") < 3 {
             construire(p, "bucheron");
+        }
+        // sur une petite île aux forêts rasées, le bois de l'Hôtel de ville ne viendra que d'arbres replantés :
+        // un garde forestier, et les bûcherons sans arbres rendent leurs bras
+        if j.stock["bois"] < 60.0 {
+            if nb(p, "forestier") == 0 {
+                construire(p, "forestier");
+            }
+            for c in p.batiments.iter().filter(|b| b.proprio == 0 && b.cle == "bucheron" && b.etat.starts_with("🌲")).map(|b| b.case).collect::<Vec<_>>() {
+                let _ = executer(p, &json!({"action": "demolir", "case": c}));
+            }
         }
         return;
     }
@@ -94,7 +105,7 @@ fn robot(p: &mut Partie) {
         }
     }
     // une petite armée
-    if s.soldats < 6 + j.pop / 8 {
+    if militaire && s.soldats < 6 + j.pop / 8 {
         if let Some(b) = p.batiments.iter().find(|b| b.proprio == 0 && b.cle == "caserne" && b.fini()).map(|b| b.id) {
             let _ = executer(p, &json!({"action": "recruter", "batiment": b, "unite": "mousquetaire"}));
             let _ = executer(p, &json!({"action": "recruter", "batiment": b, "unite": "milice"}));
@@ -145,7 +156,7 @@ fn robot(p: &mut Partie) {
     // répondre aux propositions : on paie les tributs, on accepte paix et alliances, on refuse le reste
     let props = p.propositions.clone();
     for pr in props {
-        let oui = matches!(pr.genre.as_str(), "paix" | "alliance" | "tribut");
+        let oui = militaire && matches!(pr.genre.as_str(), "paix" | "alliance" | "tribut");
         let _ = executer(p, &json!({"action": "repondre", "proposition": pr.id, "accepte": oui}));
     }
 }
@@ -171,7 +182,7 @@ fn campagne(o: Options) {
     let (mut choix, mut espion, mut commerce_mer) = (0, false, 0.0);
     let (mut geles, mut marches) = (0, 0);
     for mois in 0..120 {
-        robot(&mut p);
+        robot(&mut p, true);
         espion |= p.espions.iter().any(|e| e.proprio == 0);
         let r = p.fin_du_mois();
         let evt = |debut: &str| r.evenements.iter().filter(|e| e.texte.starts_with(debut)).count();
@@ -221,6 +232,57 @@ fn campagne(o: Options) {
     assert!(famines < 24, "{famines} mois de famine en 10 ans");
     assert!(p.niveau_capitale(0) >= 2);
     assert!(j.techs.len() >= 3);
+}
+
+/// Dix ans de guerre contre tous les rivaux, sans que le robot ne lève un soldat ni ne signe la paix (il a fondé
+/// deux colonies) : les villes qu'il perd, le mois de la première perte, et le danger (villes perdues × mois).
+fn guerre_sans_armee(o: Options) -> (usize, Option<u32>, usize) {
+    let mut p = Partie::nouvelle(o);
+    let cap = p.villes[0].case;
+    for nom in ["Fort-Neuf", "Port-Royal"] {
+        let site = (0..p.carte.cases.len()).filter(|&c| {
+            let k = &p.carte.cases[c];
+            p.praticable(c) && k.bat.is_none() && (5..=8).contains(&p.carte.dist(c, cap)) && p.villes.iter().all(|v| p.carte.dist(v.case, c) >= 5) && p.chemin(cap, c).is_some()
+        }).min_by_key(|&c| p.carte.dist(c, cap));
+        if let Some(c) = site {
+            p.fonder_ville(0, c, nom.into(), 1, false);
+        }
+    }
+    p.recalculer_territoire();
+    let tour = p.tour;
+    for r in p.royaumes.iter_mut().skip(1) {
+        (r.statut, r.debut_guerre) = ("guerre".into(), tour);
+    }
+    let a_moi: Vec<u32> = p.villes.iter().filter(|v| v.proprio == 0).map(|v| v.id).collect();
+    let perdues = |p: &Partie| if p.fin.is_some() { a_moi.len() } else { p.villes.iter().filter(|v| a_moi.contains(&v.id) && v.proprio != 0).count() };
+    let (mut premiere, mut danger) = (None, 0);
+    for mois in 0..120 {
+        if p.fin.is_none() {
+            robot(&mut p, false);
+            p.fin_du_mois();
+        }
+        let n = perdues(&p);
+        danger += n;
+        if n > 0 && premiere.is_none() {
+            premiere = Some(mois);
+        }
+    }
+    (perdues(&p), premiere, danger)
+}
+
+#[test]
+fn dix_ans_de_guerre_sans_armee() {
+    let (mut prises, mut danger) = ([0, 0], [0, 0]);
+    for (i, difficulte) in [0.75, 1.35].into_iter().enumerate() {
+        for graine in [1789u64, 1815, 1848] {
+            let (n, premiere, d) = guerre_sans_armee(Options { graine, difficulte, ..Options::default() });
+            println!("difficulté {difficulte} · graine {graine} · villes prises au joueur : {n} · première perte : {} · danger {d}", premiere.map_or("jamais".into(), |m| format!("après {m} mois")));
+            prises[i] += n;
+            danger[i] += d;
+        }
+    }
+    assert!(prises[1] >= 3, "en difficile, les rivaux prennent des villes : {prises:?}");
+    assert!(danger[1] as f64 > 1.3 * danger[0] as f64, "en facile, ils sont moins dangereux (villes perdues × mois) : {danger:?}");
 }
 
 #[test]
