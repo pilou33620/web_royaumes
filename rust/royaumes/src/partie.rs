@@ -393,6 +393,25 @@ impl Partie {
                 k.t == Terrain::Plaine && !k.riviere && k.comp >= 0 && tailles[k.comp as usize] >= 20 && k.c > 2 && k.r > 2 && k.c < l - 3 && k.r < ht - 3
             })
             .collect();
+        // hors de la carte classique (qui garde ses départs d'origine) : de la place pour bâtir autour de la capitale
+        // et, sur les cartes d'îles, la mer à deux cases pour un port (les armées ne passent l'eau qu'en flûte)
+        let forme = o.forme_reelle();
+        let classique = forme == "classique";
+        let insulaire = matches!(forme, "iles" | "archipel" | "deux_continents");
+        for place in if classique { vec![] } else { vec![20, 15] } {
+            let strict: Vec<usize> = cand
+                .iter()
+                .copied()
+                .filter(|&i| {
+                    carte.rayon(i, 3).iter().filter(|&&x| carte.cases[x].comp == carte.cases[i].comp).count() >= place
+                        && (!insulaire || carte.rayon(i, 2).iter().any(|&x| carte.cases[x].mer()))
+                })
+                .collect();
+            if strict.len() >= n {
+                cand = strict;
+                break;
+            }
+        }
         if cand.len() < n {
             cand = (0..carte.cases.len()).filter(|&i| matches!(carte.cases[i].t, Terrain::Plaine | Terrain::Sable)).collect();
         }
@@ -400,13 +419,21 @@ impl Partie {
         let mut departs = vec![*h.choix(&premiers).or(h.choix(&cand)).expect("aucune terre où fonder un royaume")];
         while departs.len() < n {
             let mut meilleur = None;
-            let mut score = -1.0;
+            let mut score = f64::NEG_INFINITY;
             for &i in &cand {
                 if departs.contains(&i) {
                     continue;
                 }
                 let d = departs.iter().map(|&s| carte.dist(s, i)).min().unwrap_or(0) as f64;
-                let sc = d + if carte.cases[i].comp == la_plus_grande { 4.0 } else { 0.0 } + h.f() * 2.0;
+                let comp = carte.cases[i].comp;
+                let bonus = if classique {
+                    if comp == la_plus_grande { 4.0 } else { 0.0 }
+                } else if comp >= 0 && tailles[comp as usize] < 150 && departs.iter().any(|&s| carte.cases[s].comp == comp) {
+                    -8.0 // une petite île déjà prise : mieux vaut une île à soi
+                } else {
+                    0.0
+                };
+                let sc = d + bonus + h.f() * 2.0;
                 if sc > score {
                     score = sc;
                     meilleur = Some(i);
@@ -423,8 +450,17 @@ impl Partie {
             carte.cases[s].arbres = 0;
             carte.cases[s].bois = 0.0;
             let autour: Vec<usize> = carte.rayon(s, 3).into_iter().filter(|&x| x != s && carte.cases[x].t == Terrain::Plaine).collect();
-            if !carte.rayon(s, 3).iter().any(|&x| carte.cases[x].foret) {
-                let choisies: Vec<usize> = autour.iter().copied().filter(|&x| carte.dist(x, s) >= 2).take(3).collect();
+            // hors de la carte classique, six bois à quatre cases : une petite île ne doit pas manquer de bois dès le départ
+            let (zone, voulus) = if classique { (3, 1) } else { (4, 6) };
+            let bois = carte.rayon(s, zone).iter().filter(|&&x| carte.cases[x].foret).count();
+            if bois < voulus {
+                let n_bois = if classique { 3 } else { voulus - bois };
+                let choisies: Vec<usize> = carte
+                    .rayon(s, zone)
+                    .into_iter()
+                    .filter(|&x| carte.dist(x, s) >= 2 && carte.cases[x].t == Terrain::Plaine && !carte.cases[x].foret)
+                    .take(n_bois)
+                    .collect();
                 for x in choisies {
                     let k = &mut carte.cases[x];
                     k.foret = true;
@@ -1289,6 +1325,37 @@ impl Partie {
 #[cfg(test)]
 mod essais {
     use super::*;
+    use crate::carte::FORMES;
+
+    #[test]
+    fn capitales_placees_sur_chaque_forme() {
+        for &forme in &FORMES {
+            for taille in ["petite", "moyenne", "grande"] {
+                for graine in [3u64, 11, 404] {
+                    let mut p = Partie::nouvelle(Options { forme: forme.into(), taille: taille.into(), graine, rivaux: 5, ..Options::default() });
+                    let ctx = format!("{forme} {taille} graine {graine}");
+                    assert_eq!(p.royaumes.len(), 6, "{ctx} : six royaumes");
+                    let tailles = p.carte.clone().composantes();
+                    let caps: Vec<usize> = (0..6).map(|k| p.villes[p.capitale(k).unwrap()].case).collect();
+                    let insulaire = matches!(p.options.forme_reelle(), "iles" | "archipel" | "deux_continents");
+                    for &c in &caps {
+                        let comp = p.carte.cases[c].comp;
+                        assert!(comp >= 0 && tailles[comp as usize] >= 20, "{ctx} : capitale sur une terre trop petite");
+                        let place = p.carte.rayon(c, 3).iter().filter(|&&x| p.carte.cases[x].comp == comp).count();
+                        // la carte classique garde ses départs d'origine
+                        assert!(place >= 15 || p.options.forme_reelle() == "classique", "{ctx} : pas de place pour bâtir ({place})");
+                        assert!(!insulaire || p.carte.rayon(c, 2).iter().any(|&x| p.carte.cases[x].mer()), "{ctx} : capitale loin de la mer");
+                        assert!(caps.iter().all(|&d| d == c || p.carte.dist(c, d) >= 4), "{ctx} : capitales collées");
+                    }
+                    // deux ans de jeu, brigands compris : personne ne reste planté sur l'eau
+                    for _ in 0..24 {
+                        p.fin_du_mois();
+                    }
+                    assert!(p.armees.iter().all(|a| p.carte.cases[a.case].terre()), "{ctx} : une armée sur l'eau");
+                }
+            }
+        }
+    }
 
     #[test]
     fn nouvelle_partie() {
