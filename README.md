@@ -47,9 +47,13 @@ qui s'ouvre dans le navigateur, comme web_conquete.
 - **55 bâtiments** en 7 familles (habitat, ressources, artisanat, commerce, services, militaire, expansion),
   **10 unités** (milice, mousquetaires, grenadiers, fusiliers, chasseurs, dragons, hussards, cuirassiers, canons),
   chaînes de production, ouvriers, bonheur détaillé, impôts, rangs de ville (Hameau → Cité), colonies.
-- **Rivaux** au caractère belliqueux, marchand ou bâtisseur : relations, cadeaux, routes commerciales, marché
-  (achat et vente selon leurs surplus et leurs besoins), alliances, tributs, guerres, propositions et ultimatums.
-  Brigands en prime.
+- **Rivaux qui jouent avec les mêmes règles que vous** : stocks, production, ouvriers, population, bonheur, famine,
+  froid et recherche ; ils construisent selon leurs besoins et au bon endroit. Au combat, ils jugent les forces avant
+  d'attaquer, rassemblent leurs armées, défendent et secourent leurs villes, se replient, débarquent escortés et
+  bloquent les ports. Leurs souverains (conquérant, marchand, bâtisseur, prudent, opportuniste, fourbe) meurent ou
+  sont renversés ; les rivaux se font la guerre entre eux, s'allient, se prennent des villes et se liguent contre le
+  royaume trop puissant ; ils négocient (contre-propositions, paix contre une ville, demandes d'aide) et gardent
+  rancune. La difficulté les rend plus malins, pas plus riches. Brigands en prime.
 - **Brouillard de guerre** : terres inconnues sous la brume, terres connues mais hors de vue voilées (dernier état
   connu) ; la brume se lève au passage des armées, flottes, espions et forts.
 - **Marine** : flûtes, corvettes, frégates, vaisseaux de ligne et navires à vapeur, recrutés au port. Les armées ne
