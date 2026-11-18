@@ -59,7 +59,7 @@ figure { margin: 0; }
 <main>
   <section class="intro">
     <h1>Royaumes des Rives, guerre et diplomatie</h1>
-    <p>Maquette 3D des nouveautés graphiques de cinq fonctions : brouillard de guerre, marine, espionnage, sièges et événements à choix, aux quatre époques, dans le rendu façon web_power (ombrage dessin animé en trois tons, contours bruns, plateau d'hexagones). Toutes les scènes vivent en même temps ; les boutons « Voir » y mènent la caméra et les relancent. Rien n'est encore changé dans le jeu.</p>
+    <p>Maquette 3D des nouveautés graphiques de six fonctions : brouillard de guerre, marine, espionnage, sièges, remparts des villes et événements à choix, aux quatre époques, dans le rendu façon web_power (ombrage dessin animé en trois tons, contours bruns, plateau d'hexagones). Toutes les scènes vivent en même temps ; les boutons « Voir » y mènent la caméra et les relancent. Rien n'est encore changé dans le jeu.</p>
   </section>
   <div class="scene">
     <canvas id="scene" aria-label="Plateau de démonstration : notre royaume à l'ouest, une baie, le royaume rival fortifié à l'est, une île alliée, des navires, un espion et un siège"></canvas>
@@ -70,7 +70,9 @@ figure { margin: 0; }
   </div>
   <div class="barres">
     <div class="groupe" role="group" aria-label="Voir une scène"><span>Voir</span>
-      <button data-voir="ensemble" aria-pressed="true">Vue d'ensemble</button><button data-voir="brouillard" aria-pressed="false">Brouillard</button><button data-voir="revue" aria-pressed="false">Flotte</button><button data-voir="bataille" aria-pressed="false">Bataille navale</button><button data-voir="debarquement" aria-pressed="false">Débarquement</button><button data-voir="blocus" aria-pressed="false">Blocus</button><button data-voir="commerce" aria-pressed="false">Commerce</button><button data-voir="espion" aria-pressed="false">Espion</button><button data-voir="siege" aria-pressed="false">Siège</button></div>
+      <button data-voir="ensemble" aria-pressed="true">Vue d'ensemble</button><button data-voir="brouillard" aria-pressed="false">Brouillard</button><button data-voir="revue" aria-pressed="false">Flotte</button><button data-voir="bataille" aria-pressed="false">Bataille navale</button><button data-voir="debarquement" aria-pressed="false">Débarquement</button><button data-voir="blocus" aria-pressed="false">Blocus</button><button data-voir="commerce" aria-pressed="false">Commerce</button><button data-voir="espion" aria-pressed="false">Espion</button><button data-voir="siege" aria-pressed="false">Siège</button><button data-voir="remparts" aria-pressed="false">Remparts</button><button data-voir="siege2" aria-pressed="false">Siège d'une grande ville</button></div>
+    <div class="groupe" role="group" aria-label="Niveau des remparts de notre capitale"><span>Remparts</span>
+      <button data-rempart="1" aria-pressed="false">1 · Palissade</button><button data-rempart="2" aria-pressed="false">2 · Murailles</button><button data-rempart="3" aria-pressed="true">3 · Bastions</button><button data-rempart="4" aria-pressed="false">4 · Citadelle</button></div>
     <div class="groupe" role="group" aria-label="Brouillard de guerre"><span>Brouillard</span>
       <button data-brouillard="oui" aria-pressed="true">Activé</button><button data-brouillard="non" aria-pressed="false">Désactivé</button></div>
     <div class="groupe" role="group" aria-label="Mission de l'espion"><span>Espion</span>
@@ -114,6 +116,18 @@ figure { margin: 0; }
         <li>Ville rivale fortifiée : enceinte à cinq bastions et fossé en eau (Vauban en 1700), demi-lunes aux Lumières et sous l'Empire, fort bas de brique sans échauguettes à l'ère industrielle ; donjon, arsenal, église et maisons dedans, jetée vers la mer.</li>
         <li>Un mois toutes les quatre secondes : parallèles et tranchées en zigzag qui avancent, gabions, deux batteries qui tirent (éclairs, fumée, poussière à l'impact), canons de la ville qui répondent, brèche qui s'ouvre avec ses gravats, de moins en moins de cheminées qui fument, drapeau blanc au huitième mois.</li>
         <li>Bouton « Assaut ! » : huit soldats montent à la brèche, les défenseurs tirent puis cèdent, notre drapeau flotte sur la brèche puis sur le donjon. Canons, uniformes et murs suivent l'époque.</li>
+        <li>Siège d'une grande ville : la ville rivale de l'est, mairie et six quartiers dans une enceinte bastionnée agrandie, quatre faubourgs hors les murs du côté de notre camp (sur la colline). Les faubourgs sont arrêtés : plus une fumée, ailes du moulin immobiles ; dedans, les cheminées fument toujours.</li>
+        <li>Chaque mois (toutes les six secondes, ou « Mois suivant ») quatre de nos soldats sortent du camp, le faubourg suivant flambe, ils rentrent chargés de sacs et de caisses de butin, et le faubourg reste noirci, ses toits brûlés, quelques braises qui fument. Au bout de six mois tout recommence.</li>
+      </ul>
+      <h3>Remparts des villes</h3>
+      <ul>
+        <li>Une grande ville, c'est la mairie au centre et ses quartiers, ateliers et fermes sur les cases voisines. Les remparts sont une amélioration à quatre niveaux, dont l'aspect suit aussi l'époque (seize combinaisons, boutons Remparts et Époque).</li>
+        <li>Niveau 1, Palissade : pieux de bois, fossé, porte de bois (1700) ; pieux clairs et banquette de terre, porte couverte (Lumières) ; pieux sur un rempart gazonné (Empire) ; poteaux goudronnés, lisses et porte de fer (Industrie).</li>
+        <li>Niveau 2, Murailles : pierre crénelée, tours rondes aux six angles et châtelet sur chaque route ; toits de tuiles en 1700, d'ardoise aux Lumières, tours basses à plate-forme et canon sous l'Empire, brique et meurtrières à l'ère industrielle.</li>
+        <li>Aux niveaux 1 et 2 l'enceinte n'entoure que la case de la mairie. Au niveau 3, Bastions à la Vauban, elle s'agrandit et englobe les six quartiers voisins : le tracé suit le contour extérieur du groupe d'hexagones, avec un bastion à chaque angle saillant, un fossé et un glacis ; ce qui reste au-delà devient faubourg. Échauguettes en 1700 et aux Lumières, canons ensuite, remparts bas de brique et de terre à l'ère industrielle.</li>
+        <li>Niveau 4, Citadelle : la même enceinte, plus haute, avec des demi-lunes dans les angles rentrants et un fossé en eau, et l'ancienne muraille garde la mairie (double enceinte).</li>
+        <li>Les murs se posent sur la hauteur de chaque case et descendent jusqu'au sol le plus bas autour ; une porte s'ouvre là où passe une route (un pont sur le fossé), une arche là où passe une rivière. Les maisons des quartiers restent à l'intérieur, rien ne les chevauche.</li>
+        <li>Monter d'un niveau lance quelques secondes de travaux : échafaudages, blocs de pierre, poussière, la nouvelle enceinte qui s'élève, puis l'ancienne disparaît.</li>
       </ul>
       <h3>Événements à choix</h3>
       <ul>

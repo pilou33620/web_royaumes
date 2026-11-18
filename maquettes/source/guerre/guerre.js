@@ -4,7 +4,7 @@
 // et les relancent depuis le début.
 const ROUGE = '#b8323a', VERT = '#3f8f4a';
 const MER = -0.15, ECH_NAV = 0.085, ECH_GENS = 0.045, ECH_ESPION = 0.08;
-const LIEU = { portNous: at(7, 7), allie: at(4, 11), cabaneAllie: at(2, 11), rivale: at(12, 7), batterie: at(13, 7), camp: at(14, 7), plage: at(15, 11), bataille: at(10, 11), armeeCachee: at(15, 4), armeeLoin: at(12, 3), departEspion: at(9, 5), colline: at(10, 5), affut: at(11, 6), seuil: at(12, 6) };
+const LIEU = { portNous: at(7, 7), allie: at(4, 11), cabaneAllie: at(2, 11), rivale: at(12, 7), batterie: at(13, 7), camp: at(14, 7), plage: at(15, 11), bataille: at(10, 11), armeeCachee: at(15, 4), armeeLoin: at(10, 2), departEspion: at(9, 5), colline: at(10, 5), affut: at(11, 6), seuil: at(12, 6) };
 for (const k of [LIEU.portNous, LIEU.allie, LIEU.cabaneAllie, LIEU.rivale]) k.bati = true;
 for (const k of [LIEU.batterie, LIEU.camp, LIEU.plage, LIEU.armeeCachee, LIEU.armeeLoin, at(13, 6), at(13, 8), at(14, 6)]) k.vide = true;
 const cube = k => { const x = k.c - (k.r - (k.r & 1)) / 2; return [x, -x - k.r, k.r]; };
@@ -369,13 +369,14 @@ function forteresse(L, LB, ex, E, phi) {
 
 // ---------------------------------------------------------------- tout construire (à chaque changement d'époque ou de saison)
 let G = null, GUERRE = null;
-const SC = { courante: 'ensemble', t: {}, mission: 'renseignement', missionChoisie: false, mois: 1, assaut: -1, prise: false };
+const SC = { courante: 'ensemble', t: {}, mission: 'renseignement', missionChoisie: false, mois: 1, assaut: -1, prise: false, mois2: 1 };
 const PAL = () => PALIERS[PALIER_EPOQUE[EPOQUE]];
 function construireGuerre() {
   if (GUERRE) scene.remove(GUERRE);
   GUERRE = new THREE.Group(); scene.add(GUERRE); pavillons.length = 0;
   const E = EPOQUES[EPOQUE], P = PAL(), roy = ROYAUME;
   G = { nos: [], rivaux: [], cachees: [] };
+  REMP.cur = REMP.vieux = REMP.echaf = null; REMP.debut = -99;
   const graine = c => { let i = 0; rnd = () => hache(c * 31 + i++, 4242, 77); };
   // ---- ports : le nôtre près de la capitale, celui de l'île alliée (et sa cabane)
   const port = (k, coul) => { graine(k.c * 13 + k.r); const L = lot(), ex = { fum: [], drap: [] }; portBat(L, ex, E); const [dx, dz] = dirMer(k); const g = figeBat(L, ex, k, -Math.atan2(dz, dx), GUERRE, coul); for (const a of ex.fum) cheminees.push({ pos: new THREE.Vector3(...a).applyMatrix4(g.matrixWorld), noire: false, prochain: Math.random() * 2 }); return { k, dx, dz, quai: { x: k.x + dx * 0.84, z: k.z + dz * 0.84 } }; };
@@ -502,6 +503,9 @@ function construireGuerre() {
     Sp.onde = new THREE.Mesh(new THREE.RingGeometry(0.85, 1, 64).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffd36a, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false })); GUERRE.add(Sp.onde);
     G.espion = Sp;
   }
+  // ---- nos remparts (niveau choisi) et la grande ville rivale assiégée
+  construireRempartsCapitale(false);
+  G.siege2 = construireSiege2(E, P, roy);
 }
 
 // ---------------------------------------------------------------- les scènes
@@ -516,11 +520,13 @@ const VUES = { // cible de la caméra : x, z, distance, inclinaison, cap
   espion: () => [LIEU.seuil.x - 0.2, LIEU.seuil.z + 0.45, 4.3, 0.82, Math.PI - 0.35],
   siege: () => [LIEU.rivale.x + 1.1, LIEU.rivale.z + 0.1, 4.6, 0.78, 0.75],
   brouillard: () => [COLS * SQ3 * 0.72, ROWS * 0.55, 13, 0.95, 0.25],
+  remparts: () => [centre.x, centre.z + 0.15, 11, 0.9, 0.35],
+  siege2: () => { const M = VILLE2.mairie, C = VILLE2.camp; return [(M.x * 0.55 + C.x * 0.45), M.z + 0.15, 9, 0.85, 0.12]; },
 };
 function voir(nom, relancer = true) {
   SC.courante = nom; const [x, z, d, tg, la] = VUES[nom]();
   vue.auto = false; vue.but = { x, z, d, tg, la };
-  if (relancer) { SC.t[nom] = t; if (nom === 'espion') SC.reprise = true; if (nom === 'siege') { SC.mois = 1; SC.assaut = -1; SC.prise = false; } if (nom === 'debarquement' || nom === 'espion' || nom === 'brouillard') { reexplorer(); tVision = 0; } }
+  if (relancer) { SC.t[nom] = t; if (nom === 'espion') SC.reprise = true; if (nom === 'siege') { SC.mois = 1; SC.assaut = -1; SC.prise = false; } if (nom === 'siege2') SC.mois2 = 1; if (nom === 'debarquement' || nom === 'espion' || nom === 'brouillard') { reexplorer(); tVision = 0; } }
 }
 const tau = (nom, tps) => { const c = CYCLE[nom] || 1e9; return ((tps - (SC.t[nom] || 0)) % c + c) % c; };
 const tauPrec = {};
@@ -529,7 +535,7 @@ function animGuerre(dt, tps, calme) {
   // caméra qui glisse vers la scène choisie
   if (vue.but) { const b = vue.but, k = 1 - Math.exp(-dt * 2.6); vue.cible.x += (b.x - vue.cible.x) * k; vue.cible.z += (b.z - vue.cible.z) * k; vue.d += (b.d - vue.d) * k; vue.tangage += (b.tg - vue.tangage) * k; let dl = b.la - vue.lacet; dl = Math.atan2(Math.sin(dl), Math.cos(dl)); vue.lacet += dl * k; if (Math.abs(b.d - vue.d) < 0.01 && Math.abs(dl) < 0.002) vue.but = null; }
   const T = {}; for (const n of ['bataille', 'debarquement', 'espion']) { T[n] = tau(n, tps); if (tauPrec[n] === undefined || T[n] < tauPrec[n]) tauPrec[n] = -1; }
-  animRevue(dt, tps); animCommerce(dt, tps); animBataille(dt, tps, T.bataille, tauPrec.bataille); animDebarquement(dt, tps, T.debarquement, tauPrec.debarquement); animBlocus(dt, tps); animSiege(dt, tps); animEspion(dt, tps, T.espion, tauPrec.espion);
+  animRevue(dt, tps); animCommerce(dt, tps); animBataille(dt, tps, T.bataille, tauPrec.bataille); animDebarquement(dt, tps, T.debarquement, tauPrec.debarquement); animBlocus(dt, tps); animSiege(dt, tps); animEspion(dt, tps, T.espion, tauPrec.espion); animRemparts(dt, tps); animSiege2(dt, tps);
   for (const n in T) tauPrec[n] = T[n];
   // unités rivales et armées cachées : seulement en vue
   for (const g of G.cachees) g.visible = enVue(g.position.x, g.position.z);
@@ -731,6 +737,7 @@ function sourcesVision() {
   if (G.espion.g.visible || G.espion.cage.visible) s.push([G.espion.g.position.x, G.espion.g.position.z, 1]);
   if (G.deb.debarques > 0) s.push([LIEU.plage.x, LIEU.plage.z, 1]);
   if (G.revele) s.push([LIEU.armeeCachee.x, LIEU.armeeCachee.z, 2]);
+  if (SC.courante === 'siege2') s.push([VILLE2.mairie.x, VILLE2.mairie.z, 2], [VILLE2.camp.x, VILLE2.camp.z, 1]); // l'armée qui investit la ville la voit
   return s;
 }
 
@@ -751,6 +758,8 @@ function majLegende() {
     debarquement: `Débarquement · ${Math.min(16, G.deb.debarques)} / 16 soldats à terre.`,
     blocus: 'Blocus · nos navires mouillés devant le port rival, à l\'arrêt.',
     espion: `Espion · ${u('espion') < 9 ? 'il se faufile vers la ville rivale' : mis}.`,
+    remparts: (() => { const n = REMP.niveau, u = t - REMP.debut, tr = u >= 0 && u < REMP.duree; return `Remparts · niveau ${n}, ${NOM_REMP[n]} · ${STYLE_REMP[EPOQUE].nom[n - 1]}${n >= 3 ? ' · l\'enceinte englobe les six quartiers voisins, faubourgs hors les murs' : ' · autour de la mairie seule'}${tr ? ` · travaux ${Math.min(99, Math.round(u / REMP.duree * 100))} %` : ''}.`; })(),
+    siege2: (() => { const S2 = G.siege2, m = Math.floor(SC.mois2), w = (SC.mois2 - m) * 6, F = S2.faub[m - 1], np = Math.min(4, m - 1 + (F && w > 3.4 ? 1 : 0)); return `Siège d'une grande ville · mois ${m} · ${F ? (w < 2 ? `nos soldats sortent piller le faubourg ${F.nom}` : w < 3.9 ? `le faubourg ${F.nom} brûle, on emporte le butin` : 'retour au camp chargés de butin') : 'tous les faubourgs sont pillés'} · ${np} / 4 faubourgs pillés · hors les murs tout est arrêté, dedans la ville vit.`; })(),
     siege: SC.prise ? 'Siège · la brèche est prise, la ville tombe.' : SC.assaut >= 0 ? 'Siège · à l\'assaut de la brèche !' : SC.mois >= 8 ? 'Siège · la ville affamée hisse le drapeau blanc.' : `Siège · mois ${m} · brèche ${br} % · ${act} / ${S.fum.length} cheminées fument.`,
   }[SC.courante] || '';
   if (txt !== legendePrec) { legende.textContent = txt; legendePrec = txt; }
@@ -760,7 +769,8 @@ function majLegende() {
 document.querySelectorAll('[data-voir]').forEach(b => b.addEventListener('click', () => { voir(b.dataset.voir); document.querySelectorAll('[data-voir]').forEach(x => x.setAttribute('aria-pressed', String(x === b))); }));
 document.querySelectorAll('[data-mission]').forEach(b => b.addEventListener('click', () => { SC.mission = b.dataset.mission; SC.missionChoisie = true; voir('espion'); document.querySelectorAll('[data-mission]').forEach(x => x.setAttribute('aria-pressed', String(x === b))); document.querySelectorAll('[data-voir]').forEach(x => x.setAttribute('aria-pressed', String(x.dataset.voir === 'espion'))); }));
 document.querySelectorAll('[data-brouillard]').forEach(b => b.addEventListener('click', () => { BROUILLARD = b.dataset.brouillard === 'oui'; BRUME.on.value = BROUILLARD ? 1 : 0; tVision = 0; document.querySelectorAll('[data-brouillard]').forEach(x => x.setAttribute('aria-pressed', String(x === b))); if (SC.courante === 'ensemble' || SC.courante === 'brouillard') legendePrec = ''; }));
-document.querySelector('[data-mois]')?.addEventListener('click', () => { voir('siege', false); if (SC.assaut < 0) SC.mois = Math.min(8, Math.floor(SC.mois) + 1); });
+document.querySelector('[data-mois]')?.addEventListener('click', () => { if (SC.courante === 'siege2') { SC.mois2 = Math.floor(SC.mois2) + 1; if (SC.mois2 >= 7) SC.mois2 = 1; return; } voir('siege', false); if (SC.assaut < 0) SC.mois = Math.min(8, Math.floor(SC.mois) + 1); });
+document.querySelectorAll('[data-rempart]').forEach(b => b.addEventListener('click', () => { if (SC.courante !== 'remparts') { voir('remparts', false); document.querySelectorAll('[data-voir]').forEach(x => x.setAttribute('aria-pressed', String(x.dataset.voir === 'remparts'))); } niveauRemparts(+b.dataset.rempart); document.querySelectorAll('[data-rempart]').forEach(x => x.setAttribute('aria-pressed', String(x === b))); }));
 document.querySelector('[data-assaut]')?.addEventListener('click', assaut);
 
 // ---------------------------------------------------------------- événements à choix (fenêtre du jeu)
