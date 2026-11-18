@@ -1,7 +1,7 @@
 // L'interface : barre du haut, panneaux (construire, diplomatie, armées, royaume, menu), fiche d'une case
 // (ville, bâtiment, armées, flottes, espions, fort, siège), récapitulatif du mois, événements à choix, annonces.
-import { echapper as e } from './rendu/etiquettes.js';
-import { voisins } from './rendu/scene.js';
+import { echapper as e } from '../graphismes/royaumes/etiquettes.js';
+import { voisins } from '../graphismes/royaumes/scene.js';
 
 const $ = s => document.querySelector(s);
 let J = null, A = null;
