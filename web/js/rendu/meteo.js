@@ -98,7 +98,7 @@ function foudre() {
   eclair.geometry.dispose();
   eclair.geometry = new THREE.BufferGeometry().setFromPoints(pts);
   matEclair.opacity = 1;
-  flash = 1;
+  flash = 1; climat.eclair = 1; // les vitres flashent (quartiers.js)
   if (eclairEl) {
     eclairEl.style.opacity = 0.45;
     setTimeout(() => (eclairEl.style.opacity = 0), 90);
@@ -110,26 +110,29 @@ function foudre() {
 const LUMIERE = {
   jour: { sol: 0xfff0d4, sI: 2.6, hemi: 0xeef7ff, hI: 1.5, fond: 0x1b211a, el: 1 },
   aube: { sol: 0xff9f5a, sI: 1.9, hemi: 0xd8d4e8, hI: 1.15, fond: 0x3b2717, el: 0.25 },
+  // le crépuscule, plus rosé que l'aube (maquette « vie des quartiers »)
+  crep: { sol: 0xff7f6a, sI: 1.75, hemi: 0xcdbde0, hI: 1.1, fond: 0x2c1b2a, el: 0.22 },
   // nuit : lune bleutée, mais la carte reste lisible (hemi pas sous 0,9)
   nuit: { sol: 0x8ea6ff, sI: 0.6, hemi: 0x7484b4, hI: 0.95, fond: 0x090d1a, el: 0.6 },
 };
 for (const L of Object.values(LUMIERE)) { L.sol = new THREE.Color(L.sol); L.hemi = new THREE.Color(L.hemi); L.fond = new THREE.Color(L.fond); }
 const JOUR_S = 300, CREP_S = 30, NUIT_S = 60, AUBE_S = 30, CYCLE = JOUR_S + CREP_S + NUIT_S + AUBE_S;
-let force = null;
-/** Pour les essais : 'jour', 'aube', 'nuit', ou un instant du cycle en secondes (0 = début du jour) ; null = cycle automatique. */
-export function forcerHeure(h) { force = h; }
-/** Poids [jour, aube, nuit] à l'instant t. */
+let force = null, tForce = 0, marcheForce = null;
+/** Pour les essais : 'jour', 'aube', 'crepuscule', 'nuit' (l'horloge de la phase repart de 0), ou un instant du cycle en secondes
+ *  (0 = début du jour) ; null = cycle automatique. */
+export function forcerHeure(h) { force = h; tForce = 0; }
+/** Pour les essais : true ou false force le jour de marché, null le rend au cycle (un jour sur deux). */
+export function forcerMarche(v) { marcheForce = v; }
+/** Poids [jour, aube, nuit], phase ('jour', 'crepuscule', 'nuit', 'aube') et secondes écoulées dans la phase, à l'instant t. */
 function poids(t) {
-  if (force === 'jour') return [1, 0, 0];
-  if (force === 'aube') return [0, 1, 0];
-  if (force === 'nuit') return [0, 0, 1];
+  if (typeof force === 'string') return [force === 'jour' ? 1 : 0, force === 'aube' || force === 'crepuscule' ? 1 : 0, force === 'nuit' ? 1 : 0, force, tForce];
   const p = typeof force === 'number' ? force % CYCLE : (t + 20) % CYCLE;
   // chaque transition passe par l'or : à mi-chemin, tout est aube
-  if (p < JOUR_S) return [1, 0, 0];
-  if (p < JOUR_S + CREP_S) { const u = (p - JOUR_S) / CREP_S; return [Math.max(0, 1 - 2 * u), 1 - Math.abs(2 * u - 1), Math.max(0, 2 * u - 1)]; }
-  if (p < JOUR_S + CREP_S + NUIT_S) return [0, 0, 1];
+  if (p < JOUR_S) return [1, 0, 0, 'jour', p];
+  if (p < JOUR_S + CREP_S) { const u = (p - JOUR_S) / CREP_S; return [Math.max(0, 1 - 2 * u), 1 - Math.abs(2 * u - 1), Math.max(0, 2 * u - 1), 'crepuscule', p - JOUR_S]; }
+  if (p < JOUR_S + CREP_S + NUIT_S) return [0, 0, 1, 'nuit', p - JOUR_S - CREP_S];
   const u = (p - JOUR_S - CREP_S - NUIT_S) / AUBE_S;
-  return [Math.max(0, 2 * u - 1), 1 - Math.abs(2 * u - 1), Math.max(0, 1 - 2 * u)];
+  return [Math.max(0, 2 * u - 1), 1 - Math.abs(2 * u - 1), Math.max(0, 1 - 2 * u), 'aube', p - JOUR_S - CREP_S - NUIT_S];
 }
 
 // ------------------------------------------------------------------ appliquer le temps du mois
@@ -150,7 +153,7 @@ export function appliquerMeteo(m, saison) {
     vent: g === 'tempete' ? 1.4 : g === 'brouillard' ? 0.05 : 0.2 + v * 0.6,
     nuages: { soleil: 3, nuages: 10, pluie: 14, orage: 16, brouillard: 2, neige: 13, gel: 4, canicule: 1, tempete: 16 }[g] ?? 6,
     gris: { pluie: 0.6, orage: 0.85, tempete: 0.8, neige: 0.35, brouillard: 0.3 }[g] ?? 0,
-    oiseaux: !tombe,
+    oiseaux: !tombe, neigeSol: (m.neige_sol ?? 0) > 0.3,
   });
   // glace sur l'eau, vent sur la mer et dans les ailes
   if (typeof P.geler === 'function') P.geler(gel);
@@ -166,10 +169,13 @@ export function appliquerMeteo(m, saison) {
 
 const GRIS = new THREE.Color(0x3a4248), BRUME = new THREE.Color(0x9aa2a6), DORE = new THREE.Color(0xdfe8ff);
 function majLumiere(t) {
-  const [j, a, n] = poids(t);
+  const [j, a, n, phase, p] = poids(t);
   climat.jour = j; climat.aube = a; climat.nuit = n;
   climat.heure = j >= a && j >= n ? 'jour' : n > a ? 'nuit' : 'aube';
-  const L = LUMIERE, s = TEMPS.sombre;
+  // la phase fine et l'heure dans la phase (vie des quartiers) ; le jour de marché revient un jour du cycle sur deux
+  climat.phase = phase; climat.p = p;
+  climat.marche = marcheForce ?? (Math.floor((typeof force === 'number' ? force : t + 20) / CYCLE) % 2 === 0);
+  const L = { ...LUMIERE, aube: phase === 'crepuscule' ? LUMIERE.crep : LUMIERE.aube }, s = TEMPS.sombre;
   lumiere.soleil = (L.jour.sI * j + L.aube.sI * a + L.nuit.sI * n) * s;
   lumiere.hemi = (L.jour.hI * j + L.aube.hI * a + L.nuit.hI * n) * (0.75 + 0.25 * s);
   const mix = (cle, cible) => { const A = L.jour[cle], B = L.aube[cle], D = L.nuit[cle]; return cible.setRGB(A.r * j + B.r * a + D.r * n, A.g * j + B.g * a + D.g * n, A.b * j + B.b * a + D.b * n); };
@@ -185,6 +191,8 @@ function majLumiere(t) {
 }
 
 chaqueImage((dt, t) => {
+  tForce += dt;
+  climat.eclair = Math.max(0, (climat.eclair || 0) - dt * 5);
   majLumiere(t);
   const a = Math.min(1, dt * 0.8);
   for (const k of ['pluie', 'neige', 'brume']) etat[k] += (etat.cible[k] - etat[k]) * a;

@@ -59,6 +59,14 @@ with sync_playwright() as p:
         pg.evaluate(f"""async()=>{{const m=await import('/js/rendu/meteo.js');const pl=await import('/js/rendu/plateau.js');const s={0 if g=='neige' else 2};m.appliquerMeteo({{genre:'{g}',temperature:{t},vent:0.7,direction:0.4,pluie:0.8,neige_sol:{1 if g=='neige' else 0}}},s);pl.majSaison(s,{1 if g=='neige' else 0});}}""")
         pg.wait_for_timeout(3500)
         pg.screenshot(path=f'/tmp/royaumes-8-{g}.png')
+    # vie des quartiers : de près sur la capitale, la nuit, les vraies vitres s'allument et le veilleur fait sa ronde
+    pg.evaluate("""async()=>{const s=await import('/js/rendu/scene.js'),m=await import('/js/rendu/meteo.js');const J=window.__jeu,p=s.posCase(J.etat.villes.find(v=>v.proprio===0).case);s.viser(p.x,p.z,7);m.forcerHeure('nuit');}""")
+    pg.wait_for_timeout(3000)
+    q = pg.evaluate("""async()=>(await import('/js/rendu/quartiers.js')).etatQuartiers()""")
+    print('quartiers :', q)
+    assert q['proches'] > 0 and q['fenetres'] > 0, 'la vie des quartiers ne s\'est pas installée près de la capitale'
+    pg.screenshot(path='/tmp/royaumes-8-quartiers-nuit.png')
+    pg.evaluate("""async()=>{const m=await import('/js/rendu/meteo.js');m.forcerHeure(null);}""")
     pg.evaluate("""async()=>{const m=await import('/js/rendu/scene.js');m.cam.cible=50;}""")
     pg.wait_for_timeout(2500)
     pg.screenshot(path='/tmp/royaumes-9-loin.png')

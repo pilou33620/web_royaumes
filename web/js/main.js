@@ -4,6 +4,7 @@ import { renderer, cam, viser, surTap, surClicDroit, posCase, chaqueImage, scene
 import * as plateau from './rendu/plateau.js';
 import { initMonde, synchroniser, jouerMois, selectionnerArmee } from './rendu/monde.js';
 import { majVie } from './rendu/vie.js';
+import { majQuartiers } from './rendu/quartiers.js';
 import { selectionnerFort } from './rendu/forts.js';
 import { majBrouillard, jouerMoisBrouillard } from './rendu/brouillard.js';
 import { majMarine, jouerMoisMarine } from './rendu/marine.js';
@@ -77,6 +78,7 @@ function appliquer(etat, rapport) {
   niveauRoutes(etat.joueur?.routes?.niveau || 1);
   majRoutes(etat.routes);
   majVie(etat, rapport);
+  majQuartiers(etat);
   appliquerMeteo(etat.meteo, etat.saison);
   ui.majHUD();
 }
