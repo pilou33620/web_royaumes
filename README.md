@@ -11,7 +11,8 @@ qui s'ouvre dans le navigateur, comme web_conquete.
 
 ## Ce qu'il y a dedans
 
-- **Carte générée et réglable** : taille, graine, part d'océans, densité de forêt, nombre de lacs et de rivières,
+- **Carte générée et réglable** : forme (classique, continent, deux continents, îles, archipel, mer intérieure,
+  péninsule, côte, terres sans mer, ou au hasard), taille, graine, part d'océans, densité de forêt, nombre de lacs et de rivières,
   montagnes, richesse minière (pierre, fer, charbon, or), bancs de poissons, terres fertiles au bord de l'eau.
 - **Rendu 3D façon dessin animé** (le même que web_power) : ombrage en trois tons et contours brun foncé, plateau
   d'hexagones étagés (mer translucide, côtes, plaines, collines, montagnes enneigées), forêts, champs en parcellaire
@@ -45,6 +46,19 @@ qui s'ouvre dans le navigateur, comme web_conquete.
 - **Rivaux** au caractère belliqueux, marchand ou bâtisseur : relations, cadeaux, routes commerciales, marché
   (achat et vente selon leurs surplus et leurs besoins), alliances, tributs, guerres, propositions et ultimatums.
   Brigands en prime.
+- **Brouillard de guerre** : terres inconnues sous la brume, terres connues mais hors de vue voilées (dernier état
+  connu) ; la brume se lève au passage des armées, flottes, espions et forts.
+- **Marine** : flûtes, corvettes, frégates, vaisseaux de ligne et navires à vapeur, recrutés au port. Les armées ne
+  marchent pas sur l'eau : elles embarquent sur des flûtes. Batailles navales, blocus des ports, commerce par mer.
+- **Espionnage** : espions recrutés à la taverne (l'académie les rend meilleurs) ; renseignement, vol de technologie,
+  sabotage, au risque d'être démasqué.
+- **Sièges en plusieurs mois** : tranchées, batteries et brèche, faubourgs hors les murs arrêtés et pillés chaque mois,
+  reddition par la faim ou assaut. Les villes se fortifient sur 4 niveaux (palissade, murailles, bastions à la Vauban,
+  citadelle), dont l'enceinte s'agrandit et change d'allure avec l'époque.
+- **Retranchements et forts** : une armée se retranche en un mois, ou bâtit un fort améliorable (redoute, fort
+  bastionné, fort à batteries) qui protège, voit loin et peut être pris.
+- **Événements à choix** tous les trois ou quatre mois (inventeur, philosophe, disette, déserteur…).
+- Les rivaux utilisent tout cela : flottes, espions, fortifications, forts, sièges et pillages.
 - **Victoires** : conquête, prospérité (Cité + Palais royal + 400 habitants), diplomatie (alliance avec tous),
   ou meilleur royaume en décembre 1850.
 
@@ -75,8 +89,13 @@ tout seul. La partie est sauvegardée à chaque mois dans `saves/` ; on peut aus
 
 - **Construire** (🏗️) : choisissez un bâtiment, les cases possibles s'éclairent. Les travaux durent quelques mois.
 - **Fin du mois** : tout se joue, puis le bilan du mois s'affiche (événements, stocks, population, météo à venir).
-- **Armées** (⚔️) : recrutez à la caserne, au haras ou à l'arsenal ; touchez une armée puis « Donner une destination ».
-  Les marches durent plusieurs mois ; neige et boue les ralentissent.
+- **Armées** (⚔️) : recrutez à la caserne, au haras ou à l'arsenal ; touchez une armée puis « Donner une destination »,
+  ou faites un clic droit sur la case visée. Les marches durent plusieurs mois ; neige et boue les ralentissent.
+  Depuis la fiche de l'armée : se retrancher, construire un fort, embarquer sur une flotte ; assaut depuis le panneau
+  de siège.
+- **Marine et espions** : recrutez au port et à la taverne, puis touchez la flotte ou l'espion pour naviguer,
+  débarquer, commercer ou lancer une mission.
+- **Villes** : touchez la mairie pour monter de rang ou fortifier la ville.
 - **Royaume** (📊) : bonheur, finances et impôts, **sciences**, stocks, conditions de victoire, journal.
 - Gestes : glisser = déplacer, pincer = zoom, deux doigts = tourner, toucher une case pour l'inspecter.
   Clavier : ZQSD ou flèches, E / R pour tourner, Entrée = fin du mois, Échap = annuler.
@@ -92,10 +111,14 @@ rust/royaumes/        le moteur et le serveur (Rust)
   src/tour.rs         la fin du mois (économie, marches, batailles, événements, victoire)
   src/ia.rs           les royaumes de l'ordinateur
   src/commandes.rs    les ordres du joueur (vérifiés par le moteur)
+  src/marine.rs, espions.rs, sieges.rs, forts.rs, choix.rs   flottes, espionnage, sièges et fortifications,
+                      retranchements et forts, événements à choix
   src/vue.rs          ce que reçoit l'interface
   src/serveur.rs      serveur HTTP (web_tools_commun), sauvegardes, options, mise à jour
 web/                  l'interface (index.html, css/, js/, vendor/three r186)
-  js/rendu/           plateau 3D (relief), modèles, routes, vie de la carte, météo, étiquettes
+  js/rendu/           plateau 3D (relief), modèles, routes, vie de la carte, météo, étiquettes,
+                      brouillard, marine, espions, remparts, sièges, forts
+maquettes/            maquettes 3D validées avant intégration (rendu, armées, guerre, vie des quartiers)
 tests/navigateur.py   banc d'essai de l'interface dans Chrome (Playwright)
 ```
 
