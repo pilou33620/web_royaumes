@@ -59,10 +59,10 @@ figure { margin: 0; }
 <main>
   <section class="intro">
     <h1>Royaumes des Rives, guerre et diplomatie</h1>
-    <p>Maquette 3D des nouveautés graphiques de six fonctions : brouillard de guerre, marine, espionnage, sièges, remparts des villes et événements à choix, aux quatre époques, dans le rendu façon web_power (ombrage dessin animé en trois tons, contours bruns, plateau d'hexagones). Toutes les scènes vivent en même temps ; les boutons « Voir » y mènent la caméra et les relancent. Rien n'est encore changé dans le jeu.</p>
+    <p>Maquette 3D des nouveautés graphiques de sept fonctions : brouillard de guerre, marine, espionnage, sièges, remparts des villes, forts d'armée et événements à choix, aux quatre époques, dans le rendu façon web_power (ombrage dessin animé en trois tons, contours bruns, plateau d'hexagones). Toutes les scènes vivent en même temps ; les boutons « Voir » y mènent la caméra et les relancent. Rien n'est encore changé dans le jeu.</p>
   </section>
   <div class="scene">
-    <canvas id="scene" aria-label="Plateau de démonstration : notre royaume à l'ouest, une baie, le royaume rival fortifié à l'est, une île alliée, des navires, un espion et un siège"></canvas>
+    <canvas id="scene" aria-label="Plateau de démonstration : notre royaume à l'ouest, une baie, le royaume rival fortifié à l'est, une île alliée, des navires, un espion, deux sièges et des forts d'armée"></canvas>
     <div class="legende" id="legende" aria-live="polite"></div>
     <div class="jeu-annonces" id="annonces" aria-live="polite"></div>
     <div class="jeu-modale" id="evt"><div class="jeu-boite" id="evt-boite" role="dialog" aria-modal="true" aria-labelledby="evt-titre"></div></div>
@@ -70,14 +70,16 @@ figure { margin: 0; }
   </div>
   <div class="barres">
     <div class="groupe" role="group" aria-label="Voir une scène"><span>Voir</span>
-      <button data-voir="ensemble" aria-pressed="true">Vue d'ensemble</button><button data-voir="brouillard" aria-pressed="false">Brouillard</button><button data-voir="revue" aria-pressed="false">Flotte</button><button data-voir="bataille" aria-pressed="false">Bataille navale</button><button data-voir="debarquement" aria-pressed="false">Débarquement</button><button data-voir="blocus" aria-pressed="false">Blocus</button><button data-voir="commerce" aria-pressed="false">Commerce</button><button data-voir="espion" aria-pressed="false">Espion</button><button data-voir="siege" aria-pressed="false">Siège</button><button data-voir="remparts" aria-pressed="false">Remparts</button><button data-voir="siege2" aria-pressed="false">Siège d'une grande ville</button></div>
+      <button data-voir="ensemble" aria-pressed="true">Vue d'ensemble</button><button data-voir="brouillard" aria-pressed="false">Brouillard</button><button data-voir="revue" aria-pressed="false">Flotte</button><button data-voir="bataille" aria-pressed="false">Bataille navale</button><button data-voir="debarquement" aria-pressed="false">Débarquement</button><button data-voir="blocus" aria-pressed="false">Blocus</button><button data-voir="commerce" aria-pressed="false">Commerce</button><button data-voir="espion" aria-pressed="false">Espion</button><button data-voir="siege" aria-pressed="false">Siège d'une petite ville</button><button data-voir="siege2" aria-pressed="false">Siège d'une grande ville</button><button data-voir="remparts" aria-pressed="false">Remparts</button><button data-voir="forts" aria-pressed="false">Forts d'armée</button></div>
     <div class="groupe" role="group" aria-label="Niveau des remparts de notre capitale"><span>Remparts</span>
       <button data-rempart="1" aria-pressed="false">1 · Palissade</button><button data-rempart="2" aria-pressed="false">2 · Murailles</button><button data-rempart="3" aria-pressed="true">3 · Bastions</button><button data-rempart="4" aria-pressed="false">4 · Citadelle</button></div>
     <div class="groupe" role="group" aria-label="Brouillard de guerre"><span>Brouillard</span>
       <button data-brouillard="oui" aria-pressed="true">Activé</button><button data-brouillard="non" aria-pressed="false">Désactivé</button></div>
     <div class="groupe" role="group" aria-label="Mission de l'espion"><span>Espion</span>
       <button data-mission="renseignement" aria-pressed="false">Renseignement</button><button data-mission="vol" aria-pressed="false">Vol de plans</button><button data-mission="sabotage" aria-pressed="false">Sabotage</button><button data-mission="demasque" aria-pressed="false">Démasqué</button></div>
-    <div class="groupe"><span>Siège</span><button data-mois>Mois suivant</button><button data-assaut>Assaut !</button></div>
+    <div class="groupe" role="group" aria-label="Siège de la ville regardée (la petite ville par défaut)"><span>Siège</span><button data-mois>Mois suivant</button><button data-assaut>Assaut !</button></div>
+    <div class="groupe" role="group" aria-label="Forts d'armée"><span>Forts</span>
+      <button data-fort="1" aria-pressed="true">1 · Redoute</button><button data-fort="2" aria-pressed="false">2 · Fort</button><button data-fort="3" aria-pressed="false">3 · Fort à batteries</button><button data-retranche="oui">Se retrancher</button><button data-retranche="non">Lever le camp</button></div>
     <div class="groupe" role="group" aria-label="Événements à choix"><span>Événement</span>
       <button data-evt="disette">La disette (1709)</button><button data-evt="philosophe">Le philosophe (1762)</button><button data-evt="inventeur">L'inventeur (1824)</button></div>
     <div class="groupe" role="group" aria-label="Époque"><span>Époque</span>
@@ -113,11 +115,13 @@ figure { margin: 0; }
       </ul>
       <h3>Sièges</h3>
       <ul>
-        <li>Ville rivale fortifiée : enceinte à cinq bastions et fossé en eau (Vauban en 1700), demi-lunes aux Lumières et sous l'Empire, fort bas de brique sans échauguettes à l'ère industrielle ; donjon, arsenal, église et maisons dedans, jetée vers la mer.</li>
+        <li>Les boutons « Mois suivant » et « Assaut ! » agissent sur le siège qu'on regarde (la petite ville si on regarde autre chose).</li>
+        <li>Siège d'une petite ville : une place forte sans faubourgs sur la côte, enceinte à cinq bastions et fossé en eau (Vauban en 1700), demi-lunes aux Lumières et sous l'Empire, fort bas de brique sans échauguettes à l'ère industrielle ; donjon, arsenal, église et maisons dedans, jetée vers la mer.</li>
         <li>Un mois toutes les quatre secondes : parallèles et tranchées en zigzag qui avancent, gabions, deux batteries qui tirent (éclairs, fumée, poussière à l'impact), canons de la ville qui répondent, brèche qui s'ouvre avec ses gravats, de moins en moins de cheminées qui fument, drapeau blanc au huitième mois.</li>
-        <li>Bouton « Assaut ! » : huit soldats montent à la brèche, les défenseurs tirent puis cèdent, notre drapeau flotte sur la brèche puis sur le donjon. Canons, uniformes et murs suivent l'époque.</li>
-        <li>Siège d'une grande ville : la ville rivale de l'est, mairie et six quartiers dans une enceinte bastionnée agrandie, quatre faubourgs hors les murs du côté de notre camp (sur la colline). Les faubourgs sont arrêtés : plus une fumée, ailes du moulin immobiles ; dedans, les cheminées fument toujours.</li>
-        <li>Chaque mois (toutes les six secondes, ou « Mois suivant ») quatre de nos soldats sortent du camp, le faubourg suivant flambe, ils rentrent chargés de sacs et de caisses de butin, et le faubourg reste noirci, ses toits brûlés, quelques braises qui fument. Au bout de six mois tout recommence.</li>
+        <li>« Assaut ! » : huit soldats montent à la brèche, les défenseurs tirent puis cèdent, notre drapeau flotte sur la brèche puis sur le donjon. Canons, uniformes et murs suivent l'époque.</li>
+        <li>Siège d'une grande ville : la ville rivale de l'est, mairie et six quartiers dans une enceinte bastionnée agrandie (remparts de niveau 3), quatre faubourgs hors les murs de part et d'autre de nos tranchées, notre camp sur la colline. Les deux choses avancent ensemble, un mois toutes les six secondes (ou « Mois suivant ») :</li>
+        <li>le siège en règle, comme pour la petite ville mais en plus grand : parallèles et boyaux en zigzag de la colline vers la courtine ouest, gabions, deux batteries qui tirent, canons des bastions qui répondent, brèche qui s'ouvre au milieu de la courtine, de moins en moins de cheminées qui fument dans les murs, drapeau blanc sur la mairie au huitième mois, et « Assaut ! » (soldats à la brèche, défenseurs, notre drapeau sur la brèche puis sur la mairie) ;</li>
+        <li>et le pillage : les faubourgs sont arrêtés (plus une fumée, ailes du moulin immobiles) ; chaque mois quatre de nos soldats sortent du camp par un chemin dégagé, le faubourg suivant flambe, ils rentrent chargés de sacs et de caisses de butin, et le faubourg reste noirci (murs et toits charbonnés, grange comprise), quelques braises qui fument.</li>
       </ul>
       <h3>Remparts des villes</h3>
       <ul>
@@ -128,6 +132,17 @@ figure { margin: 0; }
         <li>Niveau 4, Citadelle : la même enceinte, plus haute, avec des demi-lunes dans les angles rentrants et un fossé en eau, et l'ancienne muraille garde la mairie (double enceinte).</li>
         <li>Les murs se posent sur la hauteur de chaque case et descendent jusqu'au sol le plus bas autour ; une porte s'ouvre là où passe une route (un pont sur le fossé), une arche là où passe une rivière. Les maisons des quartiers restent à l'intérieur, rien ne les chevauche.</li>
         <li>Monter d'un niveau lance quelques secondes de travaux : échafaudages, blocs de pierre, poussière, la nouvelle enceinte qui s'élève, puis l'ancienne disparaît.</li>
+      </ul>
+      <h3>Forts d'armée</h3>
+      <ul>
+        <li>Sur trois collines libres de la frontière nord, loin des villes, nos armées (l'icône d'armée, uniformes et canons de l'époque). L'anneau léger trace le contour exact des cases que voit le fort : deux cases pour la redoute et le fort, trois pour le fort à batteries (une seule pour une armée en campagne) ; la brume se lève dessus et l'armée rivale voisine apparaît.</li>
+        <li>Se retrancher (ordre gratuit et temporaire, case de gauche) : en un mois, six soldats à la pelle creusent une tranchée basse en arc devant l'armée, le parapet monte, puis viennent gabions et fascines (sacs de terre sous l'Empire et à l'ère industrielle) : l'armée est retranchée. « Lever le camp » : l'armée repart et le retranchement s'efface ; elle revient ensuite en campagne, sans retranchement.</li>
+        <li>Le fort permanent (case du fond), avec l'armée qui le garde sur le glacis devant la porte, est une amélioration à trois niveaux dont l'aspect suit aussi l'époque (douze combinaisons, boutons Forts et Époque). Une sentinelle fait sa ronde sur le rempart, le drapeau du royaume flotte au mât.</li>
+        <li>Niveau 1, Redoute : redoute de terre carrée (pentagonale sous l'Empire et à l'ère industrielle), fossé, petite porte, mât au drapeau, deux tentes ; pieux sur la crête en 1700, talus gazonné et palissade de pieux clairs aux Lumières, gabions et un canon sous l'Empire, poteaux goudronnés et lisses à l'ère industrielle.</li>
+        <li>Niveau 2, Fort : petit fort bastionné à quatre bastions, fossé sec, pont, caserne au milieu, canons sur les bastions ; pierre ocre et échauguettes en 1700, pierre claire et toits d'ardoise aux Lumières, pierre grise gazonnée sous l'Empire, brique et parapets de terre à l'ère industrielle.</li>
+        <li>Niveau 3, Fort à batteries : plus grand, trois demi-lunes, fossé en eau, batteries sur les bastions et les demi-lunes, poudrière, et une tour qui signale la vision étendue : tour de guet au brasier en 1700, sémaphore à bras ensuite. À l'ère industrielle, fort bas polygonal de brique couvert de terre, casemates, canons rayés, poudrière enterrée.</li>
+        <li>Monter d'un niveau lance quelques secondes de travaux : échafaudages, blocs, poussière, ouvriers qui frappent et portent les pierres, le nouveau fort qui s'élève, puis l'ancien disparaît.</li>
+        <li>Case de droite : une redoute rivale vide ; une de nos armées y entre, le drapeau rouge descend, le nôtre monte.</li>
       </ul>
       <h3>Événements à choix</h3>
       <ul>

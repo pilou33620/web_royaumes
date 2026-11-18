@@ -7,7 +7,7 @@ FIN2 = 'construirePlateau(); construireBatiments(); construireAmbiance(); constr
 assert scene.endswith(fin); scene = scene[:-len(fin)]
 cam = '// ---------------------------------------------------------------- caméra'
 assert scene.count(cam) == 1
-scene = scene.replace(cam, open(f'{D}/vie2.js').read() + '\n' + open(f'{D}/guerre.js').read() + '\n' + open(f'{D}/remparts.js').read() + '\n' + cam)
+scene = scene.replace(cam, open(f'{D}/vie2.js').read() + '\n' + open(f'{D}/guerre.js').read() + '\n' + open(f'{D}/remparts.js').read() + '\n' + open(f'{D}/forts.js').read() + '\n' + cam)
 bat = '// ---------------------------------------------------------------- bâtiments, armée et pièces animées'
 assert scene.count(bat) == 1
 scene = scene.replace(bat, open(f'{D}/batiments.js').read() + '\n' + bat)
@@ -21,6 +21,6 @@ js = "import * as THREE from 'three';\n" + hache + scene + FIN2
 page = open(f'{D}/page.html').read().replace('/*SCRIPT*/', js)
 open(f'{S}/guerre.html', 'w').write(page)
 # copie d'aperçu : three.js local (le CDN est bloqué ici) et accès pour les scripts de capture
-ap = page.replace('https://cdn.jsdelivr.net/npm/three@0.170.0/', './npm3/package/').replace('setTimeout(() => d.remove(), 4500)', 'setTimeout(() => d.remove(), 30000)').replace('const dt = Math.min(0.05, (now - avant) / 1000)', 'const dt = window.__pause ? 0 : Math.min(0.3, (now - avant) / 1000)').replace(FIN2, 'window.__REMP = REMP; window.__X = { CASES, PLAN, centre, voisins, at, enceinte, GUERRE: () => GUERRE, lignesRiviere, constr: construireRempartsCapitale }; window.__vue = vue; window.__voir = voir; window.__SC = SC; window.__G = () => G; window.__lieu = LIEU; window.__dbg = () => ({ b: bouffees.length, e: eclats.length, g: gerbes.length, tp: JSON.stringify(tauPrec), t, st: SC.t });\n' + FIN2)
+ap = page.replace('https://cdn.jsdelivr.net/npm/three@0.170.0/', './npm3/package/').replace('setTimeout(() => d.remove(), 4500)', 'setTimeout(() => d.remove(), 30000)').replace('const dt = Math.min(0.05, (now - avant) / 1000)', 'const dt = window.__pause ? 0 : Math.min(0.3, (now - avant) / 1000)').replace(FIN2, 'window.__REMP = REMP; window.__FORTS = FORTS; window.__X = { CASES, PLAN, centre, voisins, at, enceinte, GUERRE: () => GUERRE, lignesRiviere, constr: construireRempartsCapitale }; window.__vue = vue; window.__voir = voir; window.__SC = SC; window.__G = () => G; window.__lieu = LIEU; window.__dbg = () => ({ b: bouffees.length, e: eclats.length, g: gerbes.length, tp: JSON.stringify(tauPrec), t, st: SC.t });\n' + FIN2)
 open(f'{S}/guerre-apercu.html', 'w').write(ap)
 print(len(page))

@@ -367,9 +367,59 @@ function forteresse(L, LB, ex, E, phi) {
   ex.breche = { H, Rc, pied: pol(Rc + 0.55, phi) };
 }
 
+// ---------------------------------------------------------------- ouvrages et troupes d'un siège, communs à la petite et à la grande ville
+// S.pt(d, v) : point à la distance d (le pied du mur assiégé vers d = 0,58) et au décalage latéral v ; (S.ux, S.uz) va de la ville vers le camp.
+// e grossit les ouvrages pour qu'ils restent lisibles de plus loin (grande ville).
+const ETAPES_SIEGE = [ // parallèles de Vauban et boyaux en zigzag, avec le mois où chacun est creusé
+  { m: 1, pts: [[3.0, 0.05], [2.7, 0.24], [2.4, -0.18], [2.12, 0.16], [1.88, -0.04]] }, { m: 1, pts: [[1.88, -0.78], [1.86, 0.78]] },
+  { m: 2, pts: [[1.88, -0.04], [1.72, 0.2], [1.57, -0.17], [1.42, 0.04]] }, { m: 2.6, pts: [[1.42, -0.62], [1.42, 0.62]] },
+  { m: 4, pts: [[1.42, 0.04], [1.3, -0.17], [1.17, 0.14], [1.04, -0.02]] }, { m: 5, pts: [[1.04, -0.42], [1.04, 0.42]] },
+];
+function travauxSiege(S, P, roy, e = 1, etapes = ETAPES_SIEGE) {
+  S.tranchees = etapes.map(({ m, pts }) => {
+    const Lt = lot();
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = S.pt(...pts[i]), b = S.pt(...pts[i + 1]), l = Math.hypot(b.x - a.x, b.z - a.z), cap = -Math.atan2(b.z - a.z, b.x - a.x), nb = Math.ceil(l / 0.1);
+      let nx = -(b.z - a.z) / l, nz = (b.x - a.x) / l; if (nx * -S.ux + nz * -S.uz < 0) { nx = -nx; nz = -nz; } // parapet côté ville
+      for (let s = 0; s < nb; s++) { // par tronçons, chacun posé sur le sol de sa case (le boyau descend de la colline du camp)
+        const f = (s + 0.5) / nb, mx = a.x + (b.x - a.x) * f, mz = a.z + (b.z - a.z) * f, y = solEn(mx, mz);
+        put(Lt, boite(l / nb + 0.05 * e, 0.003 * e, 0.062 * e), 0xb59c68, mx + nx * 0.008 * e, y + 0.0015 * e, mz + nz * 0.008 * e, cap, 0); // terre rejetée
+        put(Lt, boite(l / nb + 0.026 * e, 0.004 * e, 0.026 * e), 0x4a3522, mx - nx * 0.004 * e, y + 0.0025 * e, mz - nz * 0.004 * e, cap, 0); // le fossé
+      }
+    }
+    const g = fige(Lt, GUERRE); g.userData.m = m; return g;
+  });
+  { const Lg = lot(); for (const s of [-1, 1]) for (let i = 0; i < 6; i++) { const p = S.pt(1.35, s * (0.24 + i * 0.065 * e)), y = solEn(p.x, p.z); put(Lg, cyl(0.014 * e, 0.014 * e, 0.034 * e, 8), 0x9a7a4a, p.x, y + 0.017 * e, p.z, 0, 0.003); put(Lg, cyl(0.015 * e, 0.015 * e, 0.006 * e, 8), 0x6a5030, p.x, y + 0.036 * e, p.z, 0, 0); } S.gabions = fige(Lg, GUERRE); S.gabions.userData.m = 2.6; }
+  S.batteries = [-1, 1].map(s => {
+    const Lb = lot(), p = S.pt(1.5, s * 0.42), canonsL = [];
+    for (const x of [-1.25, 1.25]) {
+      if (EPOQUE === 'industrie') { // canon rayé de fer sur affût de fer
+        const f = cyl(0.17, 0.27, 3.1, 10); f.rotateX(Math.PI / 2 - 0.1); put(Lb, f, 0x3a3d42, x, 1.05, 0.55, 0, 0.06); put(Lb, boite(0.6, 0.45, 2.1), 0x5a5f66, x, 0.62, -0.25, 0, 0.05);
+        for (const dx of [-0.55, 0.55]) { const r = cyl(0.6, 0.6, 0.14, 12); r.rotateZ(Math.PI / 2); put(Lb, r, 0x2b2b30, x + dx, 0.6, 0, 0, 0.05); }
+      } else canon(Lb, P, x, 0);
+      canonsL.push([x, 1.12, 2.05]);
+      fantassin(Lb, P, x - 0.9, -1.4, roy);
+    }
+    for (const x of [-0.2, 0.25]) put(Lb, cyl(0.38, 0.38, 0.8, 8), 0x6b4a2a, x, 0.4, -2.2, 0, 0.05);
+    const g = fige(Lb, GUERRE); g.scale.setScalar(0.05 * e); g.position.set(p.x, solEn(p.x, p.z), p.z); g.rotation.y = capVers(-S.ux, -S.uz);
+    return { g, canonsL, ph: s > 0 ? 0 : 1.3 };
+  });
+}
+// l'assaut : huit soldats et un porte-drapeau
+function troupesAssaut(S, P, roy, ech) {
+  S.assaut = Array.from({ length: 8 }, () => { const s = soldat(GUERRE, P, roy, 'ligne', ech); s.visible = false; return s; });
+  S.drapBreche = new THREE.Group(); { const L2 = lot(); put(L2, boite(0.14, 4.6, 0.14), 0x4a3420, 0, 2.3, 0, 0, 0.05); fige(L2, S.drapBreche); drapeau(S.drapBreche, roy, 0, 3.9, 0, 1.6, 1.05); } S.drapBreche.scale.setScalar(ech); S.drapBreche.visible = false; GUERRE.add(S.drapBreche);
+}
+// gravats au pied de la brèche (unités des bâtiments, ramenées par ech)
+function gravatsSiege(S, pierreG, x, y, z, ry, ech) {
+  const Lr = lot(), b = sphere(1.5, 1); b.scale(1.3, 0.62, 1.9); put(Lr, b, pierreG, -0.3, 0, 0, 0, 0.12);
+  for (const [gx, gz, s] of [[1.2, 1.1, 0.7], [-0.6, -1.6, 0.6], [1.6, -0.8, 0.55], [0.4, 1.9, 0.5], [-1.4, 0.9, 0.6]]) put(Lr, boite(s, s * 0.7, s * 0.8), pierreG, gx, s * 0.3, gz, gx * 2, 0.06);
+  S.gravats = fige(Lr, GUERRE); S.gravats.position.set(x, y, z); S.gravats.rotation.y = ry; S.echG = ech;
+}
+
 // ---------------------------------------------------------------- tout construire (à chaque changement d'époque ou de saison)
 let G = null, GUERRE = null;
-const SC = { courante: 'ensemble', t: {}, mission: 'renseignement', missionChoisie: false, mois: 1, assaut: -1, prise: false, mois2: 1 };
+const SC = { courante: 'ensemble', t: {}, mission: 'renseignement', missionChoisie: false, s1: { mois: 1, assaut: -1, prise: false }, s2: { mois: 1, assaut: -1, prise: false } }; // s1 : petite ville, s2 : grande ville
 const PAL = () => PALIERS[PALIER_EPOQUE[EPOQUE]];
 function construireGuerre() {
   if (GUERRE) scene.remove(GUERRE);
@@ -431,8 +481,7 @@ function construireGuerre() {
     S.drapeau = drapeau(fort, ROUGE, ...ex.drapRival, 1.9, 1.15, 0, true);
     S.feuArsenal = feu(GUERRE, S.arsenal.x, S.arsenal.y - 0.02, S.arsenal.z, 0.35);
     // gravats au pied de la brèche
-    { const Lr = lot(), b = sphere(1.5, 1); b.scale(1.3, 0.62, 1.9); const pierreG = { ancien: 0xdccb9e, lumieres: 0xd6c8a6, empire: 0xcbc5b4, industrie: 0xa8553c }[EPOQUE]; put(Lr, b, pierreG, -0.3, 0, 0, 0, 0.12); for (const [x, z, s] of [[1.2, 1.1, 0.7], [-0.6, -1.6, 0.6], [1.6, -0.8, 0.55], [0.4, 1.9, 0.5], [-1.4, 0.9, 0.6]]) put(Lr, boite(s, s * 0.7, s * 0.8), pierreG, x, s * 0.3, z, x * 2, 0.06);
-      S.gravats = fige(Lr, GUERRE); const [px, pz] = ex.breche.pied; S.gravats.position.set(V.x + px * ECH_BAT, 0, V.z + pz * ECH_BAT); S.gravats.rotation.y = -phi; }
+    { const [px, pz] = ex.breche.pied; gravatsSiege(S, { ancien: 0xdccb9e, lumieres: 0xd6c8a6, empire: 0xcbc5b4, industrie: 0xa8553c }[EPOQUE], V.x + px * ECH_BAT, 0, V.z + pz * ECH_BAT, -phi, ECH_BAT); S.echB = ECH_BAT; }
     // défenseurs sur les murs
     S.defenseurs = ex.defenseurs.map(a => { const s = soldat(GUERRE, P, ROUGE, 'ligne', ECH_GENS * 0.9); const m = monde(a); s.position.copy(m); s.rotation.y = capVers(ux, uz); G.rivaux.push({ g: s }); return s; });
     // flûte rivale à quai, voiles serrées
@@ -440,37 +489,8 @@ function construireGuerre() {
     // blocus : trois de nos navires de guerre mouillés en arc devant la ville, flanc tourné vers elle, voiles serrées, bouées de la ligne
     S.blocus = [[2.65, 150], [2.7, 177], [2.6, 124]].map(([R, deg], i) => { const a = deg * Math.PI / 180, n = navire(i === 1 ? lourd() : leger(), roy, { ferle: true }); GUERRE.add(n.g); n.x = V.x + Math.cos(a) * R; n.z = V.z + Math.sin(a) * R; n.cap = -(a + Math.PI / 2); G.nos.push(n); return n; });
     { const Lb = lot(); const pts = [S.blocus[1], S.blocus[0], S.blocus[2]]; for (let i = 0; i < 2; i++) for (let f = 0.2; f < 0.85; f += 0.15) put(Lb, sphere(0.022, 0), (f * 100 | 0) % 2 ? 0xd9322a : 0xf6f2ea, pts[i].x + (pts[i + 1].x - pts[i].x) * f, MER + 0.012, pts[i].z + (pts[i + 1].z - pts[i].z) * f, 0, 0.004); S.bouees = fige(Lb, GUERRE); }
-    // siège : tranchées en zigzag (parallèles de Vauban), gabions, deux batteries, camp de tentes
-    const etapes = [
-      { m: 1, pts: [[3.0, 0.05], [2.7, 0.24], [2.4, -0.18], [2.12, 0.16], [1.88, -0.04]] }, { m: 1, pts: [[1.88, -0.78], [1.86, 0.78]] },
-      { m: 2, pts: [[1.88, -0.04], [1.72, 0.2], [1.57, -0.17], [1.42, 0.04]] }, { m: 2.6, pts: [[1.42, -0.62], [1.42, 0.62]] },
-      { m: 4, pts: [[1.42, 0.04], [1.3, -0.17], [1.17, 0.14], [1.04, -0.02]] }, { m: 5, pts: [[1.04, -0.42], [1.04, 0.42]] },
-    ];
-    S.tranchees = etapes.map(({ m, pts }) => {
-      const Lt = lot();
-      for (let i = 0; i < pts.length - 1; i++) {
-        const a = S.pt(...pts[i]), b = S.pt(...pts[i + 1]), l = Math.hypot(b.x - a.x, b.z - a.z), cap = -Math.atan2(b.z - a.z, b.x - a.x), mx = (a.x + b.x) / 2, mz = (a.z + b.z) / 2, y = solEn(mx, mz);
-        let nx = -(b.z - a.z) / l, nz = (b.x - a.x) / l; if (nx * -ux + nz * -uz < 0) { nx = -nx; nz = -nz; } // parapet côté ville
-        put(Lt, boite(l + 0.05, 0.003, 0.062), 0xb59c68, mx + nx * 0.008, y + 0.0015, mz + nz * 0.008, cap, 0); // terre rejetée
-        put(Lt, boite(l + 0.026, 0.004, 0.026), 0x4a3522, mx - nx * 0.004, y + 0.0025, mz - nz * 0.004, cap, 0); // le fossé
-      }
-      const g = fige(Lt, GUERRE); g.userData.m = m; return g;
-    });
-    { const Lg = lot(); for (const s of [-1, 1]) for (let i = 0; i < 6; i++) { const p = S.pt(1.35, s * (0.24 + i * 0.065)); put(Lg, cyl(0.014, 0.014, 0.034, 8), 0x9a7a4a, p.x, solEn(p.x, p.z) + 0.017, p.z, 0, 0.003); put(Lg, cyl(0.015, 0.015, 0.006, 8), 0x6a5030, p.x, solEn(p.x, p.z) + 0.036, p.z, 0, 0); } S.gabions = fige(Lg, GUERRE); S.gabions.userData.m = 2.6; }
-    S.batteries = [-1, 1].map(s => {
-      const Lb = lot(), p = S.pt(1.5, s * 0.42), canonsL = [];
-      for (const x of [-1.25, 1.25]) {
-        if (EPOQUE === 'industrie') { // canon rayé de fer sur affût de fer
-          const f = cyl(0.17, 0.27, 3.1, 10); f.rotateX(Math.PI / 2 - 0.1); put(Lb, f, 0x3a3d42, x, 1.05, 0.55, 0, 0.06); put(Lb, boite(0.6, 0.45, 2.1), 0x5a5f66, x, 0.62, -0.25, 0, 0.05);
-          for (const dx of [-0.55, 0.55]) { const r = cyl(0.6, 0.6, 0.14, 12); r.rotateZ(Math.PI / 2); put(Lb, r, 0x2b2b30, x + dx, 0.6, 0, 0, 0.05); }
-        } else canon(Lb, P, x, 0);
-        canonsL.push([x, 1.12, 2.05]);
-        fantassin(Lb, P, x - 0.9, -1.4, roy);
-      }
-      for (const x of [-0.2, 0.25]) put(Lb, cyl(0.38, 0.38, 0.8, 8), 0x6b4a2a, x, 0.4, -2.2, 0, 0.05);
-      const g = fige(Lb, GUERRE); g.scale.setScalar(0.05); g.position.set(p.x, solEn(p.x, p.z), p.z); g.rotation.y = capVers(-ux, -uz);
-      return { g, canonsL, ph: s > 0 ? 0 : 1.3 };
-    });
+    // siège : tranchées, gabions, deux batteries (communs aux deux sièges), puis le camp de tentes
+    travauxSiege(S, P, roy, 1);
     { const Lc = lot(), Cp = S.pt(3.15, 0); let i = 0;
       for (const [lx, lz] of [[-6, -3], [-2, -4.5], [2, -4.5], [6, -3], [-6, 3.2], [-2, 4.6], [2, 4.6], [6, 3.2]]) { put(Lc, cone(1.5, 2, 4), i++ % 2 ? 0xe9e2d0 : new THREE.Color(roy).getHex(), lx, 1, lz, Math.PI / 4, 0.09); put(Lc, boite(0.5, 0.9, 0.1), 0x2a2420, lx + 1.05, 0.45, lz, Math.PI / 2, 0); }
       put(Lc, boite(0.16, 5.4, 0.16), 0x4a3420, 0, 2.7, 0, 0, 0.06);
@@ -480,9 +500,7 @@ function construireGuerre() {
       const g = fige(Lc, GUERRE); g.scale.setScalar(0.06); g.position.set(Cp.x, solEn(Cp.x, Cp.z), Cp.z); g.rotation.y = capVers(-ux, -uz);
       drapeau(g, roy, 0, 4.7, 0, 2.4, 1.5); S.feuCamp = versMonde(g, 3, 0.9, 0); S.campFumee = 0;
       const f = feu(g, 3, 0.1, 0, 2.6); f.visible = true; S.flammeCamp = f; }
-    // l'assaut : huit soldats et un porte-drapeau
-    S.assaut = Array.from({ length: 8 }, () => { const s = soldat(GUERRE, P, roy); s.visible = false; return s; });
-    S.drapBreche = new THREE.Group(); { const L2 = lot(); put(L2, boite(0.14, 4.6, 0.14), 0x4a3420, 0, 2.3, 0, 0, 0.05); fige(L2, S.drapBreche); drapeau(S.drapBreche, roy, 0, 3.9, 0, 1.6, 1.05); } S.drapBreche.scale.setScalar(ECH_GENS); S.drapBreche.visible = false; GUERRE.add(S.drapBreche);
+    troupesAssaut(S, P, roy, ECH_GENS);
     G.siege = S;
   }
   // ---- deux armées rivales : une dans les terres explorées (cachée hors de vue), une dans l'inconnu (révélée par l'espion)
@@ -503,9 +521,10 @@ function construireGuerre() {
     Sp.onde = new THREE.Mesh(new THREE.RingGeometry(0.85, 1, 64).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffd36a, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false })); GUERRE.add(Sp.onde);
     G.espion = Sp;
   }
-  // ---- nos remparts (niveau choisi) et la grande ville rivale assiégée
+  // ---- nos remparts (niveau choisi), la grande ville rivale assiégée, les forts d'armée
   construireRempartsCapitale(false);
   G.siege2 = construireSiege2(E, P, roy);
+  G.forts = construireForts(E, P, roy);
 }
 
 // ---------------------------------------------------------------- les scènes
@@ -521,12 +540,13 @@ const VUES = { // cible de la caméra : x, z, distance, inclinaison, cap
   siege: () => [LIEU.rivale.x + 1.1, LIEU.rivale.z + 0.1, 4.6, 0.78, 0.75],
   brouillard: () => [COLS * SQ3 * 0.72, ROWS * 0.55, 13, 0.95, 0.25],
   remparts: () => [centre.x, centre.z + 0.15, 11, 0.9, 0.35],
-  siege2: () => { const M = VILLE2.mairie, C = VILLE2.camp; return [(M.x * 0.55 + C.x * 0.45), M.z + 0.15, 9, 0.85, 0.12]; },
+  siege2: () => { const M = VILLE2.mairie, C = VILLE2.camp; return [(M.x + C.x) / 2 - 0.2, M.z - 0.5, 9.6, 0.9, 0.1]; },
+  forts: () => { const a = FORTS.k, b = FORTS.kRet, c = FORTS.kPris; return [(a.x + b.x + c.x) / 3, (a.z + b.z + c.z) / 3 - 0.2, 6.8, 0.86, 0.08]; },
 };
 function voir(nom, relancer = true) {
   SC.courante = nom; const [x, z, d, tg, la] = VUES[nom]();
   vue.auto = false; vue.but = { x, z, d, tg, la };
-  if (relancer) { SC.t[nom] = t; if (nom === 'espion') SC.reprise = true; if (nom === 'siege') { SC.mois = 1; SC.assaut = -1; SC.prise = false; } if (nom === 'siege2') SC.mois2 = 1; if (nom === 'debarquement' || nom === 'espion' || nom === 'brouillard') { reexplorer(); tVision = 0; } }
+  if (relancer) { SC.t[nom] = t; if (nom === 'espion') SC.reprise = true; if (nom === 'siege' || nom === 'siege2') Object.assign(nom === 'siege' ? SC.s1 : SC.s2, { mois: 1, assaut: -1, prise: false }); if (nom === 'forts') relancerForts(); if (nom === 'debarquement' || nom === 'espion' || nom === 'brouillard') { reexplorer(); tVision = 0; } }
 }
 const tau = (nom, tps) => { const c = CYCLE[nom] || 1e9; return ((tps - (SC.t[nom] || 0)) % c + c) % c; };
 const tauPrec = {};
@@ -535,7 +555,7 @@ function animGuerre(dt, tps, calme) {
   // caméra qui glisse vers la scène choisie
   if (vue.but) { const b = vue.but, k = 1 - Math.exp(-dt * 2.6); vue.cible.x += (b.x - vue.cible.x) * k; vue.cible.z += (b.z - vue.cible.z) * k; vue.d += (b.d - vue.d) * k; vue.tangage += (b.tg - vue.tangage) * k; let dl = b.la - vue.lacet; dl = Math.atan2(Math.sin(dl), Math.cos(dl)); vue.lacet += dl * k; if (Math.abs(b.d - vue.d) < 0.01 && Math.abs(dl) < 0.002) vue.but = null; }
   const T = {}; for (const n of ['bataille', 'debarquement', 'espion']) { T[n] = tau(n, tps); if (tauPrec[n] === undefined || T[n] < tauPrec[n]) tauPrec[n] = -1; }
-  animRevue(dt, tps); animCommerce(dt, tps); animBataille(dt, tps, T.bataille, tauPrec.bataille); animDebarquement(dt, tps, T.debarquement, tauPrec.debarquement); animBlocus(dt, tps); animSiege(dt, tps); animEspion(dt, tps, T.espion, tauPrec.espion); animRemparts(dt, tps); animSiege2(dt, tps);
+  animRevue(dt, tps); animCommerce(dt, tps); animBataille(dt, tps, T.bataille, tauPrec.bataille); animDebarquement(dt, tps, T.debarquement, tauPrec.debarquement); animBlocus(dt, tps); animSiege(dt, tps); animEspion(dt, tps, T.espion, tauPrec.espion); animRemparts(dt, tps); animSiege2(dt, tps); animForts(dt, tps);
   for (const n in T) tauPrec[n] = T[n];
   // unités rivales et armées cachées : seulement en vue
   for (const g of G.cachees) g.visible = enVue(g.position.x, g.position.z);
@@ -636,16 +656,16 @@ function animBlocus(dt, tps) {
   poser(S.aQuai, S.aQuai.x, S.aQuai.z, S.aQuai.cap, tps, dt, { mouille: true });
 }
 // ---- siège : un mois toutes les quatre secondes ; tranchées qui avancent, batteries qui tirent, brèche qui s'ouvre, famine, reddition ; assaut au bouton
-function animSiege(dt, tps) {
-  const S = G.siege;
-  if (SC.assaut < 0) { SC.mois += dt / 4; if (SC.mois > 9.6) { SC.mois = 1; SC.prise = false; } }
-  const m = SC.mois, rendue = m >= 8 && SC.assaut < 0;
+// (commun aux deux sièges : st est l'état du siège, duree la durée d'un mois en secondes)
+function animSiegeDe(S, st, dt, tps, duree) {
+  if (st.assaut < 0) { st.mois += dt / duree; if (st.mois > 9.6) { st.mois = 1; st.prise = false; } }
+  const m = st.mois, rendue = m >= 8 && st.assaut < 0;
   for (const g of S.tranchees) g.visible = m >= g.userData.m;
   S.gabions.visible = m >= 2.6;
   for (const b of S.batteries) b.g.visible = m >= 2.6;
-  const br = lisse(3.5, 7, m); S.brecheG.scale.y = ECH_BAT * (1 - 0.78 * br); S.gravats.scale.setScalar(Math.max(0.001, br) * ECH_BAT);
+  const br = lisse(3.5, 7, m); S.brecheG.scale.y = S.echB * (1 - 0.78 * br); S.gravats.scale.setScalar(Math.max(0.001, br) * S.echG);
   // les batteries tirent (pas après la reddition ni pendant l'assaut)
-  const tire = m >= 3 && !rendue && SC.assaut < 0 && !SC.prise;
+  const tire = m >= 3 && !rendue && st.assaut < 0 && !st.prise;
   for (const b of S.batteries) b.canonsL.forEach(([x, y, z], i) => {
     const per = 2.6, ph = b.ph + i * 1.1, k0 = Math.floor((tps - dt - ph) / per), k1 = Math.floor((tps - ph) / per);
     if (!tire || k0 === k1 || !b.g.visible) return;
@@ -653,17 +673,17 @@ function animSiege(dt, tps) {
     const cible = S.pt(0.6, (Math.random() - 0.5) * 0.2); setTimeout(() => fumer({ x: cible.x, y: S.H * 0.6, z: cible.z }, { c: POUSSIERE, k: 1.1, vie: 1.8, vy: 0.06 }), 380);
   });
   // la ville répond depuis ses bastions jusqu'au septième mois
-  if (m < 7 && m >= 2.6 && !SC.prise && SC.assaut < 0) S.canons.forEach((c, i) => { const per = 3.4, ph = i * 0.9, k0 = Math.floor((tps - dt - ph) / per), k1 = Math.floor((tps - ph) / per); if (k0 !== k1 && enVue(c.x, c.z)) { eclat(c, 1.2); fumer(c, { c: POUDRE, k: 0.9, vie: 2.4 }); const p = S.pt(1.6 + Math.random() * 0.2, (Math.random() - 0.5) * 1.2); setTimeout(() => fumer({ x: p.x, y: 0.02, z: p.z }, { c: POUSSIERE, k: 0.8, vie: 1.4 }), 420); } });
+  if (m < 7 && m >= 2.6 && !st.prise && st.assaut < 0) S.canons.forEach((c, i) => { const per = 3.4, ph = i * 0.9, k0 = Math.floor((tps - dt - ph) / per), k1 = Math.floor((tps - ph) / per); if (k0 !== k1 && enVue(c.x, c.z)) { eclat(c, 1.2); fumer(c, { c: POUDRE, k: 0.9, vie: 2.4 }); const p = S.pt(1.6 + Math.random() * 0.2, (Math.random() - 0.5) * 1.2); setTimeout(() => fumer({ x: p.x, y: solEn(p.x, p.z) + 0.02, z: p.z }, { c: POUSSIERE, k: 0.8, vie: 1.4 }), 420); } });
   // famine : de moins en moins de cheminées fument
   const actives = Math.round(S.fum.length * Math.max(0, 1 - (m - 1) / 6));
-  S.fum.forEach((c, i) => { if (i >= actives || SC.prise) return; if ((c.prochain -= dt) <= 0) { c.prochain = 0.9 + Math.random() * 0.6; fumer(c.pos, { k: 0.6 }); } });
+  S.fum.forEach((c, i) => { if (i >= actives || st.prise) return; if ((c.prochain -= dt) <= 0) { c.prochain = 0.9 + Math.random() * 0.6; fumer(c.pos, { k: 0.6 }); } });
   // camp : feu et fumée
   animFeu(S.flammeCamp, tps); if ((S.campFumee -= dt) <= 0) { S.campFumee = 1.1; fumer(S.feuCamp, { k: 0.45 }); }
   // drapeau de la ville : rouge, blanc à la reddition, le nôtre après l'assaut
-  S.drapeau.material.color.set(SC.prise ? ROYAUME : rendue ? '#f6f4ee' : ROUGE);
-  S.defenseurs.forEach(d => { d.visible = !rendue && !SC.prise && (SC.assaut < 0 || tps - SC.assaut < 5); });
+  S.drapeau.material.color.set(st.prise ? ROYAUME : rendue ? '#f6f4ee' : ROUGE);
+  S.defenseurs.forEach(d => { d.visible = !rendue && !st.prise && (st.assaut < 0 || tps - st.assaut < 5); });
   // l'assaut
-  const ua = SC.assaut >= 0 ? tps - SC.assaut : -1, hB = S.H * (1 - 0.78 * br);
+  const ua = st.assaut >= 0 ? tps - st.assaut : -1, hB = S.H * (1 - 0.78 * br);
   S.assaut.forEach((s, i) => {
     s.visible = ua >= 0 && ua < 13; if (!s.visible) return;
     const v = (i - 3.5) * 0.07, d0 = S.pt(1.04, v), d1 = S.pt(0.72, v * 0.5), d2 = S.pt(0.53, v * 0.3), d3 = S.pt(0.32, v * 0.8), w = ua - i * 0.22;
@@ -676,10 +696,12 @@ function animSiege(dt, tps) {
   });
   if (ua >= 0) { for (const d of S.defenseurs) if (d.visible && Math.random() < dt * 1.2) { const p = versMonde(d, 0.42, 2.8, 0.5); eclat(p); fumer(p, { c: POUDRE, k: 0.5, vie: 1.6 }); } }
   S.drapBreche.visible = ua > 6.2 && ua < 13; if (S.drapBreche.visible) { const p = S.pt(0.54, 0); S.drapBreche.position.set(p.x, hB, p.z); }
-  if (ua > 8) SC.prise = true;
-  if (ua > 13) { SC.assaut = -1; SC.mois = 1; SC.prise = false; }
+  if (ua > 8) st.prise = true;
+  if (ua > 13) { st.assaut = -1; st.mois = 1; st.prise = false; }
 }
-function assaut() { if (SC.assaut >= 0) return; voir('siege', false); SC.mois = Math.min(7.6, Math.max(6.2, SC.mois)); SC.assaut = t; }
+function animSiege(dt, tps) { animSiegeDe(G.siege, SC.s1, dt, tps, 4); }
+// « Assaut ! » : sur la grande ville si on la regarde, sinon sur la petite
+function assaut() { const deux = SC.courante === 'siege2', st = deux ? SC.s2 : SC.s1; if (st.assaut >= 0) return; if (!deux) voir('siege', false); st.mois = Math.min(7.6, Math.max(6.2, st.mois)); st.assaut = t; }
 // ---- l'espion : il se faufile vers la ville rivale (marche, s'accroupit, repart), puis sa mission, puis il rentre
 const MISSIONS = ['renseignement', 'vol', 'sabotage', 'demasque'];
 function animEspion(dt, tps, u, u0) {
@@ -738,6 +760,7 @@ function sourcesVision() {
   if (G.deb.debarques > 0) s.push([LIEU.plage.x, LIEU.plage.z, 1]);
   if (G.revele) s.push([LIEU.armeeCachee.x, LIEU.armeeCachee.z, 2]);
   if (SC.courante === 'siege2') s.push([VILLE2.mairie.x, VILLE2.mairie.z, 2], [VILLE2.camp.x, VILLE2.camp.z, 1]); // l'armée qui investit la ville la voit
+  if (SC.courante === 'forts') s.push(...visionForts()); // nos armées et la vision étendue du fort
   return s;
 }
 
@@ -747,7 +770,7 @@ let legendePrec = '';
 function majLegende() {
   if (!legende) return;
   const u = n => tau(n, t), noms = FLOTTE[EPOQUE].map(x => NOM_NAVIRE[x]);
-  const m = Math.floor(SC.mois), br = Math.round(lisse(3.5, 7, SC.mois) * 100), S = G.siege, act = Math.round(S.fum.length * Math.max(0, 1 - (SC.mois - 1) / 6));
+  const s1 = SC.s1, m = Math.floor(s1.mois), br = Math.round(lisse(3.5, 7, s1.mois) * 100), S = G.siege, act = Math.round(S.fum.length * Math.max(0, 1 - (s1.mois - 1) / 6));
   const mis = { renseignement: 'renseignement : la longue-vue révèle une armée cachée', vol: 'vol de technologie : il ressort avec les plans', sabotage: 'sabotage : l\'arsenal brûle', demasque: 'démasqué : les gardes l\'encagent' }[SC.mission];
   const txt = {
     ensemble: 'Vue d\'ensemble · notre royaume à l\'ouest, la baie, le royaume rival à l\'est (brume sur l\'inconnu).',
@@ -759,8 +782,13 @@ function majLegende() {
     blocus: 'Blocus · nos navires mouillés devant le port rival, à l\'arrêt.',
     espion: `Espion · ${u('espion') < 9 ? 'il se faufile vers la ville rivale' : mis}.`,
     remparts: (() => { const n = REMP.niveau, u = t - REMP.debut, tr = u >= 0 && u < REMP.duree; return `Remparts · niveau ${n}, ${NOM_REMP[n]} · ${STYLE_REMP[EPOQUE].nom[n - 1]}${n >= 3 ? ' · l\'enceinte englobe les six quartiers voisins, faubourgs hors les murs' : ' · autour de la mairie seule'}${tr ? ` · travaux ${Math.min(99, Math.round(u / REMP.duree * 100))} %` : ''}.`; })(),
-    siege2: (() => { const S2 = G.siege2, m = Math.floor(SC.mois2), w = (SC.mois2 - m) * 6, F = S2.faub[m - 1], np = Math.min(4, m - 1 + (F && w > 3.4 ? 1 : 0)); return `Siège d'une grande ville · mois ${m} · ${F ? (w < 2 ? `nos soldats sortent piller le faubourg ${F.nom}` : w < 3.9 ? `le faubourg ${F.nom} brûle, on emporte le butin` : 'retour au camp chargés de butin') : 'tous les faubourgs sont pillés'} · ${np} / 4 faubourgs pillés · hors les murs tout est arrêté, dedans la ville vit.`; })(),
-    siege: SC.prise ? 'Siège · la brèche est prise, la ville tombe.' : SC.assaut >= 0 ? 'Siège · à l\'assaut de la brèche !' : SC.mois >= 8 ? 'Siège · la ville affamée hisse le drapeau blanc.' : `Siège · mois ${m} · brèche ${br} % · ${act} / ${S.fum.length} cheminées fument.`,
+    siege2: (() => { const S2 = G.siege2, st = SC.s2, m = Math.floor(st.mois), w = (st.mois - m) * 6, F = st.assaut < 0 ? S2.faub[m - 1] : null, np = Math.min(4, m - 1 + (F && w > 3.4 ? 1 : 0)), b2 = Math.round(lisse(3.5, 7, st.mois) * 100), a2 = Math.round(S2.fum.length * Math.max(0, 1 - (st.mois - 1) / 6)), N = 'Siège d\'une grande ville';
+      if (st.prise) return `${N} · la brèche est prise, notre drapeau flotte sur la mairie.`;
+      if (st.assaut >= 0) return `${N} · à l'assaut de la brèche !`;
+      if (st.mois >= 8) return `${N} · affamée, la ville hisse le drapeau blanc · 4 / 4 faubourgs pillés.`;
+      return `${N} · mois ${m} · brèche ${b2} % · ${a2} / ${S2.fum.length} cheminées fument · ${F ? (w < 2 ? `on sort piller le faubourg ${F.nom}` : w < 3.9 ? `le faubourg ${F.nom} brûle` : 'retour au camp chargé de butin') + ` (${np} / 4 pillés)` : `${np} / 4 faubourgs pillés`}.`; })(),
+    forts: texteForts(),
+    siege: s1.prise ? 'Siège d\'une petite ville · la brèche est prise, la ville tombe.' : s1.assaut >= 0 ? 'Siège d\'une petite ville · à l\'assaut de la brèche !' : s1.mois >= 8 ? 'Siège d\'une petite ville · affamée, elle hisse le drapeau blanc.' : `Siège d'une petite ville · mois ${m} · brèche ${br} % · ${act} / ${S.fum.length} cheminées fument.`,
   }[SC.courante] || '';
   if (txt !== legendePrec) { legende.textContent = txt; legendePrec = txt; }
 }
@@ -769,7 +797,10 @@ function majLegende() {
 document.querySelectorAll('[data-voir]').forEach(b => b.addEventListener('click', () => { voir(b.dataset.voir); document.querySelectorAll('[data-voir]').forEach(x => x.setAttribute('aria-pressed', String(x === b))); }));
 document.querySelectorAll('[data-mission]').forEach(b => b.addEventListener('click', () => { SC.mission = b.dataset.mission; SC.missionChoisie = true; voir('espion'); document.querySelectorAll('[data-mission]').forEach(x => x.setAttribute('aria-pressed', String(x === b))); document.querySelectorAll('[data-voir]').forEach(x => x.setAttribute('aria-pressed', String(x.dataset.voir === 'espion'))); }));
 document.querySelectorAll('[data-brouillard]').forEach(b => b.addEventListener('click', () => { BROUILLARD = b.dataset.brouillard === 'oui'; BRUME.on.value = BROUILLARD ? 1 : 0; tVision = 0; document.querySelectorAll('[data-brouillard]').forEach(x => x.setAttribute('aria-pressed', String(x === b))); if (SC.courante === 'ensemble' || SC.courante === 'brouillard') legendePrec = ''; }));
-document.querySelector('[data-mois]')?.addEventListener('click', () => { if (SC.courante === 'siege2') { SC.mois2 = Math.floor(SC.mois2) + 1; if (SC.mois2 >= 7) SC.mois2 = 1; return; } voir('siege', false); if (SC.assaut < 0) SC.mois = Math.min(8, Math.floor(SC.mois) + 1); });
+document.querySelector('[data-mois]')?.addEventListener('click', () => { // fait avancer le siège qu'on regarde (la petite ville sinon) ; après la reddition, on recommence
+  const deux = SC.courante === 'siege2', st = deux ? SC.s2 : SC.s1; if (!deux) voir('siege', false);
+  if (st.assaut < 0) { const m = Math.floor(st.mois); Object.assign(st, m >= 8 ? { mois: 1, prise: false } : { mois: m + 1 }); }
+});
 document.querySelectorAll('[data-rempart]').forEach(b => b.addEventListener('click', () => { if (SC.courante !== 'remparts') { voir('remparts', false); document.querySelectorAll('[data-voir]').forEach(x => x.setAttribute('aria-pressed', String(x.dataset.voir === 'remparts'))); } niveauRemparts(+b.dataset.rempart); document.querySelectorAll('[data-rempart]').forEach(x => x.setAttribute('aria-pressed', String(x === b))); }));
 document.querySelector('[data-assaut]')?.addEventListener('click', assaut);
 

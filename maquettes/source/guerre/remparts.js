@@ -69,7 +69,8 @@ function croise(A, B, C, D) { // paramètre sur AB du croisement des segments AB
 }
 // ---- une enceinte complète. passages : [{ pts, larg }] (routes larg ~0,17, rivières ~0,5). Rend { murs, sol, pointes, H, Q } :
 // murs = ce qui s'élève pendant les travaux, sol = fossé et glacis, pointes = sommets saillants (défenseurs), Q = tracé de la face extérieure.
-function enceinte(parent, groupe, niveau, passages, style = STYLE_REMP[EPOQUE]) {
+// breche [x, z] (siège) : la courtine la plus proche de ce point est coupée en trois, le morceau du milieu à part (rend breche, infoBreche).
+function enceinte(parent, groupe, niveau, passages, style = STYLE_REMP[EPOQUE], breche = null) {
   const indus = EPOQUE === 'industrie', st = style;
   const H = { 1: 0.08, 2: 0.13, 3: 0.13, 4: 0.15 }[niveau] * (niveau >= 3 ? st.h : 1), w = { 1: 0.024, 2: 0.055, 3: 0.085, 4: 0.095 }[niveau];
   const { P, ed } = contourGroupe(groupe), n = P.length;
@@ -105,7 +106,9 @@ function enceinte(parent, groupe, niveau, passages, style = STYLE_REMP[EPOQUE]) 
     if (a < b0) pieces.push([j, a, b0]);
   }
   const y1 = j => yIn(j) + H;
-  for (const [j, a, b] of pieces) {
+  let ib = -1, LB = null, infoBreche = null;
+  if (breche && niveau >= 2) { let dm = Infinity; pieces.forEach(([j, a, b], i) => { if (b - a < 0.3) return; const c = O(j, (a + b) / 2), d = Math.hypot(c[0] - breche[0], c[1] - breche[1]); if (d < dm) { dm = d; ib = i; } }); }
+  const morceau = (L, j, a, b) => {
     const o0 = O(j, a), o1 = O(j, b), i0 = I(j, a), i1 = I(j, b), nx = N[j][0], nz = N[j][1];
     if (niveau === 1) { // palissade : bande de pieux, pointes ou poteaux plats, et ce qui la porte selon l'époque
       if (EPOQUE === 'empire') dalle(L, [[o0[0] + nx * 0.03, o0[1] + nz * 0.03], [o1[0] + nx * 0.03, o1[1] + nz * 0.03], [i1[0] - nx * 0.03, i1[1] - nz * 0.03], [i0[0] - nx * 0.03, i0[1] - nz * 0.03]], yBas(j), yIn(j) + 0.03, HERBE, 0.008);
@@ -115,7 +118,7 @@ function enceinte(parent, groupe, niveau, passages, style = STYLE_REMP[EPOQUE]) 
       const ux = U[j].ux, uz = U[j].uz;
       for (let s = a + 0.013; s < b - 0.006; s += 0.026) { const p = O(j, s), cx = p[0] - nx * w / 2, cz = p[1] - nz * w / 2; if (indus) putR(L, boite(0.02, 0.022, w * 0.95), st.bois, cx, yb + hp + 0.011, cz, ryDe(ux, uz), 0.004); else putR(L, cone(0.012, 0.03, 5), st.bois, cx, yb + hp + 0.015, cz, 0, 0.004); }
       if (indus) for (const hh of [0.022, 0.05]) dalle(L, [[o0[0] + nx * 0.006, o0[1] + nz * 0.006], [o1[0] + nx * 0.006, o1[1] + nz * 0.006], o1, o0], yb + hh, yb + hh + 0.008, 0x6b5a48, 0);
-      continue;
+      return;
     }
     dalle(L, [o0, o1, i1, i0], yBas(j), y1(j), st.pierre, 0.013);
     const pw = niveau === 2 ? 0.016 : 0.022, p0 = [o0[0] - nx * pw, o0[1] - nz * pw], p1 = [o1[0] - nx * pw, o1[1] - nz * pw];
@@ -125,7 +128,12 @@ function enceinte(parent, groupe, niveau, passages, style = STYLE_REMP[EPOQUE]) 
       if (!(EPOQUE === 'empire')) for (let s = a + 0.02; s < b - 0.012; s += 0.036) { const p = O(j, s); putR(L, boite(0.018, 0.016, pw), st.haut, p[0] - nx * pw / 2, y1(j) + 0.02, p[1] - nz * pw / 2, ryDe(U[j].ux, U[j].uz), 0.004); }
       if (indus) for (let s = a + 0.05; s < b - 0.03; s += 0.09) { const p = O(j, s); putR(L, boite(0.008, 0.022, 0.006), 0x2a1d14, p[0] + nx * 0.002, y1(j) - 0.04, p[1] + nz * 0.002, ryDe(U[j].ux, U[j].uz), 0); } // meurtrières
     } else dalle(L, [o0, o1, p1, p0], y1(j), y1(j) + (indus ? 0.02 : 0.018), indus ? HERBE : st.haut, 0.006); // parapet (de terre à l'ère industrielle)
-  }
+  };
+  pieces.forEach(([j, a, b], i) => {
+    if (i !== ib) return morceau(L, j, a, b);
+    const c = (b - a) * 0.3; LB = lot(); morceau(L, j, a, a + c); morceau(LB, j, a + c, b - c); morceau(L, j, b - c, b);
+    infoBreche = { O: O(j, (a + b) / 2), n: N[j], y: yIn(j), H };
+  });
   // ---- tours rondes (niveau 2)
   if (niveau === 2) Q.forEach((q, v) => {
     if (!libre(v, 0.075)) return;
@@ -205,7 +213,7 @@ function enceinte(parent, groupe, niveau, passages, style = STYLE_REMP[EPOQUE]) 
     });
   }
   fige(L, murs); fige(Ls, solG);
-  return { murs, sol: solG, pointes, H, Q, ouv };
+  return { murs, sol: solG, pointes, H, Q, ouv, breche: LB ? fige(LB, murs) : null, infoBreche };
 }
 // la ville : la case de la mairie et ses voisines de terre ; routes et voie ferrée actives, rivière
 const voisinesVille = k => voisins(k).filter(n => !TERR[n.t].eau && n.t !== 'montagne');
@@ -215,9 +223,9 @@ function passagesCapitale() {
   return r.concat(lignesRiviere());
 }
 // les remparts d'une ville au niveau donné : niveaux 1-2 sur la mairie ; 3 sur le groupe ; 4 sur le groupe + l'ancienne enceinte en réduit
-function remparts(parent, mairie, groupe, niveau, passages) {
+function remparts(parent, mairie, groupe, niveau, passages, breche = null) {
   const g = new THREE.Group(); parent.add(g);
-  const e = enceinte(g, niveau >= 3 ? groupe : [mairie], niveau, passages);
+  const e = enceinte(g, niveau >= 3 ? groupe : [mairie], niveau, passages, STYLE_REMP[EPOQUE], breche);
   if (niveau === 4) { const r = enceinte(g, [mairie], 2, passages); r.murs.parent.remove(r.murs); e.murs.add(r.murs); e.sol.add(r.sol); }
   e.g = g; return e;
 }
@@ -254,73 +262,96 @@ function animRemparts(dt, tps) {
     if (Math.random() < dt * 9) { const q = e.Q[Math.random() * e.Q.length | 0]; fumer({ x: q[0], y: solEn(q[0], q[1]) + 0.03, z: q[1] }, { c: POUSSIERE, k: 0.7, vie: 1.6, vy: 0.08 }); }
   } else if (REMP.debut > -99 && u >= REMP.duree) { e.murs.scale.y = 1; if (REMP.vieux) { REMP.vieux.g.parent?.remove(REMP.vieux.g); REMP.vieux = null; } if (REMP.echaf) { REMP.echaf.parent?.remove(REMP.echaf); REMP.echaf = null; } REMP.debut = -99; }
 }
-// ---------------------------------------------------------------- siège d'une grande ville rivale : enceinte agrandie (niveau 3), faubourgs arrêtés et pillés
-// Mairie en (13, 4), ses six voisines bâties dans les murs ; quatre faubourgs à deux cases, du côté de notre camp (10, 4), sur la colline.
-const VILLE2 = { mairie: at(13, 4), faubourgs: [at(11, 3), at(11, 4), at(11, 5), at(12, 2)], camp: at(10, 4), niveau: 3 };
+// ---------------------------------------------------------------- siège d'une grande ville rivale : enceinte agrandie (niveau 3), faubourgs arrêtés et pillés,
+// et en même temps le siège en règle de la petite ville : parallèles, batteries, brèche dans la courtine qui fait face au camp, famine, reddition, assaut.
+// Mairie en (13, 4), ses six voisines bâties dans les murs ; notre camp en (10, 4) sur la colline ; les tranchées sur (11, 4), droit vers la courtine ouest ;
+// quatre faubourgs hors les murs de part et d'autre des tranchées.
+const VILLE2 = { mairie: at(13, 4), faubourgs: [at(11, 3), at(11, 5), at(12, 2), at(13, 2)], camp: at(10, 4), approche: at(11, 4), niveau: 3 };
 VILLE2.anneau = voisins(VILLE2.mairie);
 for (const k of [VILLE2.mairie, ...VILLE2.anneau, ...VILLE2.faubourgs]) { k.bati = true; if (k.t === 'foret') k.t = 'prairie'; }
-VILLE2.camp.vide = true;
+VILLE2.camp.vide = VILLE2.approche.vide = true;
 const CLES_ANNEAU = ['maison', 'marche', 'maison', 'eglise', 'maison', 'caserne'], CLES_FAUB = ['maison', 'forge', 'ferme', 'moulin'];
 const NOMS_FAUB = ['des Tanneurs', 'de la Forge', 'de la Grange', 'du Moulin'];
+// noircir un bâtiment incendié : toutes ses pièces hautes virent au charbon (le sol de la case reste), quelle que soit leur couleur
+function noircir(L) {
+  for (const g of L.g) {
+    g.computeBoundingBox(); if (g.boundingBox.max.y < 0.3) continue;
+    const c = g.attributes.color; for (let i = 0; i < c.count; i++) { const l = c.getX(i) * 0.3 + c.getY(i) * 0.59 + c.getZ(i) * 0.11; c.setXYZ(i, 0.07 + l * 0.12, 0.06 + l * 0.1, 0.055 + l * 0.09); }
+  }
+}
 function construireSiege2(E, P, roy) {
-  const V = VILLE2, M = V.mairie, S2 = { V, faub: [] };
+  const V = VILLE2, M = V.mairie, C = V.camp, S2 = { V, faub: [], fum: [] };
   const graine = c => { let i = 0; rnd = () => hache(c * 31 + i++, 4242, 77); };
-  const bat = (k, cle, Ex, drap = true) => { graine(k.c * 13 + k.r); const L = lot(), ex = { fum: [], drap: [], ailes: [] }; ROYAUME = ROUGE; BATR[cle](L, ex, Ex, { k, cle }); ROYAUME = roy; if (!drap) ex.drap = []; const g = figeBat(L, ex, k, (hache(k.c, k.r, 2) * 6 | 0) * Math.PI / 3, GUERRE, ROUGE); return { g, ex, monde: a => new THREE.Vector3(...a).applyMatrix4(g.matrixWorld) }; };
+  const bat = (k, cle, Ex, drap = true, brule = false) => { graine(k.c * 13 + k.r); const L = lot(), ex = { fum: [], drap: [], ailes: [] }; ROYAUME = ROUGE; BATR[cle](L, ex, Ex, { k, cle }); ROYAUME = roy; if (brule) noircir(L); const d0 = ex.drap; if (!drap) ex.drap = []; const g = figeBat(L, ex, k, (hache(k.c, k.r, 2) * 6 | 0) * Math.PI / 3, GUERRE, ROUGE); return { g, ex, d0, monde: a => new THREE.Vector3(...a).applyMatrix4(g.matrixWorld) }; };
   // routes de la place vers les faubourgs (elles s'arrêtent au pied des maisons, comme celles du jeu)
   const ROUTE = { ancien: 0xc9a874, lumieres: 0xc9a874, empire: 0xb9b2a2, industrie: 0x8a867e }[EPOQUE], Lr = lot(), routes = [];
   for (const k of V.faubourgs) { const pts = []; for (let f = 0.17; f <= 0.86; f += 0.05) pts.push([M.x + (k.x - M.x) * f, M.z + (k.z - M.z) * f]); routes.push({ pts, larg: 0.17 }); put(Lr, ruban(pts, 0.07, 0), SAISON === 0 && EPOQUE !== 'industrie' ? 0xe3e6e2 : ROUTE, 0, 0, 0, 0, 0); }
   fige(Lr, GUERRE);
-  // la ville dans les murs : elle vit (ses cheminées fument)
-  [M, ...V.anneau].forEach((k, i) => { const b = bat(k, i ? CLES_ANNEAU[i - 1] : 'hotel', E); for (const a of b.ex.fum) cheminees.push({ pos: b.monde(a), noire: a[3], prochain: Math.random() * 2 }); });
-  // faubourgs : à l'arrêt (pas de fumée, ailes du moulin immobiles) ; une version incendiée pour après le pillage
-  const Edam = { ...E, murs: [0x6a5a4e, 0x5e5046, 0x74655a], toits: [0x2e2824, 0x3a322c], h: E.h * 0.62, volets: false, colomb: false, pave: 0x8a8070 };
+  // la ville dans les murs : ses cheminées fument (de moins en moins avec la famine) ; le drapeau de la mairie changera de couleur
+  [M, ...V.anneau].forEach((k, i) => {
+    const b = bat(k, i ? CLES_ANNEAU[i - 1] : 'hotel', E, i > 0);
+    for (const a of b.ex.fum) S2.fum.push({ pos: b.monde(a), prochain: Math.random() * 2 });
+    if (!i) S2.drapeau = drapeau(b.g, ROUGE, b.d0[0][0], b.d0[0][1], b.d0[0][2], 2.2, 1.3, 0, true);
+  });
+  // faubourgs : à l'arrêt (pas de fumée, ailes du moulin immobiles) ; une version incendiée, noircie, pour après le pillage
+  const Edam = { ...E, h: E.h * 0.62, volets: false, colomb: false };
   V.faubourgs.forEach((k, i) => {
-    const a = bat(k, CLES_FAUB[i], E), r = bat(k, CLES_FAUB[i], Edam, false); r.g.visible = false;
+    const a = bat(k, CLES_FAUB[i], E), r = bat(k, CLES_FAUB[i], Edam, false, true); r.g.visible = false;
     for (const p of a.ex.ailes) { const La = lot(); for (let j = 0; j < 4; j++) { put(La, new THREE.BoxGeometry(0.05, 0.44, 0.014).translate(0, 0.22, 0).rotateZ(j * Math.PI / 2 + 0.4), 0x8b5a2b, 0, 0, 0, 0, 0.008); put(La, new THREE.BoxGeometry(0.16, 0.012, 0.006).translate(0, 0.3, 0.01).rotateZ(j * Math.PI / 2 + 0.4), 0xe9dcc0, 0, 0, 0, 0, 0); } const wg = fige(La, a.g.parent); wg.position.copy(a.monde(p)); wg.rotation.y = a.g.rotation.y; a.g.userData.ailes = wg; }
     const feux = [[0.32, 0.1], [-0.28, 0.2], [0.02, -0.34]].map(([dx, dz]) => feu(GUERRE, k.x + dx, k.top + 0.1, k.z + dz, 0.32));
     S2.faub.push({ k, intact: a.g, ruine: r.g, ailes: a.g.userData.ailes, feux, nom: NOMS_FAUB[i] });
   });
-  // l'enceinte agrandie : bastions sur le contour des sept cases
-  S2.e = remparts(GUERRE, M, [M, ...V.anneau], V.niveau, routes.concat(lignesRiviere()));
-  // défenseurs sur les bastions qui regardent notre camp
-  const C = V.camp;
-  S2.defenseurs = S2.e.pointes.filter(p => !p.demi).sort((a, b) => Math.hypot(a.x - C.x, a.z - C.z) - Math.hypot(b.x - C.x, b.z - C.z)).slice(0, 5).map(p => { const s = soldat(GUERRE, P, ROUGE, 'ligne', ECH_GENS * 0.9); s.position.set(p.x, p.y, p.z); s.rotation.y = capVers(p.nx, p.nz); G.rivaux.push({ g: s }); return s; });
+  // l'enceinte agrandie : bastions sur le contour des sept cases ; la courtine qui fait face au camp recevra la brèche
+  S2.e = remparts(GUERRE, M, [M, ...V.anneau], V.niveau, routes.concat(lignesRiviere()), [C.x, C.z]);
+  { const ib = S2.e.infoBreche, [ox, oz] = ib.O; S2.ux = ib.n[0]; S2.uz = ib.n[1]; S2.H = ib.y + ib.H; S2.brecheG = S2.e.breche; S2.echB = 1;
+    S2.pt = (d, v) => ({ x: ox + S2.ux * (d - 0.58) - S2.uz * v, z: oz + S2.uz * (d - 0.58) + S2.ux * v }); // même repère que la petite ville : le mur vers d = 0,58
+    const g = S2.pt(0.66, 0); gravatsSiege(S2, STYLE_REMP[EPOQUE].pierre, g.x, ib.y, g.z, -Math.atan2(S2.uz, S2.ux), 0.11); }
+  // bastions qui regardent le camp : défenseurs, et les trois plus proches répondent au canon (on leur pose une pièce en 1700, les autres époques en ont déjà)
+  const bastions = S2.e.pointes.filter(p => !p.demi).sort((a, b) => Math.hypot(a.x - C.x, a.z - C.z) - Math.hypot(b.x - C.x, b.z - C.z));
+  S2.defenseurs = bastions.slice(0, 5).map(p => { const s = soldat(GUERRE, P, ROUGE, 'ligne', ECH_GENS * 0.9); s.position.set(p.x, p.y, p.z); s.rotation.y = capVers(p.nx, p.nz); G.rivaux.push({ g: s }); return s; });
+  S2.canons = bastions.slice(0, 3).map(p => new THREE.Vector3(p.x + p.nx * 0.07, p.y + 0.03, p.z + p.nz * 0.07));
+  if (EPOQUE === 'ancien') { const Lc = lot(); for (const p of bastions.slice(0, 3)) { const b = cyl(0.009, 0.013, 0.075, 6); b.rotateZ(-Math.PI / 2); putR(Lc, b, BRONZE, p.x + p.nx * 0.035 - p.nz * 0.03, p.y + 0.024, p.z + p.nz * 0.035 + p.nx * 0.03, ryDe(p.nx, p.nz), 0.003); putR(Lc, boite(0.04, 0.016, 0.03), 0x8a3a2a, p.x - p.nz * 0.03, p.y + 0.01, p.z + p.nx * 0.03, ryDe(p.nx, p.nz), 0.003); } fige(Lc, GUERRE); }
+  // le siège en règle, grossi pour la vue de loin : parallèles et boyaux, gabions, deux batteries ; les troupes de l'assaut
+  travauxSiege(S2, P, roy, 1.7);
+  troupesAssaut(S2, P, roy, ECH_GENS * 1.25);
   // notre camp sur la colline : tentes, drapeau, feu
   { const Lc = lot(); let i = 0;
     for (const [lx, lz] of [[-5, -3], [-1.5, -4.5], [2.5, -4], [-5, 3.2], [-1.5, 4.6], [2.5, 4]]) { put(Lc, cone(1.5, 2, 4), i++ % 2 ? 0xe9e2d0 : new THREE.Color(roy).getHex(), lx, 1, lz, Math.PI / 4, 0.09); put(Lc, boite(0.5, 0.9, 0.1), 0x2a2420, lx + 1.05, 0.45, lz, Math.PI / 2, 0); }
     put(Lc, boite(0.16, 5.4, 0.16), 0x4a3420, 0, 2.7, 0, 0, 0.06);
-    for (const a of [0, 1.2, 2.4]) put(Lc, boite(1.4, 0.18, 0.18), 0x6b4a2a, 4 + Math.cos(a) * 0.1, 0.12, 0, a, 0.06);
-    for (const [x, z] of [[6, -2], [6, 2]]) fantassin(Lc, P, x, z, roy);
-    const g = fige(Lc, GUERRE); g.scale.setScalar(0.07); g.position.set(C.x, topDe(C), C.z); g.rotation.y = capVers(M.x - C.x, M.z - C.z) - Math.PI / 2;
-    drapeau(g, roy, 0, 4.7, 0, 2.4, 1.5); S2.feuCamp = versMonde(g, 4, 0.9, 0); S2.campFumee = 0;
-    const fl = feu(g, 4, 0.1, 0, 2.6); fl.visible = true; S2.flammeCamp = fl; }
-  // pillards : quatre de nos soldats, avec un sac ou une caisse de butin au retour
-  S2.pillards = [0, 1, 2, 3].map(i => { const s = soldat(GUERRE, P, roy); const L = lot(); if (i % 2) put(L, boite(1.5, 1.2, 1.5), 0xb07a3a, 0, 3.6, -0.3, 0.3, 0.14); else put(L, sphere(1, 1), 0xd9c08a, 0, 3.6, -0.35, 0, 0.14); s.userData.butin = fige(L, s); s.visible = false; return s; });
+    for (const a of [0, 1.2, 2.4]) put(Lc, boite(1.4, 0.18, 0.18), 0x6b4a2a, -1 + Math.cos(a) * 0.1, 0.12, 0, a, 0.06);
+    for (const [x, z] of [[1.5, -1.6], [1.5, 1.6]]) fantassin(Lc, P, x, z, roy);
+    const g = fige(Lc, GUERRE); g.scale.setScalar(0.07); g.position.set(C.x - 0.12, topDe(C), C.z); g.rotation.y = capVers(M.x - C.x, M.z - C.z) - Math.PI / 2;
+    drapeau(g, roy, 0, 4.7, 0, 2.4, 1.5); S2.feuCamp = versMonde(g, -1, 0.9, 0); S2.campFumee = 0;
+    const fl = feu(g, -1, 0.1, 0, 2.6); fl.visible = true; S2.flammeCamp = fl; }
+  // pillards : quatre de nos soldats, un sac ou une caisse de butin au retour ; chaque faubourg a son chemin, dégagé des maisons,
+  // qui s'arrête au bord du faubourg côté camp (là où on les voit)
+  const vers = (k, dx, dz) => [k.x + dx, k.z + dz], dep = [C.x + 0.25, C.z], nord = [C.x + 0.85, C.z - 1.35];
+  const chemins = [[dep, vers(V.faubourgs[0], -0.6, 0.36)], [dep, vers(V.faubourgs[1], -0.6, -0.36)], [dep, nord, vers(V.faubourgs[2], -0.72, -0.12)], [dep, nord, vers(V.faubourgs[2], -0.1, -0.9), vers(V.faubourgs[3], -0.86, -0.3)]];
+  S2.faub.forEach((F, i) => { F.chemin = cheminLisse(chemins[i]); });
+  S2.pillards = [0, 1, 2, 3].map(i => { const s = soldat(GUERRE, P, roy, 'ligne', ECH_GENS * 1.15); const L = lot(); if (i % 2) put(L, boite(1.5, 1.2, 1.5), 0xb07a3a, 0, 3.6, -0.3, 0.3, 0.14); else put(L, sphere(1, 1), 0xd9c08a, 0, 3.6, -0.35, 0, 0.14); s.userData.butin = fige(L, s); s.visible = false; return s; });
   return S2;
 }
 function animSiege2(dt, tps) {
   const S2 = G.siege2; if (!S2) return;
-  SC.mois2 += dt / 6; if (SC.mois2 >= 7) SC.mois2 = 1;
-  const m = Math.floor(SC.mois2), w = (SC.mois2 - m) * 6, j = m - 1, nf = S2.faub.length, C = S2.V.camp;
+  const st = SC.s2; animSiegeDe(S2, st, dt, tps, 6); // le siège en règle (un mois toutes les six secondes)
+  // en parallèle, chaque mois un faubourg pillé : sortie, incendie, retour chargés de butin
+  const m = Math.floor(st.mois), w = (st.mois - m) * 6, j = m - 1, nf = S2.faub.length;
   S2.faub.forEach((F, i) => {
-    const pille = i < j || (i === j && w > 3.4), brule = i === j && w > 2.1 && w < 5.4;
+    const pille = i < j || (i === j && w > 3.4), brule = i === j && w > 2.1 && w < 5.4 && st.assaut < 0;
     F.intact.visible = !pille; F.ruine.visible = pille; if (F.ailes) F.ailes.visible = !pille;
     F.feux.forEach(f => { f.visible = brule; if (brule) animFeu(f, tps); });
     if (brule && Math.random() < dt * 9) { const f = F.feux[Math.random() * 3 | 0].position; fumer({ x: f.x, y: f.y + 0.12, z: f.z }, { noire: true, k: 1.1, vy: 0.15 }); }
     else if (pille && Math.random() < dt * 0.7) fumer({ x: F.k.x, y: F.k.top + 0.12, z: F.k.z }, { noire: true, k: 0.55, vie: 2.2 }); // braises
   });
-  const F = j < nf ? S2.faub[j] : null;
+  const F = j < nf && st.assaut < 0 ? S2.faub[j] : null;
   S2.pillards.forEach((s, i) => {
     const wi = w - i * 0.2; s.visible = !!F && wi > 0 && wi < 5.9; s.userData.butin.visible = wi > 3.9; if (!s.visible) return;
-    const ox = Math.cos(i * 1.7) * 0.12, oz = Math.sin(i * 1.7) * 0.12, A = { x: C.x + (F.k.x - C.x) * 0.15 + ox, z: C.z + (F.k.z - C.z) * 0.15 + oz }, B = { x: F.k.x + (C.x - F.k.x) * 0.12 + ox * 2.4, z: F.k.z + (C.z - F.k.z) * 0.12 + oz * 2.4 };
-    let x, z, cap, marche = true;
-    if (wi < 2) { const f = lisse(0, 2, wi); x = A.x + (B.x - A.x) * f; z = A.z + (B.z - A.z) * f; cap = capVers(B.x - A.x, B.z - A.z); }
-    else if (wi < 3.9) { const a = tps * 1.3 + i * 1.6; x = B.x + Math.cos(a) * 0.05; z = B.z + Math.sin(a) * 0.05; cap = capVers(-Math.sin(a), Math.cos(a)); }
-    else { const f = lisse(3.9, 5.9, wi); x = B.x + (A.x - B.x) * f; z = B.z + (A.z - B.z) * f; cap = capVers(A.x - B.x, A.z - B.z); }
-    s.position.set(x, solEn(x, z) + (marche ? Math.abs(Math.sin(tps * 9 + i)) * 0.006 : 0), z); s.rotation.y = cap;
+    const ch = F.chemin, L = ch.long, sd = wi < 2.2 ? lisse(0, 2.2, wi) * L : wi < 3.9 ? L : (1 - lisse(3.9, 5.9, wi)) * L, p = ch.en(sd), retour = wi >= 3.9;
+    const lat = (i - 1.5) * 0.06, px = Math.sin(p.cap) * lat, pz = Math.cos(p.cap) * lat; // de front, côte à côte
+    let x = p.x + px, z = p.z + pz, cap = p.cap + Math.PI / 2 + (retour ? Math.PI : 0);
+    if (wi >= 2.2 && wi < 3.9) { const a = tps * 1.3 + i * 1.6; x += Math.cos(a) * 0.05; z += Math.sin(a) * 0.05; cap = capVers(-Math.sin(a), Math.cos(a)); } // ils fouillent
+    s.position.set(x, solEn(x, z) + Math.abs(Math.sin(tps * 9 + i)) * 0.006, z); s.rotation.y = cap;
   });
-  // les défenseurs restent sur les bastions et tirent sur les pillards
-  for (const d of S2.defenseurs) d.visible = true;
-  if (S2.pillards[0].visible && Math.random() < dt * 1.6) { const d = S2.defenseurs[Math.random() * S2.defenseurs.length | 0], p = versMonde(d, 0.42, 2.8, 0.5); eclat(p); fumer(p, { c: POUDRE, k: 0.5, vie: 1.6 }); }
-  animFeu(S2.flammeCamp, tps); if ((S2.campFumee -= dt) <= 0) { S2.campFumee = 1.1; fumer(S2.feuCamp, { k: 0.45 }); }
+  // les défenseurs tirent aussi sur les pillards
+  if (S2.pillards[0].visible && Math.random() < dt * 1.6) { const d = S2.defenseurs[Math.random() * S2.defenseurs.length | 0]; if (d.visible) { const p = versMonde(d, 0.42, 2.8, 0.5); eclat(p); fumer(p, { c: POUDRE, k: 0.5, vie: 1.6 }); } }
 }
