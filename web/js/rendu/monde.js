@@ -32,6 +32,8 @@ export const couleurDe = id => couleurs[id] || '#888';
 export const palierRoyaume = id => paliers[id] || 0;
 /** Un bâtiment de l'état est-il à l'arrêt (faubourg assiégé, pillé, saboté) ? */
 export const estArrete = b => arretes.has(b.id);
+/** Le bâtiment posé (id de l'état) : { mesh (son groupe, matrice monde à jour), rel (relevés : fenêtres, portes, toits, lanternes…) } ou undefined. */
+export const batiPose = id => batis.get(id);
 
 function viderParts(p) {
   for (const k of ['ailes', 'drapeaux', 'cheminees', 'fumees']) parts[k] = parts[k].filter(x => x.batiment !== p);
@@ -99,7 +101,7 @@ export function synchroniser(etat) {
     const ex = batis.get(b.id);
     if (ex && ex.cle === cle) continue;
     if (ex) { groupe.remove(ex.mesh); if (ex.chantier) groupe.remove(ex.chantier); viderParts(b.id); }
-    const { mesh, anim, boites } = maillageBatiment({ cle: b.cle, couleur: couleurs[b.proprio], epoque: etat.epoque.cle, saison: etat.saison, neige: etat.meteo.neige_sol, niveau, ruine });
+    const { mesh, anim, boites, rel } = maillageBatiment({ cle: b.cle, couleur: couleurs[b.proprio], epoque: etat.epoque.cle, saison: etat.saison, neige: etat.meteo.neige_sol, niveau, ruine });
     const { x, z } = posCase(b.case), y = dessus(b.case);
     mesh.position.set(x, y, z);
     mesh.rotation.y = b.face || 0;
@@ -116,7 +118,7 @@ export function synchroniser(etat) {
     mesh.updateMatrixWorld();
     if (b.reste === 0) creerParts(b, mesh, anim, couleurs[b.proprio], arret);
     if (ruine) braises.push({ batiment: b.id, x, y: y + 0.12, z });
-    batis.set(b.id, { cle, mesh, chantier, boites });
+    batis.set(b.id, { cle, mesh, chantier, boites, rel });
   }
   for (const [id, ex] of batis) {
     if (vus.has(id)) continue;

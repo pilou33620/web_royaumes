@@ -86,40 +86,57 @@ const MODELES = {
 
 // ------------------------------------------------------------------ acteurs : un InstancedMesh (pièces + contours) par modèle
 // Un acteur est un simple Object3D hors de la scène ; à chaque image, sa matrice est recopiée dans l'InstancedMesh de son modèle.
-const POOLS = new Map();
-function acteur(nom, s = ECH) {
-  let p = POOLS.get(nom);
-  if (!p) {
-    const L = lot();
-    for (const [g, x, y, z, c] of MODELES[nom]) put(L, g, c, x, y, z, 0, 0.09);
-    p = { g: fusion(L.g), o: L.o.length ? fusion(L.o) : null, list: [], mi: null, mo: null };
-    POOLS.set(nom, p);
-  }
-  const o = new THREE.Object3D(); o.scale.setScalar(s); p.list.push(o);
-  return o;
+// Une troupe regroupe les acteurs d'un jeu de modèles : celle de la carte (ici) et celle des quartiers proches du regard (quartiers.js).
+/** modeles : { nom: [[géométrie, x, y, z, couleur], …] } ; plafond : nombre d'acteurs dessinés au plus (les suivants attendent) ;
+ *  ombres : les acteurs portent-ils une ombre (une passe de dessin de plus par modèle) ? */
+export function troupe(modeles, plafond = Infinity, ombres = true) {
+  const POOLS = new Map();
+  const t = {
+    nb: 0,
+    acteur(nom, s = ECH) {
+      let p = POOLS.get(nom);
+      if (!p) {
+        const L = lot();
+        for (const [g, x, y, z, c] of modeles[nom]) put(L, g, c, x, y, z, 0, 0.09);
+        p = { g: fusion(L.g), o: L.o.length ? fusion(L.o) : null, list: [], mi: null, mo: null };
+        POOLS.set(nom, p);
+      }
+      const o = new THREE.Object3D(); o.scale.setScalar(s); p.list.push(o);
+      return o;
+    },
+    vider() { for (const p of POOLS.values()) p.list = []; },
+    // les InstancedMesh sont gardés d'une reconstruction à l'autre ; ils ne grandissent que s'il le faut
+    installer() {
+      for (const p of POOLS.values()) {
+        const n = p.list.length;
+        if (p.mi && p.mi.instanceMatrix.count >= n) continue;
+        for (const m of [p.mi, p.mo]) if (m) { scene.remove(m); m.dispose(); }
+        p.mi = p.mo = null;
+        if (!n) continue;
+        const cap = Math.ceil(n * 1.3) + 4;
+        p.mi = new THREE.InstancedMesh(p.g, MAT, cap); p.mi.castShadow = ombres; p.mi.receiveShadow = true;
+        if (p.o) p.mo = new THREE.InstancedMesh(p.o, CONT, cap);
+        for (const m of [p.mi, p.mo]) if (m) { m.count = 0; m.frustumCulled = false; scene.add(m); }
+      }
+    },
+    dessiner() {
+      let tot = 0;
+      for (const p of POOLS.values()) {
+        if (!p.mi) continue;
+        let n = 0;
+        for (const o of p.list) if (o.visible && tot < plafond) { o.updateMatrix(); p.mi.setMatrixAt(n, o.matrix); if (p.mo) p.mo.setMatrixAt(n, o.matrix); n++; tot++; }
+        p.mi.count = n; p.mi.instanceMatrix.needsUpdate = true; p.mi.visible = n > 0;
+        if (p.mo) { p.mo.count = n; p.mo.instanceMatrix.needsUpdate = true; p.mo.visible = n > 0; }
+      }
+      t.nb = tot;
+    },
+  };
+  return t;
 }
-function installerPools() {
-  for (const p of POOLS.values()) {
-    const n = p.list.length;
-    if (p.mi && p.mi.instanceMatrix.count >= n) continue;
-    for (const m of [p.mi, p.mo]) if (m) { scene.remove(m); m.dispose(); }
-    p.mi = p.mo = null;
-    if (!n) continue;
-    const cap = Math.ceil(n * 1.3) + 4;
-    p.mi = new THREE.InstancedMesh(p.g, MAT, cap); p.mi.castShadow = p.mi.receiveShadow = true;
-    if (p.o) p.mo = new THREE.InstancedMesh(p.o, CONT, cap);
-    for (const m of [p.mi, p.mo]) if (m) { m.count = 0; m.frustumCulled = false; scene.add(m); }
-  }
-}
-function dessinerActeurs() {
-  for (const p of POOLS.values()) {
-    if (!p.mi) continue;
-    let n = 0;
-    for (const o of p.list) if (o.visible) { o.updateMatrix(); p.mi.setMatrixAt(n, o.matrix); if (p.mo) p.mo.setMatrixAt(n, o.matrix); n++; }
-    p.mi.count = n; p.mi.instanceMatrix.needsUpdate = true;
-    if (p.mo) { p.mo.count = n; p.mo.instanceMatrix.needsUpdate = true; }
-  }
-}
+const TROUPE = troupe(MODELES);
+const acteur = TROUPE.acteur, installerPools = TROUPE.installer, dessinerActeurs = TROUPE.dessiner;
+/** Les bâtiments (id) dont quartiers.js anime la vie fine : la vie plus légère de la carte s'y efface. */
+export const PROCHES = new Set();
 let ACT = [];
 /** o : l'acteur ; f(t, dt) : son mouvement ; quand() : visible ou non. */
 const ajoute = (o, f, quand) => { ACT.push({ o, f, quand }); return o; };
@@ -239,7 +256,7 @@ export function majVie(etat, rapport) {
 }
 
 function reconstruire(etat, C, fetes, train) {
-  for (const p of POOLS.values()) p.list = [];
+  TROUPE.vider();
   ACT = [];
   while (VIE.children.length) jeter(VIE.children[0]);
   bles = []; lucioles = []; if (BLE) BLE.userData.sig = -1; lampes = []; RAIL = null;
@@ -378,16 +395,19 @@ function reconstruire(etat, C, fetes, train) {
         champ('vendangeur', [3], p.x, p.z, R.y + 0.03, R.th, { geste: 'cueille', v: 0.06, L: 0.8, ph: n * 2.1 });
         if (n < 2) champ('paysan', [1, 2], p.x, p.z, R.y + 0.03, R.th, { geste: 'cueille', v: 0.05, L: 0.8, ph: n * 2.7 + 1 });
       } break;
-      case 'marche':
-        for (const [sx, sz] of [[-3.2, -2.6], [3, -2.8], [-3, 3], [3.2, 2.8]]) fixe('marchand', sx * 1.28, sz * 1.28, capB(R, -sx, -sz), 1.5, JOUR);
-        ['cliente', 'client', 'cliente2', 'client'].forEach((nom, i) => ronde(nom, ECH, 0, 0, 2.1, 0.12, i * 1.6, { arret: true }, dehors));
+      case 'marche': { // un marché proche du regard : quartiers.js a ses marchands et ses clients
+        const loin = () => !PROCHES.has(b.id);
+        for (const [sx, sz] of [[-3.2, -2.6], [3, -2.8], [-3, 3], [3.2, 2.8]]) fixe('marchand', sx * 1.28, sz * 1.28, capB(R, -sx, -sz), 1.5, () => JOUR() && loin());
+        ['cliente', 'client', 'cliente2', 'client'].forEach((nom, i) => ronde(nom, ECH, 0, 0, 2.1, 0.12, i * 1.6, { arret: true }, () => dehors() && loin()));
         break;
+      }
       case 'hotel': {
-        ['enfant0', 'enfant1', 'enfant2'].forEach((nom, i) => ronde(nom, ECH * 0.75, 1.8, 2.6, 1.1, 1.1, i * 2.1, { saute: true }, dehors));
+        const loin = () => !PROCHES.has(b.id); // une mairie proche du regard : quartiers.js a ses enfants, son allumeur et ses lanternes
+        ['enfant0', 'enfant1', 'enfant2'].forEach((nom, i) => ronde(nom, ECH * 0.75, 1.8, 2.6, 1.1, 1.1, i * 2.1, { saute: true }, () => dehors() && loin()));
         if (epoque === 'industrie') { // réverbères : l'allumeur passe à l'aube et au crépuscule, les lanternes brillent la nuit
           const pts = [[-3.2, 2.3], [3.2, 2.3], [3.4, -2.3], [-3.4, -2.3]].map(([lx, lz]) => posB(R, lx, lz));
-          for (const p of pts) lampes.push([p.x, yb + 0.28, p.z]);
-          ajoute(A('allumeur'), (t, dt, o) => { const n = pts.length, u = (t * 0.12) % n, i = Math.floor(u), f = Math.min(1, (u - i) * 1.4), a = pts[i], c = pts[(i + 1) % n]; o.position.set(a.x + (c.x - a.x) * f, yb, a.z + (c.z - a.z) * f); o.rotation.y = -Math.atan2(c.z - a.z, c.x - a.x); }, () => climat.heure === 'aube');
+          for (const p of pts) lampes.push([p.x, yb + 0.28, p.z, b.id]);
+          ajoute(A('allumeur'), (t, dt, o) => { const n = pts.length, u = (t * 0.12) % n, i = Math.floor(u), f = Math.min(1, (u - i) * 1.4), a = pts[i], c = pts[(i + 1) % n]; o.position.set(a.x + (c.x - a.x) * f, yb, a.z + (c.z - a.z) * f); o.rotation.y = -Math.atan2(c.z - a.z, c.x - a.x); }, () => climat.heure === 'aube' && loin());
         }
         const v = etat.villes.find(v => v.case === b.case);
         if (v && fetes.has(v.id)) { // fête au village : guirlandes, bal et musicien sur la place
@@ -500,15 +520,7 @@ function reconstruire(etat, C, fetes, train) {
   ordre([...forets.filter(i => proprio[i] >= 0), ...pres], 81).slice(0, 80).forEach((i, n) => { const k = posCase(i), y = P.dessus(i); for (let j = 0; j < 3; j++) lucioles.push({ x: k.x + (hache(n, j, 81) - 0.5) * 1.2, z: k.z + (hache(n, j, 82) - 0.5) * 1.2, y: y + 0.05 + hache(n, j, 83) * 0.2, ph: n * 3 + j }); });
 
   // ---- fenêtres allumées la nuit
-  const fp = FENETRES.geometry.attributes.position, fc = FENETRES.geometry.attributes.color; let nf = 0;
-  for (const b of bats) {
-    const k = posCase(b.case), y = P.dessus(b.case), nb = b.cle === 'hotel' ? 9 : ['maison', 'maison_pierre', 'hotel_particulier', 'immeuble'].includes(b.cle) ? 7 : b.cle === 'cabane' ? 4 : 3;
-    for (let i = 0; i < nb && nf < fp.count; i++, nf++) {
-      fp.setXYZ(nf, k.x + (hache(b.id, i, 80) - 0.5) * 0.7, y + 0.08 + hache(b.id, i, 90) * 0.2, k.z + (hache(b.id, i, 100) - 0.5) * 0.6);
-      fc.setXYZ(nf, 1, i % 3 ? 0.74 : 0.9, i % 3 ? 0.36 : 0.65);
-    }
-  }
-  FENETRES.geometry.setDrawRange(0, nf); fp.needsUpdate = fc.needsUpdate = true;
+  batsVie = bats; remplirFenetres();
 
   // ---- le train : de la gare à l'usine la plus proche, quand le joueur a le chemin de fer
   const gare = bats.find(b => b.proprio === 0 && b.cle === 'gare'), usines = new Set(bats.filter(b => b.proprio === 0 && USINES.includes(b.cle)).map(b => b.case));
@@ -518,7 +530,20 @@ function reconstruire(etat, C, fetes, train) {
   }
   installerPools();
 }
-let forets = [], horlogeT = 0;
+let forets = [], horlogeT = 0, batsVie = [];
+/** Les fenêtres allumées des bâtiments (points posés au hasard), sauf ceux dont quartiers.js allume les vraies vitres une à une. */
+export function remplirFenetres() {
+  const fp = FENETRES.geometry.attributes.position, fc = FENETRES.geometry.attributes.color; let nf = 0;
+  for (const b of batsVie) {
+    if (PROCHES.has(b.id)) continue;
+    const k = posCase(b.case), y = P.dessus(b.case), nb = b.cle === 'hotel' ? 9 : ['maison', 'maison_pierre', 'hotel_particulier', 'immeuble'].includes(b.cle) ? 7 : b.cle === 'cabane' ? 4 : 3;
+    for (let i = 0; i < nb && nf < fp.count; i++, nf++) {
+      fp.setXYZ(nf, k.x + (hache(b.id, i, 80) - 0.5) * 0.7, y + 0.08 + hache(b.id, i, 90) * 0.2, k.z + (hache(b.id, i, 100) - 0.5) * 0.6);
+      fc.setXYZ(nf, 1, i % 3 ? 0.74 : 0.9, i % 3 ? 0.36 : 0.65);
+    }
+  }
+  FENETRES.geometry.setDrawRange(0, nf); fp.needsUpdate = fc.needsUpdate = true;
+}
 
 function poserVoie(ch, Rg) {
   // la voie sort de la gare par le bout de ses quais (z local = +3) le plus proche de la case suivante, et s'arrête au pied de l'usine
@@ -639,7 +664,7 @@ function majParticules(t, dt) {
   }
   // lueurs : lanternes de la ville industrielle, feux des bivouacs
   const lp = LUEURS.geometry.attributes.position, lc = LUEURS.geometry.attributes.color; let n = 0;
-  if (climat.heure !== 'jour') for (const p of lampes) { if (n >= lp.count) break; lp.setXYZ(n, p[0], p[1], p[2]); lc.setXYZ(n++, 1, 0.85, 0.5); }
+  if (climat.heure !== 'jour') for (const p of lampes) { if (n >= lp.count) break; if (PROCHES.has(p[3])) continue; lp.setXYZ(n, p[0], p[1], p[2]); lc.setXYZ(n++, 1, 0.85, 0.5); }
   for (let i = 0; i < feux.length && n < lp.count; i += 3) { const f = 0.8 + Math.sin(t * 13 + i) * 0.2; lp.setXYZ(n, feux[i], feux[i + 1], feux[i + 2]); lc.setXYZ(n++, f, 0.55 * f, 0.2 * f); }
   LUEURS.geometry.setDrawRange(0, n); lp.needsUpdate = lc.needsUpdate = true;
   // fenêtres : allumées au crépuscule, pleinement la nuit
@@ -647,11 +672,26 @@ function majParticules(t, dt) {
   FENETRES.visible = op > 0.03; FENETRES.material.opacity = op;
 }
 
+/** Le rythme du foyer (maquette « vie des quartiers ») : toutes les cheminées au matin, la moitié le jour, plus le soir, peu la nuit ;
+ *  épaisses l'hiver, rares l'été, presque aucune en canicule. */
+export function partFoyers() {
+  const ph = climat.phase || 'jour', hiver = climat.saison === 0 || climat.genre === 'neige';
+  let part = ph === 'aube' ? 1 : ph === 'crepuscule' ? 0.75 : ph === 'nuit' ? 0.3 : 0.45;
+  if (hiver) part = Math.max(part, ph === 'nuit' ? 0.7 : 1); else if (climat.saison === 3) part += 0.15; else if (climat.saison === 2) part *= 0.5;
+  if (climat.genre === 'canicule') part = 0.06;
+  return { part, pas: hiver ? 0.55 : 0.85, k: hiver ? 1.15 : 0.9 };
+}
+
 chaqueImage((dt, t) => {
   horlogeT = t;
   const parts = M.parts;
   if (parts) {
-    for (const c of parts.cheminees || []) { c.prochain -= dt; if (c.prochain <= 0) { c.prochain = 0.7 + Math.random() * 0.6; bouffee(c.pos.x, c.pos.y, c.pos.z, c.noire ? 'noire' : 'blanche'); } }
+    const { part, pas, k } = partFoyers();
+    for (const c of parts.cheminees || []) {
+      if (c.rang === undefined) c.rang = Math.random();
+      if (c.rang >= part) continue;
+      c.prochain -= dt; if (c.prochain <= 0) { c.prochain = pas * (0.8 + Math.random() * 0.5); bouffee(c.pos.x, c.pos.y, c.pos.z, c.noire ? 'noire' : 'blanche', k); }
+    }
     for (const f of parts.fumees || []) { f.prochain -= dt; if (f.prochain <= 0) { f.prochain = 0.55 + Math.random() * 0.5; bouffee(f.pos.x, f.pos.y, f.pos.z, f.noire ? 'noire' : 'blanche'); } }
   }
   for (const a of ACT) {

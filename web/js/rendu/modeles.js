@@ -17,13 +17,16 @@ const EPOQUES = {
 const BOIS = 0x5b3a1e, PIERRE = 0xbcb6a8, ARDOISE = 0x5d6f80, VITRE = 0x3a4652, HERBE = 0xa9c66e, BUIS = 0x3e7d2c, EAU = 0x5fc0ee;
 // l'assemblage en cours : les fonctions de la maquette lisent ces variables
 let rnd = Math.random, SAISON = 2, NEIGE = false, EPOQUE = 'ancien', ROYAUME = '#2f5fa8', CLE = '', NIVEAU = 1;
+// les relevés de l'assemblage en cours (fenêtres, portes, toits, lanternes…) : la vie des quartiers s'y accroche (quartiers.js)
+let REL = null;
 const entre = (a, b) => a + rnd() * (b - a);
 const pick = l => l[rnd() * l.length | 0];
-function toit(L, w, d, h, col, x, y, z, ry = 0) {
-  // prisme triangulaire : base w en x, faîte de hauteur h, long de d en z
+// prisme triangulaire : base w en x, faîte de hauteur h, long de d en z
+function prisme(L, w, d, h, col, x, y, z, ry = 0, ep = 0.26) {
   const p = cyl(1, 1, d, 3); p.rotateX(Math.PI / 2); p.rotateZ(Math.PI); p.scale(w / SQ3, h / 1.5, 1); p.translate(0, h / 2 - h / 3, 0);
-  put(L, p, col, x, y + h / 6, z, ry, 0.26);
+  put(L, p, col, x, y + h / 6, z, ry, ep);
 }
+function toit(L, w, d, h, col, x, y, z, ry = 0) { REL?.toits.push({ w, d, h, col, x, y, z, ry }); prisme(L, w, d, h, col, x, y, z, ry); }
 const solQ = (L, col) => put(L, cyl(RW * 0.9, RW * 0.9, 0.25, 6), col, 0, 0.12, 0, 0, 0);
 function arbre(L, x, z, s = 1) { put(L, cyl(0.25, 0.3, 1.2 * s, 5), 0x7a5233, x, 0.6 * s, z, 0, 0.2); put(L, sphere(1.3 * s, 0), SAISON === 3 ? pick([0xd9822b, 0xc9a13a]) : SAISON === 0 ? 0x9aa08a : 0x5fae3e, x, 2 * s, z, 0, 0.2); }
 // une maison de l'époque : murs, toit en prisme, porte ; colombages en 1700, volets ensuite, cheminée qui fume parfois
@@ -32,10 +35,11 @@ function maison(L, ex, x, z, ry, s, E, mur = pick(E.murs), toitC = pick(E.toits)
   const loc = (lx, lz) => [x + lx * c + lz * sn, z - lx * sn + lz * c];
   put(L, boite(w, h, d), mur, x, h / 2, z, ry);
   toit(L, w + 0.3 * s, d + 0.2 * s, 1.3 * s, toitC, x, h, z, ry);
-  const [px, pz] = loc(-w * 0.22, d / 2 + 0.02); put(L, boite(0.45 * s, 0.8 * s, 0.08), BOIS, px, 0.4 * s, pz, ry, 0);
+  const [px, pz] = loc(-w * 0.22, d / 2 + 0.02); put(L, boite(0.45 * s, 0.8 * s, 0.08), BOIS, px, 0.4 * s, pz, ry, 0); REL?.portes.push({ x: px, z: pz, ry, w: 0.45 * s, h: 0.8 * s });
   for (const f of [1, -1]) for (const k of [-0.25, 0.25]) {
     if (f === 1 && k < 0) continue;
     const [wx, wz] = loc(k * w, f * (d / 2 + 0.02)); put(L, boite(0.4 * s, 0.4 * s, 0.08), VITRE, wx, h * 0.55, wz, ry, 0);
+    REL?.fen.push({ x: wx, y: h * 0.55, z: wz, ry: ry + (f < 0 ? Math.PI : 0), w: 0.4 * s, h: 0.4 * s, volet: E.volets ? (toitC === 0xc9a14f ? 0x5c7a4a : 0x4a6a7a) : 0, toitC });
     if (E.volets) for (const v of [-1, 1]) { const [vx, vz] = loc(k * w + v * 0.3 * s, f * (d / 2 + 0.04)); put(L, boite(0.14 * s, 0.42 * s, 0.06), toitC === 0xc9a14f ? 0x5c7a4a : 0x4a6a7a, vx, h * 0.55, vz, ry, 0); }
   }
   if (E.colomb) for (const f of [1, -1]) { const [bx, bz] = loc(0, f * (d / 2 + 0.03)); put(L, boite(w, 0.12, 0.06), BOIS, bx, h * 0.5, bz, ry, 0); for (const k of [-0.48, 0.48]) { const [cx, cz] = loc(k * w, f * (d / 2 + 0.03)); put(L, boite(0.12, h, 0.06), BOIS, cx, h / 2, cz, ry, 0); } }
@@ -82,9 +86,10 @@ function edifice(L, E, w, h, d, x, z, o = {}) {
     if (o.porte !== false && f === 1 && e === 0 && i === ip) continue;
     const lx = -w / 2 + (i + 0.5) * w / n, y = h * (e + 0.55) / etages, [fx, fz] = loc(lx, f * (d / 2 + 0.02));
     put(L, boite(0.45, 0.6, 0.08), o.vitre ?? VITRE, fx, y, fz, ry, 0);
+    if (!o.vitre) REL?.fen.push({ x: fx, y, z: fz, ry: ry + (f < 0 ? Math.PI : 0), w: 0.45, h: 0.6, volet: E.volets ? 0x4a6a7a : 0 });
     if (E.volets && !o.vitre) for (const v of [-1, 1]) { const [vx, vz] = loc(lx + v * 0.32, f * (d / 2 + 0.04)); put(L, boite(0.15, 0.62, 0.06), 0x4a6a7a, vx, y, vz, ry, 0); }
   }
-  if (o.porte !== false) { const [px, pz] = loc(-w / 2 + (ip + 0.5) * w / n, d / 2 + 0.03); put(L, boite(0.8, 1.3, 0.08), BOIS, px, 0.65, pz, ry, 0); }
+  if (o.porte !== false) { const [px, pz] = loc(-w / 2 + (ip + 0.5) * w / n, d / 2 + 0.03); put(L, boite(0.8, 1.3, 0.08), BOIS, px, 0.65, pz, ry, 0); REL?.portes.push({ x: px, z: pz, ry, w: 0.8, h: 1.3 }); }
 }
 // une enceinte de n côtés (un sommet vers +z) : bastions de Vauban, ou tours rondes au temps des colombages
 function murs(L, r, h, col, n = 6, bastions = true, toitC = 0xa8553a) {
@@ -99,6 +104,203 @@ function murs(L, r, h, col, n = 6, bastions = true, toitC = 0xa8553a) {
 const MINERAI = { mine_fer: 0xa5532a, mine_charbon: 0x2b2b2b, mine_or: 0xf2c23a };
 // couleurs des cultures selon la saison (la neige blanchit l'hiver)
 const CULTURES = () => SAISON === 0 ? (NEIGE ? [0xeef2f6, 0xe4eaef] : [0x8a6e4a, 0x7a6040]) : SAISON === 1 ? [0x9fd35a, 0x86c24a, 0xa9c457] : SAISON === 3 ? [0xc9a35a, 0xa8803f, 0x9b7d4a] : [0xe3c75b, 0xd6b24a, 0xa9c457, 0x9fbf4f];
+
+// ------------------------------------------------------------------ la halle du marché et la petite école selon l'époque (maquette « vie des quartiers »)
+/** Les quatre étals de web_power : vie.js et quartiers.js y placent leurs marchands. */
+export const ETALS = [[-3.2, -2.6], [3, -2.8], [-3, 3], [3.2, 2.8]];
+/** L'étalage sur tréteaux, côté extérieur de chaque étal (la caisse du modèle est en x + 1). */
+export const ETALAGE = (x, z) => [x - 0.55, z + Math.sign(z) * 1.85];
+// les produits de la saison [couleurs, taille] : hiver (choux, pommes de terre, poireaux, marrons), printemps (salades, radis, asperges, fleurs),
+// été (cerises, abricots, melons, fraises), automne (citrouilles, pommes, raisin, champignons)
+const PRODUITS = [
+  [[[0x9fbf8a, 0xb5d0a0], 0.17], [[0xc9a86a, 0xb8945a], 0.1], [[0xe8e4d0, 0x6a9a4a], 0.08], [[0x7a4a2a, 0x8a5a3a], 0.07]],
+  [[[0x8fcf5a, 0x6fbf4a], 0.15], [[0xd94f6a, 0xe86a8a], 0.07], [[0xe9e2c0, 0xc9d0a0], 0.06], [[0xff7ab8, 0xffd34d, 0xb57bff, 0xf6f2ea], 0.08]],
+  [[[0xa01a2a, 0xc0202a], 0.06], [[0xf0a040, 0xe89030], 0.09], [[0xc9d070, 0xa8b858], 0.17], [[0xe0303a, 0xd9322a], 0.07]],
+  [[[0xe07a1a, 0xd96a10], 0.2], [[0xc0302a, 0x9fbf3a], 0.09], [[0x6a3a7a, 0x8a9a3a], 0.07], [[0xc9a070, 0x8a5a3a], 0.08]],
+];
+// les petites pièces du décor (fruits, fleurs) en octaèdres de 8 triangles et sans contour : ce décor est dans le maillage de tous les logements
+const grain = r => new THREE.OctahedronGeometry(r, 0);
+const cageot = (L, x, y, z, [cols, r]) => { put(L, boite(0.85, 0.16, 0.6), 0xb08a55, x, y + 0.08, z, 0, 0); for (let n = 0; n < 6; n++) put(L, grain(r), cols[n % cols.length], x + ((n % 3) - 1) * 0.26, y + 0.16 + r * 0.7, z + ((n / 3 | 0) - 0.5) * 0.26, 0, 0); };
+const panier = (L, x, z, [cols, r]) => { put(L, cyl(0.3, 0.24, 0.3, 8), 0xa8804a, x, 0.4, z, 0, 0.03); for (let n = 0; n < 4; n++) put(L, grain(Math.min(r, 0.12)), cols[n % cols.length], x + Math.cos(n * 1.6) * 0.13, 0.6, z + Math.sin(n * 1.6) * 0.13, 0, 0); };
+/** La halle au fond de la place : bois (1700), bois sur socles de pierre (Lumières), pierre à arcades (Empire), fonte type Baltard (Industrie). */
+function halle(L) {
+  const ep = EPOQUE, zs = [-4.6, -0.9], xs = ep === 'industrie' ? [-5.2, -2.6, 0, 2.6, 5.2] : [-5.2, -1.75, 1.75, 5.2], PROD = PRODUITS[SAISON] || PRODUITS[2];
+  if (ep === 'ancien' || ep === 'lumieres') { // halle en bois : poteaux, liens, sablières et grand toit de tuiles ; sur socles de pierre avec un lanternon aux Lumières
+    const hp = ep === 'lumieres' ? 3.0 : 3.6;
+    for (const x of xs) for (const z of zs) {
+      if (ep === 'lumieres') put(L, boite(0.62, 0.6, 0.62), PIERRE, x, 0.3, z, 0, 0.06);
+      put(L, boite(0.32, hp, 0.32), BOIS, x, 3.6 - hp / 2, z, 0, 0.06);
+      const s = z < -2 ? 1 : -1; put(L, boite(0.16, 1.1, 0.16).rotateX(0.7 * s), BOIS, x, 3.2, z + 0.35 * s, 0, 0);
+    }
+    for (const z of zs) put(L, boite(10.8, 0.3, 0.32), BOIS, 0, 3.65, z, 0, 0.05);
+    for (const x of xs) put(L, boite(0.3, 0.3, 4.0), BOIS, x, 3.65, -2.75, 0, 0.05);
+    toit(L, 5.0, 11.6, 2.6, ep === 'ancien' ? 0x8a4a34 : 0xa8553a, 0, 3.8, -2.75, Math.PI / 2);
+    if (ep === 'lumieres') { put(L, boite(0.8, 0.8, 0.8), 0xf1e4c4, 0, 6.6, -2.75, 0, 0.1); put(L, cone(0.75, 0.9, 4), ARDOISE, 0, 7.45, -2.75, Math.PI / 4, 0.1); }
+  } else if (ep === 'empire') { // halle de pierre : piliers, linteaux, consoles d'arcades, toit d'ardoise
+    for (const x of xs) for (const z of zs) { put(L, boite(0.62, 3.4, 0.62), PIERRE, x, 1.7, z, 0, 0.08); put(L, boite(0.82, 0.26, 0.82), 0xd8d2c4, x, 0.13, z, 0, 0.05); }
+    for (const z of zs) put(L, boite(11.2, 0.6, 0.68), 0xd8d2c4, 0, 3.7, z, 0, 0.08);
+    for (const x of xs) put(L, boite(0.6, 0.6, 4.3), 0xd8d2c4, x, 3.7, -2.75, 0, 0.05);
+    for (let i = 0; i < xs.length - 1; i++) for (const z of zs) for (const x of [xs[i] + 0.55, xs[i + 1] - 0.55]) put(L, boite(0.5, 0.36, 0.64), PIERRE, x, 3.22, z, 0, 0);
+    toit(L, 5.2, 11.8, 2.0, ARDOISE, 0, 4.0, -2.75, Math.PI / 2);
+  } else { // halle métallique de type Baltard : colonnes de fonte, impostes vitrées, toit de zinc et lanterneau vitré, becs de gaz
+    const FONTE = 0x3d4a4a, ZINC = 0x8a96a0, VERRE = 0xa8c8d8;
+    for (const x of xs) for (const z of zs) { put(L, cyl(0.13, 0.16, 3.8, 8), FONTE, x, 1.9, z, 0, 0.05); put(L, boite(0.4, 0.2, 0.4), FONTE, x, 3.75, z, 0, 0.03); }
+    for (const z of zs) { put(L, boite(10.8, 0.22, 0.2), FONTE, 0, 3.85, z, 0, 0.04); for (let i = 0; i < xs.length - 1; i++) put(L, boite(2.3, 0.7, 0.04), VERRE, (xs[i] + xs[i + 1]) / 2, 3.35, z, 0, 0); }
+    for (const x of xs) put(L, boite(0.16, 0.2, 3.9), FONTE, x, 3.85, -2.75, 0, 0.03);
+    toit(L, 4.8, 11.2, 1.0, ZINC, 0, 3.95, -2.75, Math.PI / 2);
+    put(L, boite(10.6, 0.7, 1.6), VERRE, 0, 5.2, -2.75, 0, 0.06);
+    toit(L, 2.2, 11.0, 0.65, ZINC, 0, 5.55, -2.75, Math.PI / 2);
+    for (const [x, z] of [[-6.2, 0.4], [6.2, 0.4]]) { reverbere(L, x, z); REL?.lant.push([x, 2.8, z, 0.2]); }
+  }
+  // la table de la halle (volailles et œufs), les étals garnis selon la saison, l'étalage sur tréteaux devant chaque étal
+  put(L, boite(2.4, 0.12, 1.0), BOIS, 0, 0.95, -2.75, 0, 0.05);
+  for (const [a, b] of [[-1.05, -0.4], [1.05, -0.4], [-1.05, 0.4], [1.05, 0.4]]) put(L, boite(0.1, 0.9, 0.1), BOIS, a, 0.45, -2.75 + b, 0, 0);
+  ETALS.forEach(([x, z], i) => {
+    for (let a = 0; a < 3; a++) cageot(L, x + (a - 1) * 0.95, 1.0, z + Math.sign(z) * 0.375, PROD[(i + a) % 4]); // le seul rang côté extérieur : l'autre serait caché sous l'auvent
+    const [ex, ez] = ETALAGE(x, z); put(L, boite(1.9, 0.1, 0.8), BOIS, ex, 0.7, ez, 0, 0.04); for (const a of [-0.8, 0.8]) put(L, boite(0.1, 0.65, 0.7), BOIS, ex + a, 0.33, ez, 0, 0);
+    for (const a of [-0.45, 0.45]) cageot(L, ex + a, 0.75, ez, PROD[(i + (a > 0 ? 1 : 2)) % 4]);
+  });
+  for (const x of [-0.6, 0.6]) { put(L, boite(0.8, 0.55, 0.62), 0xc9a46a, x, 1.3, -2.75, 0, 0.04); put(L, sphere(0.15, 0), x < 0 ? 0xf6f2ea : 0xb8602a, x + 0.1, 1.64, -2.7, 0, 0); put(L, boite(0.08, 0.1, 0.05), 0xd9322a, x + 0.12, 1.8, -2.7, 0, 0); }
+  // l'étal de saison, devant la halle : brasero de marrons (hiver, sapins à vendre dès l'Empire), fleurs (printemps), melons (été), citrouilles (automne)
+  if (SAISON === 0) {
+    put(L, cyl(0.38, 0.3, 0.7, 8), 0x2b2b30, 5.9, 0.6, 0.6, 0, 0.05); put(L, cyl(0.4, 0.4, 0.06, 8), 0xd9531a, 5.9, 0.97, 0.6, 0, 0); if (REL) REL.braise = [5.9, 1.15, 0.6];
+    if (ep === 'empire' || ep === 'industrie') for (const [x, z] of [[-6.0, 0.2], [-5.5, 1.3], [-6.4, -0.8]]) { put(L, cyl(0.08, 0.1, 0.5, 5), 0x7a5233, x, 0.5, z, 0, 0.03); put(L, cone(0.55, 1.5, 6), 0x3e7f34, x, 1.4, z, 0, 0.05); put(L, cone(0.35, 0.8, 6), 0x4c9440, x, 2.1, z, 0, 0.04); }
+  } else for (let n = 0; n < 5; n++) {
+    const x = -5.9 + (n % 3) * 0.7 - 0.35, z = 0.2 + (n / 3 | 0) * 0.75;
+    if (SAISON === 3) put(L, sphere(0.36, 1).scale(1, 0.72, 1), 0xe07a1a, x, 0.5, z, 0, 0.04);
+    else if (SAISON === 2) put(L, sphere(0.26, 1).scale(1.2, 0.9, 1), 0xc9d070, x, 0.47, z, 0, 0.04);
+    else { put(L, cyl(0.22, 0.18, 0.4, 8), 0x6a7a8a, x, 0.45, z, 0, 0.03); for (let m = 0; m < 3; m++) put(L, sphere(0.11, 0), [0xff7ab8, 0xffd34d, 0xb57bff, 0xf6f2ea][(n + m) % 4], x + (m - 1) * 0.1, 0.78, z, 0, 0); }
+  }
+}
+// les bâches de la nuit (sur les étals garnis) et le carreau du jour de marché (marchandes au sol, paniers, cages de volailles) :
+// quartiers.js les pose sur les seuls marchés proches du regard
+const BACHES = L => {
+  ETALS.forEach(([x, z]) => { put(L, boite(3.2, 0.62, 2.4), 0xcfc3a0, x, 1.32, z, 0, 0.05); const [ex, ez] = ETALAGE(x, z); put(L, boite(2.0, 0.5, 0.9), 0xcfc3a0, ex, 0.98, ez, 0, 0.04); });
+  put(L, boite(2.5, 0.62, 1.1), 0xcfc3a0, 0, 1.3, -2.75, 0, 0.05);
+};
+const CARREAU = (L, saison) => {
+  const PROD = PRODUITS[saison] || PRODUITS[2];
+  [[0, 5.6, 0, 0xb8453a], [-6.0, 2.9, Math.PI / 2, 0x3a6a9a], [6.0, 3.0, Math.PI / 2, 0xd9a43a]].forEach(([x, z, ry, c], i) => {
+    put(L, boite(1.9, 0.05, 1.0), c, x, 0.27, z, ry, 0.02);
+    for (let n = 0; n < 3; n++) { const o = (n - 1) * 0.55; panier(L, x + (ry ? 0 : o), z + (ry ? o : 0), PROD[(i + n) % 4]); }
+  });
+  for (const x of [1.5, 2.3]) { put(L, boite(0.7, 0.5, 0.55), 0xc9a46a, x, 0.5, 6.2, 0, 0.04); put(L, sphere(0.14, 0), x < 2 ? 0xf6f2ea : 0x3a3a3a, x + 0.1, 0.82, 6.2, 0, 0); }
+};
+/** Les cases d'une marelle (1, 2, 3, 4-5, 6, 7-8, ciel) le long de (ux, uz), de côté c ; dessin = true sépare les cases doubles. */
+export function casesMarelle(x0, z0, ux, uz, c, dessin = false) {
+  const r = [];
+  [1, 1, 1, 2, 1, 2, 1].forEach((n, i) => { const x = x0 + ux * c * i, z = z0 + uz * c * i; if (n === 2 && dessin) for (const s of [-0.5, 0.5]) r.push({ x: x - uz * c * s, z: z + ux * c * s }); else r.push({ x, z }); });
+  return r;
+}
+function decorEcole(L, ex, E) {
+  const ep = EPOQUE, hm = 2.4 * E.h, top = hm + 2.0; // le clocheton : boîte de 1,2 centrée à hm + 1,4, cône jusqu'à hm + 3,2
+  put(L, boite(0.5, 0.62, 0.04), 0x2a1f18, 1.4, hm + 1.42, -1.53, 0, 0); // l'ouverture où pend la cloche
+  if (NEIGE) put(L, boite(6, 0.02, 3.4), 0xeef2f6, 0, 0.46, 2.4, 0, 0); // la cour sous la neige
+  else for (const c of casesMarelle(-1.6, 3.5, 1, 0, 0.42, true)) put(L, boite(0.36, 0.012, 0.36), 0xf4f2ea, c.x, 0.456, c.z, 0, 0); // marelle à la craie dans la cour
+  if (ep === 'ancien') { put(L, boite(0.1, 0.62, 0.1), 0xd9a43a, 1.4, top + 1.45, -2, 0, 0.04); put(L, boite(0.36, 0.1, 0.1), 0xd9a43a, 1.4, top + 1.55, -2, 0, 0.03); } // école de paroisse : la croix
+  if (ep === 'lumieres') { put(L, boite(0.55, 0.5, 0.04), 0xf2ead2, 0, hm - 0.38, -0.46, 0, 0.02); put(L, boite(0.04, 0.3, 0.06).rotateZ(0.6), 0x2b2b30, 0, hm - 0.38, -0.42, 0, 0); } // cadran solaire
+  if (ep === 'empire' || ep === 'industrie') { // la plaque « École » (communale à l'ère industrielle) ; le drapeau sur le clocheton
+    const w = ep === 'empire' ? 1.0 : 1.8, n = ep === 'empire' ? 4 : 8; put(L, boite(w, 0.3, 0.05), 0xf2eee0, 0.65, 1.56, -0.45, 0, 0.02);
+    for (let i = 0; i < n; i++) put(L, boite(0.08, 0.14, 0.02), 0x2b2b30, 0.65 - w / 2 + 0.18 + i * (w - 0.36) / (n - 1), 1.56, -0.42, 0, 0);
+    put(L, boite(0.07, 1.3, 0.07), 0x5b3a1e, 1.4, top + 1.8, -2, 0, 0.03); DRAP(ex, 1.44, top + 2.25, -2);
+  }
+  if (ep === 'industrie') { // école de la loi Guizot : préau, cour fermée d'un muret à grille
+    for (const [x, z] of [[3.0, -3.2], [5.0, -3.2], [3.0, -0.8], [5.0, -0.8]]) put(L, boite(0.14, 2.0, 0.14), BOIS, x, 1.0, z, 0, 0.04);
+    put(L, boite(2.5, 0.12, 2.9).rotateZ(-0.12), 0x8a96a0, 4.0, 2.08, -2.0, 0, 0.06);
+    for (const s of [-1, 1]) { put(L, boite(2.65, 0.55, 0.16), PIERRE, s * 1.875, 0.5, 4.3, 0, 0.04); put(L, boite(0.16, 0.55, 3.6), PIERRE, s * 3.2, 0.5, 2.5, 0, 0.04); put(L, boite(0.25, 0.95, 0.25), PIERRE, s * 0.55, 0.62, 4.3, 0, 0.04); }
+    for (let x = -3.05; x <= 3.06; x += 0.3) if (Math.abs(x) > 0.7) put(L, boite(0.04, 0.4, 0.04), 0x2b2b30, x, 0.97, 4.3, 0, 0);
+  }
+}
+
+// ------------------------------------------------------------------ décor de saison des logements (figé dans le maillage : la clé de cache porte la saison et la neige)
+// Jardinières, nids d'hirondelles, confitures, couronnes de houx, citrouilles, toits blanchis et stalactites, potager, bois de chauffage,
+// bonhomme de neige, table d'été ; la mairie reçoit porte, fenêtres, guirlande d'hiver et lanternes de la place selon l'époque.
+// Les lanternes, la corde à linge, les tables et les fuites des chaumières sont relevées (REL) : quartiers.js les allume et les anime.
+export const QUARTIER = new Set(['maison', 'cabane', 'maison_pierre', 'immeuble', 'hotel_particulier', 'hotel', 'taverne', 'boulangerie', 'marche', 'ecole']);
+/** Un point d'une pièce relevée (fenêtre, porte, toit), dans les coordonnées locales du bâtiment. */
+const surPiece = (r, lx, ly, lz) => [r.x + lx * Math.cos(r.ry) + lz * Math.sin(r.ry), (r.y || 0) + ly, r.z - lx * Math.sin(r.ry) + lz * Math.cos(r.ry)];
+/** Les places libres entre les chaumières (cabane). */
+export const ROND = (n, r = 6.2) => { const a = 0.4 + Math.PI / 4 + n * Math.PI / 2; return [Math.cos(a) * r, Math.sin(a) * r]; };
+const CHAUME = [0xc9a14f, 0xb8903f];
+function decorQuartier(L, E) {
+  const R = REL, neige = NEIGE, S = SAISON;
+  // la neige tient aussi sur les dalles
+  if (neige) for (const g of L.g) { g.computeBoundingBox(); if (g.boundingBox.max.y > 0.3) continue; const c = g.attributes.color; for (let i = 0; i < c.count; i++) c.setXYZ(i, c.getX(i) * 0.35 + 0.62, c.getY(i) * 0.35 + 0.635, c.getZ(i) * 0.35 + 0.65); }
+  if (CLE === 'hotel') {
+    const hm = 2.8 * E.h, rangs = E.h >= 1.5 ? 2 : 1;
+    put(L, boite(0.9, 1.4, 0.08), BOIS, 0, 0.95, 1.64, 0, 0); R.portes.push({ x: 0, z: 1.62, ry: 0, w: 0.9, h: 1.4, mairie: true });
+    for (const f of [1, -1]) for (let e = 0; e < rangs; e++) for (const x of f > 0 ? [-1.35, 1.35] : [-1.35, 0, 1.35]) {
+      const y = 0.25 + hm * (e + 0.6) / rangs; put(L, boite(0.55, 0.7, 0.08), VITRE, x, y, f * 1.62, 0, 0);
+      R.fen.push({ x, y, z: f * 1.62, ry: f > 0 ? 0 : Math.PI, w: 0.55, h: 0.7, volet: E.volets ? 0x4a6a7a : 0 });
+    }
+    if (S === 0) for (let i = 0; i <= 12; i++) { const u = i / 12, x = -2 + 4 * u, y = hm + 0.05 - Math.sin(u * Math.PI * 3 % Math.PI) * 0.35; put(L, sphere(0.16, 0), i % 3 ? 0x2f6a34 : 0xd9322a, x, y, 1.7, 0, 0); } // guirlande
+    // les lanternes de la place : à chandelle sur poteau (1700), à huile sur potence (Lumières, Empire), les réverbères à gaz du modèle (Industrie)
+    [[-3.2, 2.4], [3.2, 2.2], [3.4, -2.4], [-3.4, -2.2]].forEach(([x, z], i) => {
+      if (EPOQUE === 'industrie' || (NIVEAU >= 5 && i === 0)) { R.lampes.push([x, 2.8, z]); return; } // un réverbère du modèle est déjà là
+      if (EPOQUE === 'ancien') { put(L, boite(0.15, 2.4, 0.15), BOIS, x, 1.2, z, 0, 0.06); put(L, boite(0.8, 0.1, 0.1), BOIS, x + 0.35, 2.35, z, 0, 0); put(L, boite(0.32, 0.42, 0.32), 0xffd08a, x + 0.65, 1.95, z, 0, 0.05); put(L, cone(0.28, 0.25, 4), 0x3a2a20, x + 0.65, 2.27, z, Math.PI / 4, 0); R.lampes.push([x + 0.65, 1.95, z]); return; }
+      put(L, boite(0.14, 2.7, 0.14), 0x2b2b30, x, 1.35, z, 0, 0.06); put(L, boite(0.75, 0.08, 0.08), 0x2b2b30, x + 0.33, 2.7, z, 0, 0); put(L, boite(0.4, 0.45, 0.4), 0xffe2a0, x + 0.62, 2.3, z, 0, 0.05); put(L, cone(0.34, 0.3, 4), 0x2b2b30, x + 0.62, 2.68, z, Math.PI / 4, 0); R.lampes.push([x + 0.62, 2.3, z]);
+    });
+  }
+  for (const r of R.toits) {
+    if (r.w >= 9) continue;
+    if (neige) prisme(L, r.w + 0.14, r.d - 0.06, r.h + 0.04, 0xf4f7fb, r.x, r.y + 0.07, r.z, r.ry, 0.12); // toits blanchis
+    if (neige && r.w < 3.4) for (const sx of [-1, 1]) for (let n = 0; n < 3; n++) { const lz = (n / 2 - 0.5) * r.d * 0.8, lg = 0.22 + hache(r.x * 9, n, sx + 2) * 0.35, [x, y, z] = surPiece(r, sx * r.w / 2 * 0.98, -lg / 2, lz); put(L, cone(0.06, lg, 4).rotateX(Math.PI), 0xd8f0ff, x, y, z, 0, 0); } // stalactites
+    if ((S === 1 || S === 2) && r.w < 3.4 && hache(r.x * 7, r.z * 3, 11) < 0.45) { const [x, y, z] = surPiece(r, r.w / 2 * 0.8, -0.12, r.d / 2 * 0.85); put(L, grain(0.16).scale(1, 0.8, 1), 0x7a5a3a, x, y, z, 0, 0); } // nid d'hirondelles
+    if (CHAUME.includes(r.col) && r.w < 3.4) { const [x, , z] = surPiece(r, -r.w / 2 * 0.95, 0, r.d / 2 * 0.9); R.seaux.push([x, r.y, z]); } // la chaumière fuit : un seau sous la pluie
+  }
+  for (const f of R.fen) {
+    if ((S === 1 || S === 2) && hache(f.x * 13, f.z * 7, 21) < (f.toitC ? 0.6 : 0.3)) { // jardinières (moins aux grandes façades)
+      f.jardin = true;
+      const [x, y, z] = surPiece(f, 0, -f.h / 2 - 0.1, 0.16); put(L, boite(f.w * 1.15, 0.14, 0.2), 0x8a5a34, x, y, z, f.ry, 0);
+      const [gx, gy, gz] = surPiece(f, 0, -f.h / 2 - 0.02, 0.16); put(L, boite(f.w * 1.1, 0.08, 0.14), 0x3f8a34, gx, gy, gz, f.ry, 0); // le feuillage
+      const C = S === 1 ? [0xff7ab8, 0xffd34d, 0xf6f2ea, 0xb57bff] : [0xd9322a, 0xe8463a, 0xff6a5a];
+      for (let n = 0; n < 4; n++) { const [fx, fy, fz] = surPiece(f, (n / 3 - 0.5) * f.w, -f.h / 2 + 0.03, 0.16); put(L, grain(0.075), C[(n + (f.x * 3 | 0)) % C.length], fx, fy, fz, 0, 0); }
+    }
+    if (S === 3 && hache(f.x * 5, f.z * 11, 22) < 0.3) { // pots de confiture sur le rebord
+      const [x, y, z] = surPiece(f, 0, -f.h / 2 - 0.02, 0.1); put(L, boite(f.w * 1.1, 0.04, 0.14), BOIS, x, y, z, f.ry, 0);
+      for (let n = 0; n < 3; n++) { const [jx, jy, jz] = surPiece(f, (n - 1) * f.w * 0.3, -f.h / 2 + 0.05, 0.1); put(L, cyl(0.045, 0.045, 0.09, 6), [0xa02a3a, 0x6a2a5a, 0xe07a2a][n], jx, jy, jz, 0, 0); }
+    }
+  }
+  for (const p of R.portes) {
+    const pr = { ...p, y: 0.25 }, hp = hache(p.x * 7, p.z * 5, 23);
+    if (CLE === 'taverne' || CLE === 'boulangerie' || hp < 0.45) { const [x, y, z] = surPiece(pr, p.w / 2 + 0.2, p.h + 0.05, 0.16); put(L, boite(0.06, 0.06, 0.25), 0x2b2b30, x, y + 0.2, z, p.ry, 0); put(L, boite(0.16, 0.22, 0.16), 0xffe0a0, x, y, z, p.ry, 0); R.lant.push([x, y, z, hp]); } // lanterne de la porte
+    if (S === 0 && hp < 0.75) { const [x, y, z] = surPiece(pr, 0, p.h * 0.62, 0.06); put(L, new THREE.TorusGeometry(p.w * 0.28, 0.045, 3, 8), 0x2f6a34, x, y, z, p.ry, 0); put(L, boite(0.1, 0.12, 0.04), 0xd9322a, x, y - p.w * 0.26, z, p.ry, 0); } // couronne de houx
+    if (S === 3 && hp > 0.35) for (let n = 0; n < (hp > 0.7 ? 2 : 1); n++) { const [x, y, z] = surPiece(pr, p.w / 2 + 0.25 + n * 0.32, 0.12, 0.3 + n * 0.1); put(L, sphere(0.17 - n * 0.04, 0).scale(1, 0.72, 1), 0xe07a1a, x, y, z, 0, 0); put(L, boite(0.03, 0.08, 0.03), 0x4a6a2a, x, y + 0.13, z, 0, 0); } // citrouilles
+  }
+  // les places libres entre les chaumières : potager, bois de chauffage, bonhomme de neige ou table d'été, corde à linge
+  if (CLE === 'cabane') {
+    const [px, pz] = ROND(0), a0 = 0.4 + Math.PI / 4, ap = -a0 + Math.PI / 2;
+    if (S !== 0 && !neige) { // potager : pousses au printemps, légumes mûrs l'été, citrouilles l'automne
+      put(L, boite(2.6, 0.12, 1.5), 0x6a4a2e, px, 0.3, pz, ap, 0.05);
+      for (let rg = 0; rg < 3; rg++) for (let n = 0; n < 4; n++) {
+        const lx = (n / 3 - 0.5) * 2.1, lz = (rg - 1) * 0.45, x = px + lx * Math.cos(ap) + lz * Math.sin(ap), z = pz - lx * Math.sin(ap) + lz * Math.cos(ap);
+        if (S === 1) put(L, cone(0.1, 0.22, 4), 0x9fd35a, x, 0.47, z, 0, 0);
+        else if (S === 2) { put(L, grain(0.22), rg === 1 ? 0x7fbf5a : 0x3f8a34, x, 0.52, z, 0, 0); if (rg !== 1) put(L, grain(0.08), 0xd9322a, x + 0.12, 0.6, z, 0, 0); }
+        else if (n % 2 === 0) put(L, sphere(0.2, 0).scale(1, 0.7, 1), 0xe07a1a, x, 0.48, z, 0, 0);
+      }
+    }
+    const [bx, bz] = ROND(1), nb = S === 3 ? 7 : S === 0 ? 3 : 4; // bois de chauffage : grand tas à l'automne, entamé l'hiver
+    for (let i = 0; i < nb; i++) { const b = cyl(0.19, 0.19, 1.3, 7); b.rotateZ(Math.PI / 2); put(L, b, i % 2 ? 0xa0703f : 0xb07a45, bx, 0.44 + Math.floor(i / 3) * 0.36, bz + ((i % 3) - 1) * 0.4 + (Math.floor(i / 3) % 2) * 0.2, 0, 0.07); }
+    put(L, cyl(0.45, 0.5, 0.5, 8), 0xb98a55, bx + 1.4, 0.5, bz + 0.6, 0, 0.06); // billot
+    const [tx, tz] = ROND(2);
+    if (S === 2) R.tables.push({ x: tx, z: tz, ry: -(a0 + Math.PI) });
+    if (neige) { put(L, sphere(0.5, 1), 0xf6f8fb, tx, 0.7, tz, 0, 0.04); put(L, sphere(0.36, 1), 0xf6f8fb, tx, 1.35, tz, 0, 0.04); put(L, sphere(0.26, 1), 0xf6f8fb, tx, 1.82, tz, 0, 0.04); put(L, cyl(0.18, 0.2, 0.3, 8), 0x1f1f1f, tx, 2.2, tz, 0, 0.03); put(L, cone(0.05, 0.25, 5).rotateZ(-Math.PI / 2), 0xf08a30, tx + 0.3, 1.85, tz, 0, 0); } // bonhomme de neige
+    const [lx, lz] = ROND(3), ta = 0.4 + Math.PI / 4 + 2 * Math.PI; // corde à linge, posée en travers
+    for (const o of [-1.4, 1.4]) put(L, boite(0.12, 2.2, 0.12), BOIS, lx + Math.cos(ta) * o, 1.35, lz + Math.sin(ta) * o, 0, 0.05);
+    put(L, boite(2.8, 0.03, 0.03), 0xe9e2d0, lx, 2.35, lz, -ta, 0);
+    R.linge = [lx, lz, -ta];
+  }
+  if (CLE === 'hotel_particulier' && S === 2) R.tables.push({ x: 0, z: 0.3, ry: 0 });
+  if (CLE === 'maison_pierre' && S === 3) put(L, sphere(0.9, 1).scale(1, 0.45, 1), 0xd9822b, 2.6, 0.3, 1.0, 0, 0.05); // le tas de feuilles ratissées
+  for (const T of R.tables) { // table dressée dehors l'été
+    const tb = { x: T.x, y: 0.25, z: T.z, ry: T.ry }, at = (lx, ly, lz) => surPiece(tb, lx, ly, lz);
+    let [x, y, z] = at(0, 0.95, 0); put(L, boite(2, 0.12, 1.0), 0xf6f2ea, x, y, z, T.ry, 0.05);
+    for (const [a, b] of [[-0.85, -0.4], [0.85, -0.4], [-0.85, 0.4], [0.85, 0.4]]) { [x, y, z] = at(a, 0.45, b); put(L, boite(0.1, 0.9, 0.1), BOIS, x, y, z, T.ry, 0); }
+    for (const b of [-0.95, 0.95]) { [x, y, z] = at(0, 0.45, b); put(L, boite(1.8, 0.1, 0.32), BOIS, x, y, z, T.ry, 0.04); }
+    [x, y, z] = at(0.4, 1.17, 0); put(L, boite(0.18, 0.3, 0.18), 0xffe0a0, x, y, z, 0, 0.03); T.lampe = [x, y + 0.05, z];
+    for (const n of [-0.5, 0.2]) { [x, y, z] = at(n, 1.05, 0.2); put(L, cyl(0.12, 0.12, 0.05, 8), 0xe8e2d0, x, y, z, 0, 0); }
+  }
+}
 
 const BATR = {
   // ---- habitat : les quartiers de web_power
@@ -222,8 +424,9 @@ const BATR = {
   marche(L, ex, E) {
     solQ(L, E.pave);
     const cs = [0xd94f4f, 0x4f9fd9, 0xe0b040, 0x5fbf5f];
-    [[-3.2, -2.6], [3, -2.8], [-3, 3], [3.2, 2.8]].forEach(([x, z], i) => { put(L, boite(3, 1, 2.2), 0x8b5a2b, x, 0.5, z); for (const dx of [-1.3, 1.3]) put(L, boite(0.18, 2.2, 0.18), 0x8b5a2b, x + dx, 1.1, z + 0.9, 0, 0); toit(L, 3.6, 2.8, 0.9, cs[i], x, 2.2, z); put(L, boite(0.8, 0.8, 0.8), 0xb07a45, x + 1, 0.4, z + 1.8, 0.4, 0.1); });
+    ETALS.forEach(([x, z], i) => { put(L, boite(3, 1, 2.2), 0x8b5a2b, x, 0.5, z); for (const dx of [-1.3, 1.3]) put(L, boite(0.18, 2.2, 0.18), 0x8b5a2b, x + dx, 1.1, z + 0.9, 0, 0); toit(L, 3.6, 2.8, 0.9, cs[i], x, 2.2, z); put(L, boite(0.8, 0.8, 0.8), 0xb07a45, x + 1, 0.4, z + 1.8, 0.4, 0.1); });
     put(L, cyl(0.9, 1, 0.8, 10), PIERRE, 0, 0.4, 0, 0, 0.12); put(L, cyl(0.7, 0.7, 0.1, 10), EAU, 0, 0.82, 0, 0, 0);
+    halle(L); // la halle de l'époque au fond, les étals garnis de la saison
   },
   tour(L, ex, E) { solQ(L, 0xb3c27a); put(L, cyl(1.5, 1.7, 8, 10), PIERRE, 0, 4, 0); for (let i = 0; i < 8; i++) { const a = i / 8 * Math.PI * 2; put(L, boite(0.5, 0.6, 0.5), PIERRE, Math.cos(a) * 1.45, 8.3, Math.sin(a) * 1.45, -a, 0.1); } put(L, cone(1.9, 2.6, 10), pick(E.toits), 0, 9.6, 0); mat(L, ex, 0, 0, 13.5); arbre(L, 4, 3, 0.9); },
   // une mine pour le fer, le charbon et l'or : seul le tas de minerai change de couleur
@@ -433,6 +636,7 @@ const BATR = {
     put(L, boite(0.9, 1.2, 0.9), pick(E.murs), 1.4, 2.4 * E.h + 1.4, -2, 0, 0.12); put(L, cone(0.8, 1.2, 4), ARDOISE, 1.4, 2.4 * E.h + 2.6, -2, Math.PI / 4, 0.1);
     put(L, boite(6, 0.3, 3.4), 0xd8cfa8, 0, 0.3, 2.4, 0, 0); arbre(L, -2.6, 2.6, 0.9); arbre(L, 2.8, 2.4, 0.8);
     put(L, boite(1.6, 1.1, 0.1), 0x2f3a2f, -4.4, 1.1, 0.4, 0.6, 0); // tableau
+    decorEcole(L, ex, E); // l'école de l'époque : croix, cadran solaire, plaque et drapeau, préau et cour fermée
   },
   fontaine(L, ex, E) {
     solQ(L, E.pave);
@@ -535,9 +739,9 @@ BATR.mine_fer = BATR.mine_charbon = BATR.mine_or = BATR.mine;
 const graine = s => { let h = 7; for (const ch of s) h = Math.imul(h ^ ch.charCodeAt(0), 16777619); return h; };
 /** Assemble une variante en deux géométries fusionnées (pièces, contours) et la liste des pièces animées. */
 function assembler(cle, fn) {
-  const L = lot(), ex = { fum: [], ailes: [], drap: [] };
+  const L = lot(), ex = { fum: [], ailes: [], drap: [] }, rel = REL = { fen: [], portes: [], toits: [], lant: [], lampes: [], tables: [], seaux: [], linge: null, braise: null };
   let i = 0; const g = graine(cle); rnd = () => hache(g, i++, 77); // même tirage pour une même variante
-  fn(L, ex);
+  try { fn(L, ex); } finally { REL = null; }
   // l'emprise au sol de chaque pièce qui dépasse du sol de la case : où une armée ne peut pas se tenir (monde.js : garnisons)
   const boites = [];
   for (const p of L.g) { p.computeBoundingBox(); const b = p.boundingBox; if (b.max.y > 0.32) boites.push([b.min.x, b.max.x, b.min.z, b.max.z]); }
@@ -546,7 +750,7 @@ function assembler(cle, fn) {
     ...ex.ailes.map(pos => ({ type: 'ailes', pos })),
     ...ex.drap.map(pos => ({ type: 'drapeau', pos, couleur: ROYAUME })),
   ];
-  return { g: fusion(L.g), o: L.o.length ? fusion(L.o) : null, anim, boites };
+  return { g: fusion(L.g), o: L.o.length ? fusion(L.o) : null, anim, boites, rel };
 }
 /** Un groupe neuf (pièces + contours) sur les géométries partagées d'une variante, à l'échelle du plateau. */
 function groupe(r) {
@@ -584,9 +788,12 @@ export function maillageBatiment({ cle, couleur = '#2f5fa8', epoque = 'ancien', 
     const E = EPOQUES[ep];
     (BATR[cle] || BATR.maison)(L, ex, ruine ? { ...E, h: E.h * 0.62, volets: false, colomb: false } : E);
     if (ruine) { noircir(L); ex.fum.length = 0; ex.drap.length = 0; ex.ailes.length = 0; }
+    else if (QUARTIER.has(cle)) decorQuartier(L, E);
   });
-  return { mesh: groupe(r), anim: r.anim.map(a => ({ ...a, pos: [...a.pos] })), boites: r.boites };
+  return { mesh: groupe(r), anim: r.anim.map(a => ({ ...a, pos: [...a.pos] })), boites: r.boites, rel: r.rel };
 }
+/** Les pièces du marché qui vont et viennent : { bache, carreau } (THREE.Group neufs à l'échelle 0,1, coordonnées locales du modèle marche). */
+export function piecesMarche(saison) { return { bache: groupe(enCache('#marche-baches', BACHES)), carreau: groupe(enCache('#marche-carreau|' + saison, L => CARREAU(L, saison))) }; }
 /** Une variante quelconque assemblée une fois (fn(L) en unités de web_power) : THREE.Group neuf sur les géométries partagées, à l'échelle 0,1. */
 export function maillageCache(cle, fn) { return groupe(enCache('#' + cle, (L, ex) => fn(L, ex))); }
 
