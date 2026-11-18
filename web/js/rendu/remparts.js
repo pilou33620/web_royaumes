@@ -13,7 +13,8 @@ import { carte, hauteur, solEn } from './plateau.js';
 import { bouffee } from './vie.js';
 import { campDe } from './sieges.js';
 
-const SQ3 = Math.sqrt(3), MER = -0.15, RE = 0.1;
+const SQ3 = Math.sqrt(3), MER = -0.15;
+export const RE = 0.1; // retrait de l'enceinte depuis le bord des cases intra-muros
 export const ARDOISE = 0x5d6f80, BRONZE = 0xb08d57;
 export const STYLE_REMP = {
   ancien: { pierre: 0xd4bf8c, haut: 0xf2e8cc, toit: 0xa8553a, bois: 0x8a5a2e, h: 1 },

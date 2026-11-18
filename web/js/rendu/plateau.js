@@ -30,6 +30,8 @@ let C = null, H = [], familles = [], eau = null, glace = null, liseres = null, s
 let saison = 2, neige = 0, gel = 0;
 let E = { arbres: [], foret: [], bati: new Set(), routes: new Set(), forts: new Set() }; // état du mois : ce qui change le décor (un fort dégage sa case d'arbres et de buttes)
 let rivPts = new Map(); // case → points des rivières qui la traversent (pour y écarter arbres et rochers)
+let degages = new Set(); // cases des ouvrages de siège et des garnisons (sieges.js, monde.js) : ni arbres, ni buttes, ni champs, comme la case d'un fort
+const degage = i => E.forts.has(i) || degages.has(i);
 
 export const hauteur = i => H[i] ?? 0;
 export const carte = () => C;
@@ -53,7 +55,7 @@ const BLANC = new THREE.Color(0xf4f7fb);
 const boise = i => E.foret[i] || E.arbres[i] > 0;
 /** Plaine cultivée : fertile, sans arbres, hors rivière. */
 const cultivee = i => C.terrain[i] === 4 && C.fertile[i] && !boise(i) && !C.riviere[i];
-const champ = i => cultivee(i) && !E.bati.has(i) && !E.routes.has(i);
+const champ = i => cultivee(i) && !E.bati.has(i) && !E.routes.has(i) && !degages.has(i);
 
 function genre(i) {
   const t = C.terrain[i];
@@ -129,7 +131,7 @@ function rebatir() {
 }
 
 const p = (L, g, col, x, y, z, ry = 0, ep = EP) => put(L, g, col, x, y, z, ry, ep);
-const presRiviere = (i, x, z) => (rivPts.get(i) || []).some(v => (v[0] - x) ** 2 + (v[1] - z) ** 2 < 0.13);
+export const presRiviere = (i, x, z) => (rivPts.get(i) || []).some(v => (v[0] - x) ** 2 + (v[1] - z) ** 2 < 0.13);
 /** Un point au hasard (stable) dans la case, à l'écart des rivières. */
 function auHasard(i, x, z, k, sel, rayon = 0.62) {
   for (let essai = 0; essai < 4; essai++) {
@@ -159,14 +161,14 @@ const W = 0.46, D = 0.24, JEU = 0.04; // parcellaire de la maquette
 function decor(L, i, g0, y, x, z, c, r) {
   const t = C.terrain[i];
   // arbres : la forêt (autant que la case en porte) ou quelques arbres épars
-  const nb = t >= 4 && t <= 5 && !E.forts.has(i) ? (E.arbres[i] | 0) : 0;
+  const nb = t >= 4 && t <= 5 && !degage(i) ? (E.arbres[i] | 0) : 0;
   for (let k = 0; k < nb; k++) {
     const q = auHasard(i, x, z, k, 21);
     if (!q) continue;
     const s = arrondi((0.8 + hache(i, k, 23) * 0.45) * S0);
     arbre(L, q[0], y, q[1], s, i, k, hache(i, k, 24) < (t === 5 ? 0.75 : 0.55));
   }
-  if (g0 === 'colline' && !E.forts.has(i)) for (let k = 0; k < 2; k++) {
+  if (g0 === 'colline' && !degage(i)) for (let k = 0; k < 2; k++) {
     const q = auHasard(i, x, z, k, 31);
     if (!q) continue;
     p(L, dome(arrondi((3 + hache(i, k, 33) * 1.4) * S0)), nv(0x97ad52, 0.6), q[0], y, q[1], 0, 0.012);
@@ -210,7 +212,7 @@ function decor(L, i, g0, y, x, z, c, r) {
       if (saison !== 0) for (const sl of [-1, 0, 1]) poser(W * 0.9, 0.034, 0.018, col.clone().multiplyScalar(0.8).getHex(), lx, lz + sl * D / 3); // sillons
     }
   }
-  if (g0 === 'prairie' && !nb && hache(i, 70) < 0.5) { const q = auHasard(i, x, z, 0, 71); if (q) p(L, sphere(S0, 0), saison === 3 ? 0x8fa03c : saison === 0 ? nv(0x7d8a5a, 0.5) : 0x5fa83c, q[0], y + 0.7 * S0, q[1]); }
+  if (g0 === 'prairie' && !nb && !degage(i) && hache(i, 70) < 0.5) { const q = auHasard(i, x, z, 0, 71); if (q) p(L, sphere(S0, 0), saison === 3 ? 0x8fa03c : saison === 0 ? nv(0x7d8a5a, 0.5) : 0x5fa83c, q[0], y + 0.7 * S0, q[1]); }
   if (g0 === 'hautfond' && hache(i, 72) < 0.3) { const q = auHasard(i, x, z, 0, 73); if (q) p(L, sphere(arrondi((0.8 + hache(i, 74) * 0.6) * S0), 0), 0x9b958a, q[0], y + 0.6 * S0, q[1]); }
 }
 
@@ -296,6 +298,9 @@ export function majEtat(etat) {
   if (change) rebatir();
   territoires(etat);
 }
+
+/** Les cases à dégager de leur décor (ouvrages de siège, garnisons) : le décor est refait si elles changent. */
+export function degager(cases) { if (memes(cases, degages)) return; degages = new Set(cases); if (C) rebatir(); }
 
 function coin(x, z, r, k, y) { const a = (60 * k - 30) * Math.PI / 180; return [x + Math.cos(a) * r, y, z + Math.sin(a) * r]; }
 /** Liseré au bord des territoires : sombre dessous, couleur du royaume dessus, posé sur le dessus de chaque case. */

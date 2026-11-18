@@ -538,12 +538,15 @@ function assembler(cle, fn) {
   const L = lot(), ex = { fum: [], ailes: [], drap: [] };
   let i = 0; const g = graine(cle); rnd = () => hache(g, i++, 77); // même tirage pour une même variante
   fn(L, ex);
+  // l'emprise au sol de chaque pièce qui dépasse du sol de la case : où une armée ne peut pas se tenir (monde.js : garnisons)
+  const boites = [];
+  for (const p of L.g) { p.computeBoundingBox(); const b = p.boundingBox; if (b.max.y > 0.32) boites.push([b.min.x, b.max.x, b.min.z, b.max.z]); }
   const anim = [
     ...ex.fum.map(a => (a[3] === true ? { type: 'fumee', noire: true, pos: a.slice(0, 3) } : a[3] === 'fumee' ? { type: 'fumee', noire: false, pos: a.slice(0, 3) } : { type: 'cheminee', pos: a.slice(0, 3) })),
     ...ex.ailes.map(pos => ({ type: 'ailes', pos })),
     ...ex.drap.map(pos => ({ type: 'drapeau', pos, couleur: ROYAUME })),
   ];
-  return { g: fusion(L.g), o: L.o.length ? fusion(L.o) : null, anim };
+  return { g: fusion(L.g), o: L.o.length ? fusion(L.o) : null, anim, boites };
 }
 /** Un groupe neuf (pièces + contours) sur les géométries partagées d'une variante, à l'échelle du plateau. */
 function groupe(r) {
@@ -570,7 +573,8 @@ function noircir(L) {
     const c = g.attributes.color; for (let i = 0; i < c.count; i++) { const l = c.getX(i) * 0.3 + c.getY(i) * 0.59 + c.getZ(i) * 0.11; c.setXYZ(i, 0.07 + l * 0.12, 0.06 + l * 0.1, 0.055 + l * 0.09); }
   }
 }
-/** Le bâtiment posé au centre de sa case : { mesh: THREE.Group à l'échelle 0,1, anim: [{ type, pos (coordonnées locales), noire?, couleur? }] }.
+/** Le bâtiment posé au centre de sa case : { mesh: THREE.Group à l'échelle 0,1, anim: [{ type, pos (coordonnées locales), noire?, couleur? }],
+ *  boites: emprises au sol des pièces [x0, x1, z0, z1] (coordonnées locales) }.
  *  ruine : la version incendiée, plus basse et noircie, sans drapeau ni fumée. */
 export function maillageBatiment({ cle, couleur = '#2f5fa8', epoque = 'ancien', saison = 2, neige = 0, niveau = 1, ruine = false }) {
   const n = neige > 0.3, ep = EPOQUES[epoque] ? epoque : 'ancien';
@@ -581,7 +585,7 @@ export function maillageBatiment({ cle, couleur = '#2f5fa8', epoque = 'ancien', 
     (BATR[cle] || BATR.maison)(L, ex, ruine ? { ...E, h: E.h * 0.62, volets: false, colomb: false } : E);
     if (ruine) { noircir(L); ex.fum.length = 0; ex.drap.length = 0; ex.ailes.length = 0; }
   });
-  return { mesh: groupe(r), anim: r.anim.map(a => ({ ...a, pos: [...a.pos] })) };
+  return { mesh: groupe(r), anim: r.anim.map(a => ({ ...a, pos: [...a.pos] })), boites: r.boites };
 }
 /** Une variante quelconque assemblée une fois (fn(L) en unités de web_power) : THREE.Group neuf sur les géométries partagées, à l'échelle 0,1. */
 export function maillageCache(cle, fn) { return groupe(enCache('#' + cle, (L, ex) => fn(L, ex))); }
