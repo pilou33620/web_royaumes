@@ -486,7 +486,7 @@ function vueDiplomatie() {
     if (!r.vivant) { h += `<div class="boite" style="opacity:.5"><h4>${pastille(r.id)}${e(r.nom)}</h4><div class="mini">☠️ Anéanti</div></div>`; continue; }
     const villes = E.villes.filter(v => v.proprio === r.id);
     h += `<div class="boite"><div style="display:flex;justify-content:space-between;align-items:center"><h4 style="margin:0">${pastille(r.id)}${e(r.nom)}</h4><span class="statut ${r.statut}">${STATUT[r.statut] || r.statut}</span></div>${relation(r)}
-    <div class="mini">🏰 ${villes.map(v => `${e(v.nom)} (${v.niveau})`).join(', ')} · ⚔ ${r.puissance}${r.puissance > P * 1.3 ? ' <span style="color:#f98">(plus fort)</span>' : r.puissance < P * 0.7 ? ' <span style="color:#8f8">(plus faible)</span>' : ''} · 💡 ${r.techs} techs${r.commerce ? ' · 🛤️ route' : ''}</div>
+    <div class="mini">🏰 ${villes.map(v => `${e(v.nom)} (${v.niveau})`).join(', ')} · 👥 ~${r.population} · ⚔ ${r.puissance}${r.puissance > P * 1.3 ? ' <span style="color:#f98">(plus fort)</span>' : r.puissance < P * 0.7 ? ' <span style="color:#8f8">(plus faible)</span>' : ''} · 💡 ${r.techs} techs${r.commerce ? ' · 🛤️ route' : ''}</div>
     <div class="mini">Vend bon marché : ${r.surplus.map(x => res(x).icone).join(' ')} · Achète cher : ${r.demande.map(x => res(x).icone).join(' ')}</div>
     <div class="btns"><button class="btn b2" data-a="diplo" data-r="${r.id}" data-v="cadeau">🎁 Cadeau 100🪙</button>
     ${r.statut === 'guerre' ? `<button class="btn vert" data-a="diplo" data-r="${r.id}" data-v="paix">🕊️ Paix</button>` : `<button class="btn rouge" data-a="diplo" data-r="${r.id}" data-v="guerre">⚔️ Guerre</button>`}

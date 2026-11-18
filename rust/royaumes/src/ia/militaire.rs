@@ -1,84 +1,23 @@
-//! Les royaumes de l'ordinateur : une économie résumée (un trésor), des constructions visibles
-//! sur la carte, des villes qui grandissent, une armée, des humeurs et des propositions.
+//! Le militaire de l'ordinateur, tel qu'avant la refonte (phase 2 : juger les forces, défendre, campagnes) :
+//! recrutement, fortifications, marine, espionnage, forts, exploration, sièges et attaques. Tout se paie
+//! désormais au vrai coût, dans les réserves du royaume, par les ordres du joueur (commandes.rs).
 
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, VecDeque};
 
-use crate::partie::{Partie, Proposition, Rapport};
-use crate::regles::{regles, Panier};
+use super::economie::peut_depenser;
+use crate::commandes::cout_recrue;
+use crate::partie::{Partie, Rapport};
+use crate::regles::regles;
 
-const TYPES: [&str; 38] = [
-    "cabane", "cabane", "maison", "maison", "maison_pierre", "ferme", "ferme", "bucheron", "carriere", "pecheur", "scierie", "moulin", "boulangerie", "caserne",
-    "tour", "marche", "eglise", "entrepot", "taverne", "bergerie", "forge", "grenier", "haras", "fontaine", "jardin", "statue", "port", "comptoir",
-    "hotel_particulier", "cathedrale", "mine_fer", "fonderie", "vignoble", "ecole", "arsenal", "manufacture", "immeuble", "usine",
-];
-
+/// Le mois militaire du rival `k`.
 pub fn mois(p: &mut Partie, k: usize, rapport: &mut Rapport) {
     let id = k as i32;
     let mes_villes: Vec<usize> = (0..p.villes.len()).filter(|&i| p.villes[i].proprio == id).collect();
-    if mes_villes.is_empty() {
-        if p.royaumes[k].vivant {
-            p.royaumes[k].vivant = false;
-            p.armees.retain(|a| a.proprio != id);
-            p.flottes.retain(|a| a.proprio != id);
-            p.espions.retain(|a| a.proprio != id);
-            p.forts.retain(|a| a.proprio != id);
-        }
-        return;
-    }
-    let diff = p.options.difficulte;
-    let an = p.annee();
-    // technologies : elles arrivent avec les années (selon le caractère)
-    let retard = p.royaumes[k].retard_techs + if p.royaumes[k].caractere == "guerrier" { 3 } else { 0 };
-    for t in &regles().techs {
-        if an >= t.annee + retard && !p.royaumes[k].a(&t.cle) {
-            p.royaumes[k].techs.push(t.cle.clone());
-        }
-    }
-    let nb_bat = p.batiments.iter().filter(|b| b.proprio == id).count() as f64;
-    let r = &mut p.royaumes[k];
-    r.niveau_routes = if an >= 1785 { 3 } else if an >= 1735 { 2 } else { 1 };
-    r.or += (15.0 + mes_villes.len() as f64 * 12.0 + nb_bat * 0.8 + if r.commerce && r.statut != "guerre" { 25.0 } else { 0.0 }) * diff;
-    // constructions
-    let chance = 0.35 * diff * if r.caractere == "batisseur" { 1.4 } else { 1.0 };
-    if p.hasard.p(chance.min(0.95)) {
-        construire(p, id, &mes_villes);
-    }
-    fortifier(p, k, &mes_villes);
-    // la vie des villes (marchés, écoles, chauffage, éclairage), résumée en or (cite.rs)
-    p.vie_ia(k);
-    // les villes grandissent avec leurs bâtiments
-    for &vi in &mes_villes {
-        let vid = p.villes[vi].id;
-        let n = p.batiments.iter().filter(|b| b.proprio == id && b.ville == Some(vid)).count();
-        let seuil = [0, 0, 5, 12, 22, 34][(p.villes[vi].niveau as usize + 1).min(5)];
-        if p.villes[vi].niveau < 5 && n >= seuil {
-            p.villes[vi].niveau += 1;
-            p.recalculer_territoire();
-        }
-    }
-    // nouvelle ville
-    if p.tour >= p.royaumes[k].prochaine_ville && mes_villes.len() < 4 {
-        p.royaumes[k].prochaine_ville = p.tour + p.hasard.entre(36, 72) as u32;
-        fonder(p, id, &mes_villes, rapport);
-    }
-    // recrutement
-    let capi = p.capitale(id).unwrap();
+    let Some(capi) = p.capitale(id) else { return };
     let cap_case = p.villes[capi].case;
-    let niv = p.villes[capi].niveau;
-    let plafond = ((5.0 + niv as f64 * 5.0) * if p.royaumes[k].caractere == "guerrier" { 1.4 } else { 1.0 } * diff).round() as u32;
-    let garnison = p.armees.iter().position(|a| a.proprio == id && a.case == cap_case && a.chemin.is_empty());
-    let effectif = garnison.map(|g| p.armees[g].effectif()).unwrap_or(0);
-    let mut recrues = 0;
-    while recrues < 2 && p.royaumes[k].or >= 25.0 && effectif + recrues < plafond {
-        let u = meilleure_unite(p, id);
-        p.recruter_dans(id, &u, cap_case);
-        p.royaumes[k].or -= 25.0;
-        recrues += 1;
-    }
-    let cm = p.commerce_maritime(id);
-    p.royaumes[k].or += cm;
-    p.royaumes[k].commerce_mer = cm;
+    fortifier(p, k, &mes_villes);
+    recruter(p, k, cap_case);
     marine(p, k, cap_case);
     espionnage(p, k, cap_case);
     forts(p, k, &mes_villes, cap_case);
@@ -117,118 +56,68 @@ pub fn mois(p: &mut Partie, k: usize, rapport: &mut Rapport) {
             }
         }
     }
-    // humeur envers le joueur
-    let r = &mut p.royaumes[k];
-    let base = match r.caractere.as_str() {
-        "guerrier" => -20.0,
-        "marchand" => 15.0,
-        _ => 0.0,
-    } + r.attitude;
-    if r.statut == "alliance" {
-        r.relation += 0.3;
-    }
-    if r.commerce && r.statut != "guerre" {
-        r.relation += 0.4;
-    }
-    r.relation += (base - r.relation) * 0.03;
-    if r.statut == "guerre" {
-        r.relation = r.relation.min(-20.0);
-    }
-    r.relation = r.relation.clamp(-100.0, 100.0);
-    // guerre et paix
-    if r.statut != "guerre" && r.statut != "alliance" && p.tour > r.treve && r.relation <= -50.0 && p.tour > 18 && p.hasard.p(0.15) {
-        declarer_guerre(p, k, false, rapport);
-    }
-    let r = &p.royaumes[k];
-    if r.statut == "guerre" {
-        if p.tour >= r.prochaine_attaque {
-            if let Some(g) = p.armees.iter().position(|a| a.proprio == id && a.case == cap_case && a.chemin.is_empty()) {
-                if p.armees[g].effectif() >= 7 {
-                    attaquer(p, k, g, rapport);
-                    p.royaumes[k].prochaine_attaque = p.tour + p.hasard.entre(3, 6) as u32;
-                }
+    // en guerre, une armée part de la capitale quand l'heure est venue
+    if p.royaumes[k].statut == "guerre" && p.tour >= p.royaumes[k].prochaine_attaque {
+        if let Some(g) = p.armees.iter().position(|a| a.proprio == id && a.case == cap_case && a.chemin.is_empty()) {
+            if p.armees[g].effectif() >= 7 {
+                attaquer(p, k, g, rapport);
+                p.royaumes[k].prochaine_attaque = p.tour + p.hasard.entre(3, 6) as u32;
             }
         }
-        let r = &p.royaumes[k];
-        if p.tour > r.debut_guerre + 12 && p.tour >= r.prochaine_offre && (r.relation > -25.0 || p.puissance(id) < 0.5 * p.puissance(0)) && p.hasard.p(0.25) {
-            p.royaumes[k].prochaine_offre = p.tour + 6;
-            proposer(p, k, "paix", format!("{}, las de la guerre, vous propose la paix.", p.royaumes[k].nom), Panier::new(), Panier::new());
+    }
+}
+
+/// L'or que le rival garde en caisse avant de dépenser pour son armée.
+const RESERVE_OR: f64 = 30.0;
+
+/// Le recrutement : la garnison de la capitale monte jusqu'à son plafond (selon le rang, plus haut pour un belliqueux),
+/// deux recrues par mois au plus, au vrai coût et dans la caserne, comme le joueur.
+fn recruter(p: &mut Partie, k: usize, cap_case: usize) {
+    let id = k as i32;
+    let niv = p.niveau_capitale(id);
+    let plafond = ((5.0 + niv as f64 * 5.0) * if p.royaumes[k].caractere == "guerrier" { 1.4 } else { 1.0 }).round() as u32;
+    let garnison = p.armees.iter().filter(|a| a.proprio == id && a.case == cap_case && a.chemin.is_empty()).map(|a| a.effectif()).sum::<u32>();
+    let en_file = p.batiments.iter().filter(|b| b.proprio == id).flat_map(|b| b.file.iter()).filter(|u| regles().unite(u).is_some_and(|d| d.genre != "marine" && d.genre != "espion")).count() as u32;
+    for recrues in 0..2 {
+        if garnison + en_file + recrues >= plafond {
+            break;
         }
-    } else if p.tour > 12 && p.tour >= r.prochaine_offre {
-        let caractere = r.caractere.clone();
-        let relation = r.relation;
-        let statut = r.statut.clone();
-        let nom = r.nom.clone();
-        let mut offre = false;
-        if caractere == "marchand" && p.hasard.p(0.25) {
-            let donne = p.royaumes[k].surplus[p.hasard.indice(3)].clone();
-            let veut = p.royaumes[k].demande[p.hasard.indice(3)].clone();
-            let rg = regles();
-            let texte = format!("{nom} propose 30 {} {} contre 18 {} {}.", rg.res_icone(&donne), rg.res_nom(&donne), rg.res_icone(&veut), rg.res_nom(&veut));
-            proposer(p, k, "echange", texte, Panier::from([(donne, 30.0)]), Panier::from([(veut, 18.0)]));
-            offre = true;
-        } else if relation >= 65.0 && statut != "alliance" && p.hasard.p(0.2) {
-            proposer(p, k, "alliance", format!("{nom} vous propose une alliance durable."), Panier::new(), Panier::new());
-            offre = true;
-        } else if caractere == "guerrier" && relation < -15.0 && p.tour > 36 && p.puissance(id) > 1.4 * p.puissance(0) && p.hasard.p(0.2) {
-            proposer(p, k, "tribut", format!("{nom} exige un tribut de 150 🪙, sinon c'est la guerre."), Panier::new(), Panier::from([("or".to_string(), 150.0)]));
-            offre = true;
-        }
-        if offre {
-            p.royaumes[k].prochaine_offre = p.tour + p.hasard.entre(4, 9) as u32;
+        let Some((bid, u)) = meilleure_unite(p, id) else { break };
+        if p.recruter(id, bid, &u).is_err() {
+            break;
         }
     }
 }
 
-fn proposer(p: &mut Partie, k: usize, genre: &str, texte: String, donne: Panier, demande: Panier) {
-    let id = p.id();
-    p.propositions.push(Proposition { id, de: k, genre: genre.into(), texte, donne, demande });
-}
-
-pub fn meilleure_unite(p: &mut Partie, id: i32) -> String {
-    let mut dispo: Vec<String> = Vec::new();
-    for b in ["caserne", "haras", "arsenal"] {
-        dispo.extend(p.unites_dispo(id, b));
+/// La recrue à former, et où : le plus souvent la meilleure infanterie, parfois de la cavalerie ou un canon,
+/// parmi ce que le royaume peut payer sans vider sa caisse.
+pub fn meilleure_unite(p: &mut Partie, id: i32) -> Option<(u32, String)> {
+    let mut dispo: Vec<(u32, String)> = Vec::new();
+    for b in p.batiments.iter().filter(|b| b.proprio == id && b.fini() && matches!(b.cle.as_str(), "caserne" | "haras" | "arsenal")) {
+        for u in p.unites_dispo(id, &b.cle) {
+            let cout = cout_recrue(p, id, &u);
+            if peut_depenser(p, id as usize, &cout, RESERVE_OR) && !dispo.iter().any(|x| x.1 == u) {
+                dispo.push((b.id, u));
+            }
+        }
     }
     if dispo.is_empty() {
-        return "milice".into();
+        return None;
     }
-    // le plus souvent la meilleure infanterie, parfois de la cavalerie ou un canon
-    let inf: Vec<&String> = dispo.iter().filter(|u| regles().unite(u).unwrap().genre == "infanterie").collect();
+    let att = |u: &str| regles().unite(u).unwrap().att;
+    let inf: Vec<&(u32, String)> = dispo.iter().filter(|x| regles().unite(&x.1).unwrap().genre == "infanterie").collect();
     let x = p.hasard.f();
-    let choix = if x < 0.65 || inf.len() == dispo.len() {
-        inf.iter().max_by(|a, b| regles().unite(a).unwrap().att.total_cmp(&regles().unite(b).unwrap().att)).map(|s| (*s).clone())
-    } else {
-        Some(dispo[p.hasard.indice(dispo.len())].clone())
-    };
-    choix.unwrap_or_else(|| "milice".into())
-}
-
-fn construire(p: &mut Partie, id: i32, villes: &[usize]) {
-    for _ in 0..25 {
-        let vi = villes[p.hasard.indice(villes.len())];
-        let cle = TYPES[p.hasard.indice(TYPES.len())];
-        let d = regles().bat(cle).unwrap();
-        if d.niveau > p.villes[vi].niveau + 1 || d.tech.as_ref().is_some_and(|t| !p.a_tech(id, t)) {
-            continue;
-        }
-        let zone = p.carte.rayon(p.villes[vi].case, p.villes[vi].niveau as i32 + 2);
-        let c = zone[p.hasard.indice(zone.len())];
-        if p.peut_construire(cle, c, id).is_ok() {
-            let bid = p.poser(cle, c, id, false);
-            if let Some(b) = p.batiments.iter_mut().find(|b| b.id == bid) {
-                b.reste = ((b.reste as f64) / p.options.difficulte).ceil().max(1.0) as u32;
-            }
-            if d.territoire > 0 {
-                p.recalculer_territoire();
-            }
-            return;
+    if x < 0.65 || inf.len() == dispo.len() {
+        if let Some(c) = inf.iter().max_by(|a, b| att(&a.1).total_cmp(&att(&b.1))) {
+            return Some((*c).clone());
         }
     }
+    Some(dispo[p.hasard.indice(dispo.len())].clone())
 }
 
 /// Les fortifications : de temps en temps (bien plus souvent en guerre), la ville la plus exposée
-/// — la capitale, puis les villes frontalières ou côtières ; à égalité la moins fortifiée — passe au niveau suivant.
+/// — la capitale, puis les villes frontalières ou côtières ; à égalité la moins fortifiée — passe au niveau suivant,
+/// au vrai coût, si le royaume en a les moyens (et garde de l'or en caisse).
 fn fortifier(p: &mut Partie, k: usize, villes: &[usize]) {
     let id = k as i32;
     if !p.hasard.p(if p.royaumes[k].statut == "guerre" { 0.25 } else { 0.06 }) {
@@ -242,33 +131,10 @@ fn fortifier(p: &mut Partie, k: usize, villes: &[usize]) {
     };
     let Some(vi) = villes.iter().copied().filter(|&vi| p.peut_fortifier(vi).is_ok()).max_by_key(|&vi| exposee(vi)) else { return };
     let f = p.peut_fortifier(vi).unwrap();
-    let cout = regles().valeur(&f.cout) * regles().siege.fortif_ia;
-    if p.royaumes[k].or < cout + 100.0 {
+    if !peut_depenser(p, k, &f.cout, 100.0) {
         return;
     }
-    p.royaumes[k].or -= cout;
-    p.villes[vi].travaux_fortif = ((f.duree as f64) / p.options.difficulte).ceil().max(1.0) as u32;
-}
-
-fn fonder(p: &mut Partie, id: i32, villes: &[usize], rapport: &mut Rapport) {
-    let cand: Vec<usize> = (0..p.carte.cases.len())
-        .filter(|&c| {
-            let k = &p.carte.cases[c];
-            k.t == crate::carte::Terrain::Plaine
-                && k.proprio == -1
-                && k.bat.is_none()
-                && p.fort_a(c).is_none()
-                && p.villes.iter().all(|v| p.carte.dist(v.case, c) >= 5)
-                && villes.iter().any(|&vi| p.carte.dist(p.villes[vi].case, c) <= 9)
-        })
-        .collect();
-    let Some(&c) = p.hasard.choix(&cand) else { return };
-    let k = id as usize;
-    let nom = if p.royaumes[k].noms_villes.is_empty() { format!("Bourg-{}", p.prochain_id) } else { p.royaumes[k].noms_villes.remove(0) };
-    p.fonder_ville(id, c, nom.clone(), 1, false);
-    p.recalculer_territoire();
-    let qui = p.royaumes[k].nom.clone();
-    p.evt(rapport, format!("{qui} fonde la ville de {nom}"), "info", Some(c));
+    let _ = p.fortifier(id, vi);
 }
 
 /// Une case de ses terres exposée : 2 près d'une frontière (des terres d'un autre royaume à 2 cases), 1 sur la côte, 0 sinon.
@@ -304,12 +170,11 @@ fn detacher(p: &mut Partie, g: usize, chemin: Vec<usize>) -> bool {
 /// Retranchements et forts de l'ordinateur : ses armées se retranchent devant une ville assiégée, sur une case
 /// frontalière ou sur leur fort ; de temps en temps un détachement part bâtir une redoute sur une case frontalière
 /// ou côtière ; un fort tenu s'améliore quand le trésor le permet ; en guerre, un fort ennemi laissé vide est une proie.
+/// Chantiers et travaux se paient au vrai coût (l'entretien des forts est payé dans l'économie du mois).
 fn forts(p: &mut Partie, k: usize, villes: &[usize], cap_case: usize) {
     let id = k as i32;
     let rg = regles();
-    let (part, diff) = (rg.siege.fortif_ia, p.options.difficulte);
-    let duree = |d: u32| ((d as f64) / diff).ceil().max(1.0) as u32;
-    p.royaumes[k].or = (p.royaumes[k].or - p.entretien_forts(id)).max(0.0);
+    let moyens = |p: &Partie, cout: &crate::regles::Panier, marge: f64| peut_depenser(p, k, cout, marge);
     for i in 0..p.armees.len() {
         let a = &p.armees[i];
         if a.proprio == id && a.effectif() > 1 && p.peut_retrancher(a).is_ok() && (p.assiege(id, a.case) || p.tient_un_poste(a) || exposition(p, id, a.case) == 2) {
@@ -320,12 +185,8 @@ fn forts(p: &mut Partie, k: usize, villes: &[usize], cap_case: usize) {
     if let Some(c) = p.royaumes[k].projet_fort {
         if let Some(ai) = p.armees.iter().position(|a| a.proprio == id && a.case == c && a.chemin.is_empty()) {
             p.royaumes[k].projet_fort = None;
-            if let Ok(d) = p.peut_construire_fort(&p.armees[ai]) {
-                let cout = rg.valeur(&d.cout) * part;
-                if p.royaumes[k].or >= cout {
-                    p.royaumes[k].or -= cout;
-                    p.poser_fort(id, c, duree(d.duree));
-                }
+            if p.peut_construire_fort(&p.armees[ai]).is_ok_and(|d| moyens(p, &d.cout, 0.0)) {
+                let _ = p.construire_fort(id, ai);
             }
         } else if !p.armees.iter().any(|a| a.proprio == id && a.chemin.last() == Some(&c)) {
             p.royaumes[k].projet_fort = None;
@@ -337,10 +198,8 @@ fn forts(p: &mut Partie, k: usize, villes: &[usize], cap_case: usize) {
             continue;
         }
         let Ok(d) = p.peut_ameliorer_fort(fi) else { continue };
-        let cout = rg.valeur(&d.cout) * part;
-        if p.royaumes[k].or >= cout + 150.0 && p.hasard.p(0.2) {
-            p.royaumes[k].or -= cout;
-            p.forts[fi].travaux = duree(d.duree);
+        if moyens(p, &d.cout, 150.0) && p.hasard.p(0.2) {
+            let _ = p.ameliorer_fort(id, fi);
         }
     }
     let Some(g) = p.armees.iter().position(|a| a.proprio == id && a.case == cap_case && a.chemin.is_empty()) else { return };
@@ -359,7 +218,7 @@ fn forts(p: &mut Partie, k: usize, villes: &[usize], cap_case: usize) {
     // de temps en temps, un détachement part bâtir une redoute sur une case frontalière ou côtière
     let Some(d) = rg.fort(1) else { return };
     let nb = p.forts.iter().filter(|f| f.proprio == id).count();
-    if p.royaumes[k].projet_fort.is_some() || nb >= villes.len() || p.royaumes[k].or < rg.valeur(&d.cout) * part + 200.0 || p.armees[g].effectif() < 8 {
+    if p.royaumes[k].projet_fort.is_some() || nb >= villes.len() || !moyens(p, &d.cout, 200.0) || p.armees[g].effectif() < 8 {
         return;
     }
     if !p.hasard.p(if p.royaumes[k].statut == "guerre" { 0.1 } else { 0.03 }) {
@@ -374,31 +233,6 @@ fn forts(p: &mut Partie, k: usize, villes: &[usize], cap_case: usize) {
         if detacher(p, g, ch) {
             p.royaumes[k].projet_fort = Some(c);
         }
-    }
-}
-
-pub fn declarer_guerre(p: &mut Partie, k: usize, par_joueur: bool, rapport: &mut Rapport) {
-    let tour = p.tour;
-    let attente = p.hasard.entre(2, 4) as u32;
-    let r = &mut p.royaumes[k];
-    if r.statut == "guerre" {
-        return;
-    }
-    r.statut = "guerre".into();
-    r.debut_guerre = tour;
-    r.relation = (r.relation - 30.0).min(-30.0);
-    r.commerce = false;
-    r.prochaine_attaque = tour + attente;
-    let nom = r.nom.clone();
-    if par_joueur {
-        for (i, o) in p.royaumes.iter_mut().enumerate() {
-            if i != k && !o.joueur && o.vivant {
-                o.relation -= 8.0;
-            }
-        }
-        p.evt(rapport, format!("⚔️ Vous déclarez la guerre à {nom} !"), "guerre", None);
-    } else {
-        p.evt(rapport, format!("⚔️ {nom} vous déclare la guerre !"), "guerre", None);
     }
 }
 
@@ -489,24 +323,24 @@ fn marine(p: &mut Partie, k: usize, cap_case: usize) {
             p.flottes[fi].commerce = true;
         }
     }
-    // un navire neuf de temps en temps
+    // un navire neuf de temps en temps, mis en chantier au port (au vrai coût, s'il n'y en a pas déjà un)
     let navires: u32 = p.flottes.iter().filter(|f| f.proprio == id).map(|f| f.navires.values().sum::<u32>()).sum();
-    let Some(&port) = ports.first() else { return };
+    let Some(port) = p.batiments.iter().find(|b| b.proprio == id && b.cle == "port" && b.fini() && b.file.is_empty()).map(|b| b.id) else { return };
     if navires < 6 && p.hasard.p(0.2) {
         let dispo = p.unites_dispo(id, "port");
         let flutes = p.flottes.iter().filter(|f| f.proprio == id).map(|f| p.flutes(f)).sum::<u32>();
         let u = if flutes < 2 { dispo.iter().find(|u| regles().unite(u).is_some_and(|d| d.commerce)) } else { dispo.iter().filter(|u| regles().unite(u).is_some_and(|d| d.guerre())).max_by(|a, b| regles().unite(a).unwrap().att.total_cmp(&regles().unite(b).unwrap().att)) };
         if let Some(u) = u.cloned() {
-            let cout = regles().unite(&u).map_or(0.0, |d| d.cout.get("or").copied().unwrap_or(0.0));
-            if p.royaumes[k].or >= cout + 150.0 {
-                p.royaumes[k].or -= cout;
-                p.recruter_dans(id, &u, port);
+            let cout = cout_recrue(p, id, &u);
+            if peut_depenser(p, k, &cout, 150.0) {
+                let _ = p.recruter(id, port, &u);
             }
         }
     }
 }
 
 /// L'espionnage de l'ordinateur : un espion chez le joueur quand on le hait ou qu'on est en guerre.
+/// Il se forme à la taverne (au vrai coût), puis part vers la ville du joueur la plus proche qu'on connaît.
 fn espionnage(p: &mut Partie, k: usize, cap_case: usize) {
     let id = k as i32;
     for ei in 0..p.espions.len() {
@@ -517,19 +351,20 @@ fn espionnage(p: &mut Partie, k: usize, cap_case: usize) {
         if let Some(vi) = p.villes_a_portee(e).into_iter().find(|&vi| p.villes[vi].proprio == 0) {
             let genre = ["renseignement", "vol", "sabotage"][p.hasard.indice(3)];
             p.lancer_mission(ei, genre, vi);
+        } else if let Some(ch) = cible_connue(p, id, e.case).and_then(|vi| p.chemin(p.espions[ei].case, p.villes[vi].case)) {
+            p.espions[ei].chemin = ch;
         }
     }
     let r = &p.royaumes[k];
-    let cout = regles().unite("espion").map_or(120.0, |d| d.cout.get("or").copied().unwrap_or(120.0));
-    if p.espions.iter().any(|e| e.proprio == id) || !p.a_batiment(id, "taverne") || r.or < cout + 100.0 || (r.relation >= 10.0 && r.statut != "guerre") || !p.hasard.p(0.08) {
+    let cout = cout_recrue(p, id, "espion");
+    let en_route = p.espions.iter().any(|e| e.proprio == id) || p.batiments.iter().any(|b| b.proprio == id && b.file.iter().any(|u| u == "espion"));
+    let taverne = p.batiments.iter().find(|b| b.proprio == id && b.cle == "taverne" && b.fini()).map(|b| b.id);
+    let Some(taverne) = taverne.filter(|_| !en_route) else { return };
+    if !peut_depenser(p, k, &cout, 100.0) || (r.relation >= 10.0 && r.statut != "guerre") || !p.hasard.p(0.08) {
         return;
     }
-    if let Some(ch) = cible_connue(p, id, cap_case).and_then(|vi| p.chemin(cap_case, p.villes[vi].case)) {
-        p.royaumes[k].or -= cout;
-        p.recruter_dans(id, "espion", cap_case);
-        if let Some(e) = p.espions.last_mut() {
-            e.chemin = ch;
-        }
+    if cible_connue(p, id, cap_case).and_then(|vi| p.chemin(cap_case, p.villes[vi].case)).is_some() {
+        let _ = p.recruter(id, taverne, "espion");
     }
 }
 
@@ -588,6 +423,13 @@ mod essais {
     use super::*;
     use crate::carte::Options;
 
+    /// De quoi tout payer : 5000 or et des matériaux en abondance.
+    fn riche(p: &mut Partie, k: usize) {
+        for (r, v) in [("or", 5000.0), ("bois", 500.0), ("planches", 500.0), ("pierre", 500.0), ("outils", 200.0)] {
+            p.royaumes[k].stock.insert(r.into(), v);
+        }
+    }
+
     #[test]
     fn l_ordinateur_ne_frappe_que_ce_qu_il_connait() {
         let mut p = Partie::nouvelle(Options { graine: 42, ..Options::default() });
@@ -610,7 +452,7 @@ mod essais {
     fn les_rivaux_fortifient_leur_capitale_en_guerre() {
         let mut p = Partie::nouvelle(Options { graine: 42, ..Options::default() });
         p.royaumes[1].statut = "guerre".into();
-        p.royaumes[1].or = 5000.0;
+        riche(&mut p, 1);
         let villes: Vec<usize> = (0..p.villes.len()).filter(|&i| p.villes[i].proprio == 1).collect();
         let cap = p.capitale(1).unwrap();
         for _ in 0..80 {
@@ -620,7 +462,7 @@ mod essais {
             }
         }
         assert!(p.villes[cap].travaux_fortif > 0, "la capitale passe en travaux");
-        assert!(p.royaumes[1].or < 5000.0, "les travaux sont payés");
+        assert!(p.royaumes[1].stock["or"] < 5000.0, "les travaux sont payés");
         // les travaux s'achèvent
         p.villes[cap].travaux_fortif = 1;
         p.fin_du_mois();
@@ -633,7 +475,7 @@ mod essais {
             let mut p = Partie::nouvelle(Options { graine: g, ..Options::default() });
             let villes: Vec<usize> = (0..p.villes.len()).filter(|&i| p.villes[i].proprio == 1).collect();
             let cap = p.villes[p.capitale(1).unwrap()].case;
-            p.royaumes[1].or = 5000.0;
+            riche(&mut p, 1);
             let gi = p.armees.iter().position(|a| a.proprio == 1 && a.case == cap).unwrap();
             p.armees[gi].unites.insert("milice".into(), 20);
             for _ in 0..300 {
@@ -650,7 +492,7 @@ mod essais {
             forts(&mut p, 1, &villes, cap);
             let fi = p.fort_a(c).expect("la redoute est en chantier");
             assert_eq!((p.forts[fi].proprio, p.forts[fi].niveau), (1, 0));
-            assert!(p.royaumes[1].or < 5000.0 && p.royaumes[1].projet_fort.is_none());
+            assert!(p.royaumes[1].stock["or"] < 5000.0 && p.royaumes[1].projet_fort.is_none());
             for _ in 0..4 {
                 p.fin_du_mois();
             }

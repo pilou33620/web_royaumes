@@ -14,7 +14,8 @@ use crate::regles::{regles, Panier};
 /// 2 : les remparts et citadelles sont devenus des niveaux de fortification des villes
 /// 3 : forts bâtis par les armées, retranchements (champs nouveaux, lus par défaut)
 /// 4 : éclairage public des villes (`Ville::eclairage`, éteint par défaut)
-pub const VERSION_SAUVEGARDE: u32 = 4;
+/// 5 : les rivaux vivent la même économie que le joueur (stocks, population, ouvriers) : `migrer_economie_rivaux`
+pub const VERSION_SAUVEGARDE: u32 = 5;
 /// La partie commence en avril 1700 (le printemps : on sème avant l'hiver).
 pub const TOUR_DEPART: u32 = 3;
 /// Les brigands : un « royaume » à part, ennemi de tous.
@@ -36,6 +37,9 @@ pub const ROYAUMES: [DefRoyaume; 6] = [
     DefRoyaume { nom: "République de Lumen", couleur: "#c9a00f", caractere: "marchand", villes: &["Lumen", "Aurelle", "Dorac", "Solenne", "Mirabel", "Port-Clair"] },
 ];
 
+/// Les réserves de chaque royaume au départ.
+pub const STOCK_DEPART: [(&str, f64); 7] = [("or", 300.0), ("bois", 80.0), ("planches", 30.0), ("pierre", 40.0), ("outils", 10.0), ("pain", 30.0), ("poisson", 20.0)];
+
 pub fn nom_caractere(c: &str) -> &'static str {
     match c {
         "guerrier" => "Belliqueux",
@@ -55,7 +59,7 @@ pub struct Royaume {
     pub caractere: String,
     pub vivant: bool,
     pub techs: Vec<String>,
-    // --- le joueur ---
+    // --- l'économie, la même pour tous les royaumes (tour.rs) ---
     pub stock: Panier,
     pub pop: i64,
     pub bonheur: f64,
@@ -70,7 +74,9 @@ pub struct Royaume {
     pub variete: u32,
     pub quete: usize,
     // --- les royaumes de l'ordinateur ---
-    pub or: f64,
+    /// le trésor résumé des sauvegardes d'avant la version 5 : versé dans `stock` à la migration, jamais réécrit
+    #[serde(rename = "or", skip_serializing)]
+    pub tresor_v4: f64,
     pub relation: f64,
     pub statut: String,
     pub commerce: bool,
@@ -78,9 +84,8 @@ pub struct Royaume {
     pub debut_guerre: u32,
     pub prochaine_attaque: u32,
     pub prochaine_offre: u32,
-    pub prochaine_ville: u32,
     pub cadeaux: u32,
-    pub retard_techs: i32,
+    /// (ordinateur) ce qu'il vend bon marché et ce qu'il achète cher : recalculés chaque mois depuis ses stocks (ia/economie.rs)
     pub surplus: Vec<String>,
     pub demande: Vec<String>,
     pub noms_villes: Vec<String>,
@@ -486,7 +491,6 @@ impl Partie {
         ordre.insert(0, 0);
         ordre.truncate(departs.len());
         let mut royaumes = Vec::new();
-        let ressources: Vec<String> = regles().prix.keys().cloned().collect();
         for (k, &d) in ordre.iter().enumerate() {
             let def = &ROYAUMES[d];
             let joueur = k == 0;
@@ -508,8 +512,6 @@ impl Partie {
                 "marchand" => 15.0,
                 _ => 0.0,
             };
-            let mut pool = ressources.clone();
-            h.melanger(&mut pool);
             let mut r = Royaume {
                 id: k,
                 nom: if joueur { "Votre royaume".into() } else { def.nom.into() },
@@ -520,25 +522,19 @@ impl Partie {
                 impots: "normal".into(),
                 bonheur: 60.0,
                 pop: 24,
-                or: 300.0,
                 relation: base + attitude,
                 attitude,
                 statut: "neutre".into(),
-                surplus: pool[0..3].to_vec(),
-                demande: pool[3..6].to_vec(),
                 noms_villes: def.villes.iter().skip(if joueur { 0 } else { 1 }).map(|s| s.to_string()).collect(),
-                retard_techs: h.entre(2, 9) as i32,
-                prochaine_ville: h.entre(30, 60) as u32,
                 prochaine_offre: h.entre(10, 18) as u32,
                 ..Default::default()
             };
-            if joueur {
-                for res in &regles().ressources {
-                    r.stock.insert(res.cle.clone(), 0.0);
-                }
-                for (c, v) in [("or", 300.0), ("bois", 80.0), ("planches", 30.0), ("pierre", 40.0), ("outils", 10.0), ("pain", 30.0), ("poisson", 20.0)] {
-                    r.stock.insert(c.into(), v);
-                }
+            // tous partent à égalité : mêmes réserves, même hameau, même garnison
+            for res in &regles().ressources {
+                r.stock.insert(res.cle.clone(), 0.0);
+            }
+            for (c, v) in STOCK_DEPART {
+                r.stock.insert(c.into(), v);
             }
             royaumes.push(r);
         }
@@ -572,42 +568,23 @@ impl Partie {
         p.meteo = Meteo::tirer(&Meteo { temperature: 9.0, ..Meteo::default() }, TOUR_DEPART, &mut p.hasard);
         for (k, &s) in departs.iter().enumerate() {
             let nom = if k == 0 { p.options.capitale.clone() } else { ROYAUMES[ordre[k]].villes[0].to_string() };
-            p.fonder_ville(k as i32, s, nom, if k == 0 { 1 } else { 2 }, true);
+            p.fonder_ville(k as i32, s, nom, 1, true);
         }
         p.recalculer_territoire();
-        // bâtiments de départ
-        let cap = p.villes[0].case;
-        let mut poses = 0;
-        for v in p.carte.voisins(cap) {
-            if poses < 2 && p.peut_construire("cabane", v, 0).is_ok() {
-                p.poser("cabane", v, 0, true);
-                poses += 1;
-            }
-        }
-        for k in 1..p.royaumes.len() {
-            let centre = p.villes[k].case;
-            let mut faits = 0;
-            for _ in 0..50 {
-                if faits >= 5 {
-                    break;
-                }
-                let types = ["cabane", "maison", "ferme", "bucheron", "pecheur", "carriere", "caserne", "cabane"];
-                let t = types[p.hasard.indice(types.len())];
-                let zone = p.carte.rayon(centre, 3);
-                let c = zone[p.hasard.indice(zone.len())];
-                if p.peut_construire(t, c, k as i32).is_ok() {
-                    p.poser(t, c, k as i32, true);
-                    faits += 1;
+        // bâtiments de départ : deux chaumières contre la mairie
+        for k in 0..p.royaumes.len() {
+            let cap = p.villes[k].case;
+            let mut poses = 0;
+            for v in p.carte.voisins(cap) {
+                if poses < 2 && p.peut_construire("cabane", v, k as i32).is_ok() {
+                    p.poser("cabane", v, k as i32, true);
+                    poses += 1;
                 }
             }
         }
-        p.recalculer_territoire();
         for k in 0..p.royaumes.len() {
             let case = p.villes[k].case;
-            let mut u = BTreeMap::new();
-            u.insert("milice".to_string(), if k == 0 { 4 } else { 4 });
-            u.insert("mousquetaire".to_string(), if k == 0 { 2 } else { 3 });
-            p.creer_armee(k as i32, case, u);
+            p.creer_armee(k as i32, case, BTreeMap::from([("milice".to_string(), 4), ("mousquetaire".to_string(), 2)]));
         }
         p.recalculer_routes();
         // chacun connaît les environs de sa capitale
@@ -646,7 +623,44 @@ impl Partie {
             self.recalculer_territoire();
             self.recalculer_routes();
         }
+        if self.version < 5 {
+            self.migrer_economie_rivaux();
+        }
         self.version = VERSION_SAUVEGARDE;
+    }
+
+    /// Avant la version 5, l'économie des rivaux était résumée en un trésor. Chacun reçoit des réserves,
+    /// une population et des ouvriers cohérents avec ses villes et ses bâtiments : son or, de quoi bâtir selon
+    /// le rang de sa capitale, trois mois de vivres, et assez d'habitants pour sa garnison et ses ateliers.
+    pub fn migrer_economie_rivaux(&mut self) {
+        let rg = regles();
+        for k in 0..self.royaumes.len() {
+            if self.royaumes[k].joueur {
+                continue;
+            }
+            let id = k as i32;
+            let s = self.stats(id);
+            let rang = self.niveau_capitale(id) as f64;
+            let ouvriers: i64 = self.batiments.iter().filter(|b| b.proprio == id && b.fini()).map(|b| rg.bat(&b.cle).map_or(0, |d| d.ouvriers) as i64).sum();
+            let pop = ((s.logement as f64 * 0.9).round() as i64).max(s.soldats + ouvriers.min(s.logement)).max(24);
+            let vivres = (pop as f64 * 0.3 * 3.0 / 2.0).ceil();
+            let r = &mut self.royaumes[k];
+            for res in &rg.ressources {
+                r.stock.entry(res.cle.clone()).or_insert(0.0);
+            }
+            let depart = [("or", r.tresor_v4.max(0.0)), ("bois", 60.0 + 20.0 * rang), ("planches", 20.0 + 20.0 * rang), ("pierre", 30.0 + 25.0 * rang), ("outils", 5.0 * rang), ("pain", vivres), ("poisson", vivres)];
+            for (c, v) in depart {
+                let cap = self.capacite(&s, c);
+                self.royaumes[k].stock.insert(c.into(), v.min(cap));
+            }
+            let r = &mut self.royaumes[k];
+            r.tresor_v4 = 0.0;
+            r.pop = pop;
+            if r.impots.is_empty() {
+                r.impots = "normal".into();
+            }
+            self.affecter_ouvriers(k);
+        }
     }
 
     // ------------------------------------------------------------------ utilitaires
@@ -666,6 +680,14 @@ impl Partie {
 
     pub fn joueur(&self) -> &Royaume {
         &self.royaumes[0]
+    }
+
+    /// Le royaume `id` (ni les brigands, ni « personne »).
+    pub fn royaume_mut(&mut self, id: i32) -> Option<&mut Royaume> {
+        if id < 0 || id == BRIGANDS {
+            return None;
+        }
+        self.royaumes.get_mut(id as usize)
     }
 
     pub fn nom_royaume(&self, id: i32) -> String {
@@ -909,12 +931,12 @@ impl Partie {
             face = 0.0;
         }
         let ville = self.ville_proche(case, proprio).map(|i| self.villes[i].id);
-        let k = &mut self.carte.cases[case];
-        // les arbres de la case tombent (le bois va au joueur)
-        if proprio == 0 && k.arbres > 0 {
-            let gain = k.arbres as f64 * 3.0;
-            *self.royaumes[0].stock.entry("bois".into()).or_insert(0.0) += gain;
+        // les arbres de la case tombent (le bois va au bâtisseur)
+        let gain = self.carte.cases[case].arbres as f64 * 3.0;
+        if let Some(r) = self.royaume_mut(proprio).filter(|_| gain > 0.0) {
+            *r.stock.entry("bois".into()).or_insert(0.0) += gain;
         }
+        let k = &mut self.carte.cases[case];
         k.foret = false;
         k.arbres = 0;
         k.bois = 0.0;
@@ -930,10 +952,10 @@ impl Partie {
             return Err("On ne démolit pas un hôtel de ville".into());
         }
         let d = regles().bat(&b.cle).unwrap();
-        if b.proprio == 0 {
+        if let Some(roy) = self.royaume_mut(b.proprio) {
             for (r, v) in &d.cout {
                 if r != "or" {
-                    *self.royaumes[0].stock.entry(r.clone()).or_insert(0.0) += (v * 0.5).floor();
+                    *roy.stock.entry(r.clone()).or_insert(0.0) += (v * 0.5).floor();
                 }
             }
         }
@@ -992,10 +1014,10 @@ impl Partie {
         s
     }
 
-    /// Un bâtiment achevé qui travaille : pourvu d'ouvriers (ceux de l'ordinateur le sont toujours), ni saboté ni faubourg assiégé.
+    /// Un bâtiment achevé qui travaille : pourvu d'ouvriers, ni saboté ni faubourg assiégé.
     pub fn actif(&self, b: &Batiment) -> bool {
         let d = regles().bat(&b.cle).unwrap();
-        b.fini() && (d.ouvriers == 0 || b.ouvriers > 0 || b.proprio != 0) && b.arret <= self.tour && !self.faubourg_assiege(b)
+        b.fini() && (d.ouvriers == 0 || b.ouvriers > 0) && b.arret <= self.tour && !self.faubourg_assiege(b)
     }
 
     pub fn capacite(&self, s: &Stats, r: &str) -> f64 {
@@ -1006,14 +1028,29 @@ impl Partie {
         }
     }
 
-    pub fn peut_payer(&self, cout: &Panier, mult: f64) -> bool {
-        let st = &self.royaumes[0].stock;
-        cout.iter().all(|(r, v)| st.get(r).copied().unwrap_or(0.0) + 1e-9 >= v * mult)
+    /// `id` a-t-il de quoi payer `cout` dans ses réserves ?
+    pub fn peut_payer(&self, id: i32, cout: &Panier) -> bool {
+        let Some(r) = self.royaumes.get(id.max(0) as usize).filter(|_| id >= 0) else { return false };
+        cout.iter().all(|(res, v)| r.stock.get(res).copied().unwrap_or(0.0) + 1e-9 >= *v)
     }
 
-    pub fn payer(&mut self, cout: &Panier, mult: f64) {
-        for (r, v) in cout {
-            *self.royaumes[0].stock.entry(r.clone()).or_insert(0.0) -= v * mult;
+    pub fn payer(&mut self, id: i32, cout: &Panier) {
+        let r = &mut self.royaumes[id as usize];
+        for (res, v) in cout {
+            *r.stock.entry(res.clone()).or_insert(0.0) -= v;
+        }
+    }
+
+    /// Verse `panier` dans les réserves de `id`, sans dépasser ses capacités (l'or n'en a pas).
+    pub fn crediter(&mut self, id: i32, panier: &Panier) {
+        if self.royaume_mut(id).is_none() {
+            return;
+        }
+        let s = self.stats(id);
+        for (res, v) in panier {
+            let cap = self.capacite(&s, res);
+            let x = self.royaumes[id as usize].stock.entry(res.clone()).or_insert(0.0);
+            *x = (*x + v).min(cap.max(*x)).max(0.0);
         }
     }
 
@@ -1127,9 +1164,9 @@ impl Partie {
         self.routes.iter().filter(|r| r[2] as i32 == id).count()
     }
 
-    /// Ce que coûte au joueur le passage de ses routes au niveau `cible`.
-    pub fn cout_routes(&self, cible: u8) -> Panier {
-        let n = self.segments_routes(0).max(4) as f64;
+    /// Ce que coûte à `id` le passage de ses routes au niveau `cible`.
+    pub fn cout_routes(&self, id: i32, cible: u8) -> Panier {
+        let n = self.segments_routes(id).max(4) as f64;
         if cible <= 2 {
             Panier::from([("pierre".to_string(), n * 2.0), ("or".to_string(), 100.0)])
         } else {
@@ -1441,6 +1478,48 @@ mod essais {
         // relire une sauvegarde à jour ne change rien
         let r = Partie::relire(&serde_json::to_string(&q).unwrap()).unwrap();
         assert_eq!((r.batiments.len(), r.villes[0].fortif), (q.batiments.len(), q.villes[0].fortif));
+    }
+
+    #[test]
+    fn ancienne_sauvegarde_economie_des_rivaux() {
+        let mut p = Partie::nouvelle(Options { graine: 12, ..Options::default() });
+        for _ in 0..6 {
+            p.fin_du_mois();
+        }
+        // une sauvegarde de la version 4 : les rivaux n'avaient qu'un trésor, ni réserves ni ouvriers
+        let mut v = serde_json::to_value(&p).unwrap();
+        v["version"] = serde_json::json!(4);
+        for r in v["royaumes"].as_array_mut().unwrap().iter_mut().skip(1) {
+            r["stock"] = serde_json::json!({});
+            r["or"] = serde_json::json!(777.0);
+            r["pop"] = serde_json::json!(24);
+        }
+        for b in v["batiments"].as_array_mut().unwrap() {
+            if b["proprio"] != 0 {
+                b["ouvriers"] = serde_json::json!(0);
+            }
+        }
+        let mut q = Partie::relire(&v.to_string()).unwrap();
+        assert_eq!(q.version, VERSION_SAUVEGARDE);
+        assert_eq!(q.joueur().stock, p.joueur().stock, "le joueur n'est pas touché");
+        for k in 1..q.royaumes.len() {
+            let (r, s) = (&q.royaumes[k], q.stats(k as i32));
+            assert_eq!(r.stock["or"], 777.0, "le trésor passe dans les réserves");
+            assert!(r.tresor_v4 == 0.0 && r.stock.len() == regles().ressources.len());
+            assert!(r.stock.values().all(|&x| x >= 0.0) && r.stock["bois"] > 0.0 && r.stock["pain"] + r.stock["poisson"] >= r.pop as f64 * 0.3 * 2.0, "{:?}", r.stock);
+            assert!(r.pop >= s.soldats && r.pop >= 24, "assez d'habitants pour la garnison");
+            let postes = q.batiments.iter().any(|b| b.proprio == k as i32 && b.fini() && regles().bat(&b.cle).unwrap().ouvriers > 0);
+            assert!(!postes || q.batiments.iter().any(|b| b.proprio == k as i32 && b.ouvriers > 0), "des ouvriers à l'ouvrage");
+        }
+        // l'interface ne reçoit d'un rival que sa population à la dizaine près, pas ses réserves
+        let e = crate::vue::etat(&q);
+        assert!(e["royaumes"][1].get("stock").is_none() && e["royaumes"][1]["population"].as_i64().unwrap() % 10 == 0);
+        // le vieux trésor n'est plus écrit ; la partie continue
+        assert!(serde_json::to_value(&q).unwrap()["royaumes"][1].get("or").is_none());
+        for _ in 0..12 {
+            q.fin_du_mois();
+        }
+        assert!(q.royaumes.iter().all(|r| r.stock.values().all(|&x| x >= 0.0)));
     }
 
     #[test]

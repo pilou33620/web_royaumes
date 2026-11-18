@@ -12,7 +12,16 @@ use serde_json::json;
 fn construire(p: &mut Partie, cle: &str) -> bool {
     let cap = p.villes[p.capitale(0).unwrap()].case;
     let mut cases: Vec<usize> = (0..p.carte.cases.len()).filter(|&c| p.peut_construire(cle, c, 0).is_ok()).collect();
-    cases.sort_by_key(|&c| p.carte.dist(c, cap));
+    // au plus près de la capitale, mais sans raser les bois (le bois de chauffage et de construction en dépend) ;
+    // un bûcheron va aux bois les plus fournis, un forestier replante à côté des bûcherons
+    let bois = |c: usize| p.carte.voisins(c).iter().filter(|&&v| p.carte.cases[v].foret).map(|&v| p.carte.cases[v].bois as i64).sum::<i64>();
+    let bucherons: Vec<usize> = p.batiments.iter().filter(|b| b.proprio == 0 && b.cle == "bucheron").map(|b| b.case).collect();
+    let pres_bucheron = |c: usize| bucherons.iter().map(|&b| p.carte.dist(b, c)).min().unwrap_or(0) as i64;
+    cases.sort_by_key(|&c| match cle {
+        "bucheron" => (-bois(c), 0, p.carte.dist(c, cap)),
+        "forestier" => (pres_bucheron(c), 0, p.carte.dist(c, cap)),
+        _ => (0, p.carte.cases[c].foret as i64, p.carte.dist(c, cap)),
+    });
     match cases.first() {
         Some(&c) => executer(p, &json!({"action": "construire", "cle": cle, "case": c})).is_ok(),
         None => false,
@@ -27,8 +36,8 @@ fn robot(p: &mut Partie) {
     let vid = p.villes[p.capitale(0).unwrap()].id;
     let _ = executer(p, &json!({"action": "ameliorer", "ville": vid}));
     let econome = p.niveau_capitale(0) == 1 && j.pop >= 40;
-    // pendant l'économie, la scierie ne dévore pas le bois que demande l'Hôtel de ville quand les planches s'entassent
-    let garder_bois = econome && j.stock["bois"] < 60.0 && j.stock["planches"] >= 80.0;
+    // en approchant du rang de Village, la scierie ne dévore pas le bois que demande l'Hôtel de ville
+    let garder_bois = p.niveau_capitale(0) == 1 && j.pop >= 30 && j.stock["bois"] < 60.0 && j.stock["planches"] >= 30.0;
     // l'automne et l'hiver, on garde trois mois de grand froid de bois de chauffage : scierie et fonderie s'arrêtent
     let c = &regles().chauffage;
     let reserve = j.pop as f64 * c.par_habitant * c.grand_froid * 3.0;
@@ -48,6 +57,11 @@ fn robot(p: &mut Partie) {
     if econome {
         if nb(p, "bucheron") < 3 {
             construire(p, "bucheron");
+        }
+        // les bois des bûcherons s'épuisent : un forestier replante
+        let rases = p.batiments.iter().any(|b| b.proprio == 0 && b.cle == "bucheron" && b.etat.starts_with("🌲"));
+        if rases && nb(p, "forestier") == 0 {
+            construire(p, "forestier");
         }
         return;
     }
@@ -152,20 +166,22 @@ fn robot(p: &mut Partie) {
 
 #[test]
 fn dix_ans_de_campagne() {
-    campagne(Options { graine: 1789, ..Options::default() });
+    campagne(Options { graine: 1789, ..Options::default() }, true);
 }
 
 #[test]
 fn dix_ans_dans_l_archipel() {
-    campagne(Options { graine: 1789, forme: "archipel".into(), ..Options::default() });
+    // sur les petites îles, le bois manque aux rivaux pour une palissade (60 bois, les règles du joueur) : on ne l'exige pas
+    campagne(Options { graine: 1789, forme: "archipel".into(), ..Options::default() }, false);
 }
 
 #[test]
 fn dix_ans_autour_de_la_mer_interieure() {
-    campagne(Options { graine: 1789, forme: "mer_interieure".into(), ..Options::default() });
+    campagne(Options { graine: 1789, forme: "mer_interieure".into(), ..Options::default() }, true);
 }
 
-fn campagne(o: Options) {
+/// Dix ans de campagne ; `fortifient` : les rivaux doivent avoir fortifié au moins une ville.
+fn campagne(o: Options, fortifient: bool) {
     let mut p = Partie::nouvelle(o);
     let mut famines = 0;
     let (mut choix, mut espion, mut commerce_mer) = (0, false, 0.0);
@@ -212,7 +228,7 @@ fn campagne(o: Options) {
     // forêts rasées et sans comptoir pour acheter du bois (petites îles), le robot grelotte certains hivers, mais tient
     assert!(geles < 30, "le robot chauffe ses foyers : {geles} mois de froid en 10 ans");
     assert!(marches > 0 || !p.a_batiment(0, "marche"), "la halle anime la capitale tous les 3 mois");
-    assert!(fortifs.iter().any(|&f| f > 0), "les rivaux fortifient leurs villes");
+    assert!(!fortifient || fortifs.iter().any(|&f| f > 0), "les rivaux fortifient leurs villes");
     assert!(choix >= 20, "un événement à choix tous les 3 ou 4 mois ({choix})");
     assert!(espion, "le robot a recruté un espion");
     let j = p.joueur();
@@ -282,7 +298,8 @@ fn routes_tracees_et_ameliorees() {
     // dès le départ, les chaumières sont reliées à l'hôtel de ville
     assert!(p.segments_routes(0) >= 1, "routes de départ");
     assert!(p.routes.iter().all(|r| p.carte.dist(r[0], r[1]) == 1), "une route relie deux cases voisines");
-    assert!(construire(&mut p, "bucheron"));
+    // un puits d'abord : un incendie ne réduira pas le bûcheron en cendres pendant l'essai
+    assert!(construire(&mut p, "puits") && construire(&mut p, "bucheron"));
     p.fin_du_mois();
     p.fin_du_mois();
     let b = p.batiments.iter().find(|b| b.proprio == 0 && b.cle == "bucheron").unwrap().case;

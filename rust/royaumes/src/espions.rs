@@ -134,12 +134,7 @@ impl Partie {
                     }
                     format!("📜 Vos espions dérobent à {} les secrets de « {} » !", v.nom, regles().tech(&t).map(|x| x.nom.as_str()).unwrap_or(&t))
                 } else {
-                    let r = &mut self.royaumes[id as usize];
-                    if id == 0 {
-                        r.savoir += m.savoir;
-                    } else {
-                        r.or += m.savoir;
-                    }
+                    self.royaumes[id as usize].savoir += m.savoir;
                     format!("📜 Vos espions rapportent de {} des mémoires utiles (+{} savoir).", v.nom, m.savoir)
                 };
                 (texte, format!("🕵️ Un espion de {qui} a volé des plans à {}.", v.nom))
@@ -149,10 +144,6 @@ impl Partie {
                 let Some(&bid) = self.hasard.choix(&cand) else { return };
                 let b = self.bat(bid).cloned().unwrap();
                 let nom = regles().bat(&b.cle).map(|d| d.nom.clone()).unwrap_or_default();
-                if cible > 0 && cible != crate::partie::BRIGANDS {
-                    let r = &mut self.royaumes[cible as usize];
-                    r.or = (r.or - 50.0).max(0.0);
-                }
                 if self.hasard.p(m.incendie) {
                     let _ = self.demolir(b.case);
                     (format!("🔥 Vos saboteurs incendient {nom} à {} !", v.nom), format!("🔥 Un saboteur de {qui} incendie {nom} à {} !", v.nom))

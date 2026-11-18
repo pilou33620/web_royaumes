@@ -62,7 +62,10 @@ qui s'ouvre dans le navigateur, comme web_conquete.
 - **Retranchements et forts** : une armée se retranche en un mois, ou bâtit un fort améliorable (redoute, fort
   bastionné, fort à batteries) qui protège, voit loin et peut être pris.
 - **Événements à choix** tous les trois ou quatre mois (inventeur, philosophe, disette, déserteur…).
-- Les rivaux utilisent tout cela : flottes, espions, fortifications, forts, sièges et pillages.
+- Les rivaux utilisent tout cela : flottes, espions, fortifications, forts, sièges et pillages. Ils vivent la même
+  économie que vous (réserves, ouvriers, population, bonheur, famine, froid, recherche) et jouent avec les mêmes ordres ;
+  la difficulté règle la qualité de leurs décisions (erreurs, lenteur, prévoyance), sans leur donner de ressources
+  (seul le niveau Difficile garde +10 % de production).
 - **Victoires** : conquête, prospérité (Cité + Palais royal + 400 habitants), diplomatie (alliance avec tous),
   ou meilleur royaume en décembre 1850.
 
@@ -114,7 +117,8 @@ rust/royaumes/        le moteur et le serveur (Rust)
   src/partie.rs       état de la partie, territoire, construction, armées, chemins
   src/tour.rs         la fin du mois (économie, marches, batailles, événements, victoire)
   src/cite.rs         la vie des villes : jour de marché, écoles, chauffage, éclairage public
-  src/ia.rs           les royaumes de l'ordinateur
+  src/ia/             les royaumes de l'ordinateur : mod.rs (le mois, la difficulté), economie.rs (besoins et
+                      décisions économiques), militaire.rs (armée, marine, espions, forts), diplomatie.rs
   src/commandes.rs    les ordres du joueur (vérifiés par le moteur)
   src/marine.rs, espions.rs, sieges.rs, forts.rs, choix.rs   flottes, espionnage, sièges et fortifications,
                       retranchements et forts, événements à choix
@@ -127,5 +131,6 @@ maquettes/            maquettes 3D validées avant intégration (rendu, armées,
 tests/navigateur.py   banc d'essai de l'interface dans Chrome (Playwright)
 ```
 
-Bancs d'essai : `cargo test -p royaumes` (dont une campagne de dix ans jouée par un robot et la relecture d'une
-sauvegarde). Interface : serveur lancé, puis `python3 tests/navigateur.py`.
+Bancs d'essai : `cargo test -p royaumes` (dont une campagne de dix ans jouée par un robot, dix ans de rivaux laissés
+seuls aux trois difficultés et la relecture d'une sauvegarde). Interface : serveur lancé, puis
+`python3 tests/navigateur.py`.
