@@ -6,12 +6,14 @@
 // Tout est en unités du plateau. Les ouvrages d'un siège sont figés une fois par clé (place, époque, armée, camp) ; ce qui change
 // de mois en mois (tranchées creusées, brèche, drapeau) ne fait que montrer, cacher ou étirer des groupes déjà faits.
 // L'armée assiégeante (sur la case de la place pour le moteur) est dessinée au camp, au bout des tranchées (monde.js : campArmee).
-import { THREE, scene, posCase, caseA, voisin, hache, chaqueImage } from './scene.js';
+// Le camp se dresse sur une case libre à une ou deux cases de l'enceinte ; tranchées et pillards suivent des chemins tracés sur le
+// terrain libre (choisirCamp, cheminPillards) : jamais sur un bâtiment ni sur l'eau, entre les faubourgs quand il le faut.
+import { THREE, scene, posCase, caseA, voisins, hache, chaqueImage } from './scene.js';
 import { lot, put, fige, toon, boite, cyl, cone, sphere } from './toon.js';
-import { carte, dessus, solEn } from './plateau.js';
-import { maillageCache, fantassin, canon, PALIERS } from './modeles.js';
+import { carte, dessus, solEn, presRiviere } from './plateau.js';
+import { maillageCache, maillageArmee, fantassin, canon, PALIERS } from './modeles.js';
 import { bouffee } from './vie.js';
-import { infoRemparts, STYLE_REMP, BRONZE, lisse, putR, ryDe } from './remparts.js';
+import { infoRemparts, STYLE_REMP, BRONZE, lisse, putR, ryDe, contourGroupe, decale, RE } from './remparts.js';
 import { couleurDe, palierRoyaume } from './monde.js';
 
 const SQ3 = Math.sqrt(3), ECH_GENS = 0.045;
@@ -74,64 +76,249 @@ const eclats = [];
 export function eclat(p, fort = 1) { if (eclats.length < NECL - 2) { eclats.push({ x: p.x, y: p.y, z: p.z, vie: 0.18 }); if (fort > 1) eclats.push({ x: p.x, y: p.y + 0.01, z: p.z, vie: 0.12 }); } }
 const versMonde = (o, x, y, z) => { o.updateMatrixWorld(true); return _p.set(x, y, z).applyMatrix4(o.matrixWorld).clone(); };
 
-// ---------------------------------------------------------------- le camp : de quel côté de la place, et le repère du siège
-const camps = new Map(); // case de la place → { cible: [x, z] (point vers lequel la brèche s'ouvre), u: [ux, uz], R0 }
-/** Choisit le côté de chaque siège : la direction la plus dégagée (terre, sans bâtiment), du côté de l'assiégeant. À appeler avant majRemparts. */
+// ---------------------------------------------------------------- le terrain libre autour d'une place, et les chemins qui le suivent
+// Les ouvrages et les pillards ne passent ni sur l'eau (mer, lacs, rivières), ni sur une montagne, ni sur la dalle d'un bâtiment
+// (hexagone de rayon 0,9 au centre de sa case), ni dans une enceinte, sur ses bastions ou sur un fort. On quadrille le terrain
+// (pas de 0,05) et on y cherche les chemins (Dijkstra, huit voisins) ; les cellules à l'étroit (entre deux faubourgs) coûtent plus.
+const PAS = 0.05, M = 0.04; // M : demi-largeur d'une tranchée, terre rejetée comprise
+const rayonHex = (dx, dz) => Math.max(Math.abs(dx), Math.abs(0.5 * dx + 0.866 * dz), Math.abs(0.5 * dx - 0.866 * dz)) / 0.866; // 1 au bord d'une case (sommet vers +z)
+/** Le point (x, z) est-il libre à la marge m près ? o = { C, bati, dedans (case → rayon interdit), ronds [[x, z, r]] }. */
+function libreEn(o, x, z, m) {
+  const i = caseA(x, z); if (i < 0) return false;
+  const t = o.C.terrain[i]; if (t < 3 || t === 6) return false;
+  const p = posCase(i);
+  if (o.bati.has(i) && rayonHex(x - p.x, z - p.z) < 0.9 + m / 0.866) return false; // une dalle ne déborde pas de sa case : la sienne seule compte
+  if (presRiviere(i, x, z)) return false;
+  for (const j of [i, ...voisins(i)]) { const r = o.dedans.get(j); if (r !== undefined) { const q = posCase(j); if (rayonHex(x - q.x, z - q.z) < r + m / 0.866) return false; } }
+  for (const [cx, cz, r] of o.ronds) if ((x - cx) ** 2 + (z - cz) ** 2 < (r + m) ** 2) return false;
+  return true;
+}
+const segLibre = (o, a, b, m) => { const n = Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 0.025) || 1; for (let k = 0; k <= n; k++) if (!libreEn(o, a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n, m)) return false; return true; };
+/** Le quadrillage d'un rectangle : lib = 0 (pris), 1 (libre, à l'étroit), 2 (libre et dégagé). */
+function quadriller(o, x0, z0, x1, z1) {
+  const nx = Math.ceil((x1 - x0) / PAS) + 1, nz = Math.ceil((z1 - z0) / PAS) + 1, lib = new Uint8Array(nx * nz);
+  for (let b = 0, k = 0; b < nz; b++) for (let a = 0; a < nx; a++, k++) { const x = x0 + a * PAS, z = z0 + b * PAS; lib[k] = libreEn(o, x, z, M) ? (libreEn(o, x, z, 0.16) ? 2 : 1) : 0; }
+  return { nx, nz, lib, k: (x, z) => { const a = Math.round((x - x0) / PAS), b = Math.round((z - z0) / PAS); return a < 0 || b < 0 || a >= nx || b >= nz ? -1 : b * nx + a; }, xz: k => [x0 + (k % nx) * PAS, z0 + ((k / nx) | 0) * PAS] };
+}
+const VOISINS8 = [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1], [1, 1, Math.SQRT2], [1, -1, Math.SQRT2], [-1, 1, Math.SQRT2], [-1, -1, Math.SQRT2]];
+/** Distances depuis les sources ([[cellule, coût de départ]]) sur le terrain libre ; prev : la cellule d'où l'on vient. */
+function dijkstra(Q, sources) {
+  const N = Q.lib.length, dist = new Float64Array(N).fill(Infinity), prev = new Int32Array(N).fill(-1), tas = [];
+  const pousse = (d, k) => { tas.push([d, k]); for (let i = tas.length - 1; i;) { const j = (i - 1) >> 1; if (tas[j][0] <= tas[i][0]) break; [tas[i], tas[j]] = [tas[j], tas[i]]; i = j; } };
+  const tire = () => { const r = tas[0], f = tas.pop(); if (tas.length) { tas[0] = f; for (let i = 0; ;) { const a = 2 * i + 1, b = a + 1; let m = i; if (a < tas.length && tas[a][0] < tas[m][0]) m = a; if (b < tas.length && tas[b][0] < tas[m][0]) m = b; if (m === i) break; [tas[i], tas[m]] = [tas[m], tas[i]]; i = m; } } return r; };
+  for (const [k, d] of sources) if (Q.lib[k] && d < dist[k]) { dist[k] = d; pousse(d, k); }
+  while (tas.length) {
+    const [d, k] = tire(); if (d > dist[k]) continue;
+    const a = k % Q.nx, b = (k / Q.nx) | 0;
+    for (const [da, db, l] of VOISINS8) {
+      const aa = a + da, bb = b + db; if (aa < 0 || bb < 0 || aa >= Q.nx || bb >= Q.nz) continue;
+      const kk = bb * Q.nx + aa, li = Q.lib[kk]; if (!li) continue;
+      const nd = d + l * PAS * (li === 2 ? 1 : 1.8); if (nd < dist[kk]) { dist[kk] = nd; prev[kk] = k; pousse(nd, kk); }
+    }
+  }
+  return { dist, prev };
+}
+const remonter = (Q, prev, k) => { const pts = []; for (; k >= 0; k = prev[k]) pts.push(Q.xz(k)); return pts; }; // de k jusqu'à sa source
+function tendre(Q, pts) { // ne garde que les coudes nécessaires : en ligne droite tant que le terrain est libre
+  const ok = (a, b) => { const n = Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / (PAS / 2)) || 1; for (let s = 0; s <= n; s++) { const k = Q.k(a[0] + (b[0] - a[0]) * s / n, a[1] + (b[1] - a[1]) * s / n); if (k < 0 || !Q.lib[k]) return false; } return true; };
+  const r = [pts[0]];
+  for (let i = 0; i < pts.length - 1;) { let j = pts.length - 1; while (j > i + 1 && !ok(pts[i], pts[j])) j--; r.push(pts[j]); i = j; }
+  return r;
+}
+/** Une polyligne parcourue à l'abscisse s : { x, z, tx, tz (sens de la marche), nx, nz (à gauche) } ; L : sa longueur. */
+function polyligne(W) {
+  const cum = [0]; for (let i = 1; i < W.length; i++) cum.push(cum[i - 1] + Math.hypot(W[i][0] - W[i - 1][0], W[i][1] - W[i - 1][1]));
+  const L = cum[cum.length - 1];
+  const sur = s => {
+    s = Math.max(0, Math.min(L, s)); let i = 0; while (i < W.length - 2 && cum[i + 1] < s) i++;
+    const l = (cum[i + 1] - cum[i]) || 1, f = (s - cum[i]) / l, tx = (W[i + 1][0] - W[i][0]) / l, tz = (W[i + 1][1] - W[i][1]) / l;
+    return { x: W[i][0] + (W[i + 1][0] - W[i][0]) * f, z: W[i][1] + (W[i + 1][1] - W[i][1]) * f, tx, tz, nx: -tz, nz: tx };
+  };
+  return { W, L, sur };
+}
+function lisser(pts) { // Chaikin, deux passes (comme les chemins de la maquette)
+  for (let it = 0; it < 2; it++) { const q = [pts[0]]; for (let i = 0; i < pts.length - 1; i++) { const [ax, az] = pts[i], [bx, bz] = pts[i + 1]; q.push([ax * 0.75 + bx * 0.25, az * 0.75 + bz * 0.25], [ax * 0.25 + bx * 0.75, az * 0.25 + bz * 0.75]); } q.push(pts[pts.length - 1]); pts = q; }
+  return pts;
+}
+/** Les cases à une, puis deux cases d'un groupe (hors du groupe). */
+function autourDe(groupe, n) {
+  const vu = new Set(groupe), r = []; let bord = [...groupe];
+  for (let k = 0; k < n; k++) { const s = []; for (const c of bord) for (const v of voisins(c)) if (!vu.has(v)) { vu.add(v); s.push(v); r.push(v); } bord = s; }
+  return r;
+}
+
+// ---------------------------------------------------------------- le camp : de quel côté de la place, et le plan des ouvrages
+const camps = new Map(); // case de la place → { cible: [x, z] (point vers lequel la brèche s'ouvre), O, u (pied du mur et normale), plan, o, cases, id }
+const memo = new Map();  // case de la place → dernier choix et sa clé (on ne refait le plan que si le voisinage change)
+let numero = 0;
+/** Choisit le côté de chaque siège : le camp sur une case libre à une ou deux cases de l'enceinte, du côté de l'assiégeant,
+ *  et les tranchées qui y mènent sans passer sur les faubourgs ni sur l'eau. À appeler avant majRemparts. */
 export function preparerSieges(etat) {
   camps.clear();
   const C = carte(); if (!C) return;
-  const bati = new Set(etat.batiments.map(b => b.case)), foret = etat.cases?.foret || [], arbres = etat.cases?.arbres || [];
+  const bati = new Set(etat.batiments.map(b => b.case)), murees = new Map();
+  for (const v of etat.villes) if (v.fortif > 0) for (const c of v.enceinte?.length ? v.enceinte : [v.case]) murees.set(c, 1);
+  for (const f of etat.forts || []) murees.set(f.case, 1);
   for (const s of etat.sieges || []) {
-    const ville = !s.fort && etat.villes.find(v => v.id === s.ville), R0 = ville && ville.fortif >= 3 ? 1 : 0, p0 = posCase(s.case);
+    const ville = !s.fort && etat.villes.find(v => v.id === s.ville), p0 = posCase(s.case);
     const chez = etat.villes.filter(v => v.proprio === s.assiegeant).map(v => posCase(v.case)).sort((a, b) => Math.hypot(a.x - p0.x, a.z - p0.z) - Math.hypot(b.x - p0.x, b.z - p0.z))[0];
-    const vers = chez ? [chez.x - p0.x, chez.z - p0.z] : [0, 0], lv = Math.hypot(...vers) || 1;
-    let best = null;
-    for (let d = 0; d < 6; d++) {
-      let c = s.case; for (let k = 0; k <= R0 && c >= 0; k++) c = voisin(c, d);
-      const c2 = c >= 0 ? voisin(c, d) : -1;
-      let score = (DIRS[d][0] * vers[0] + DIRS[d][1] * vers[1]) / lv * 1.5 + hache(s.case, d, 91) * 0.1;
-      for (const [cc, w] of [[c, 1], [c2, 0.6]]) { if (cc < 0) { score -= 10 * w; continue; } const t = C.terrain[cc]; if (t < 3) score -= 6 * w; else if (t === 6) score -= 2 * w; if (bati.has(cc)) score -= 3 * w; if (foret[cc] || arbres[cc] > 2) score -= 1.5 * w; }
-      if (!best || score > best.score) best = { score, d, c };
-    }
-    const [ux, uz] = DIRS[best.d], ext = SQ3 * (R0 + 1);
-    camps.set(s.case, { cible: [p0.x + ux * ext, p0.z + uz * ext], u: [ux, uz], R0 });
+    const pres = c => { const q = posCase(c); return Math.hypot(q.x - p0.x, q.z - p0.z) < 8; };
+    const cle = [s.fort ? 1 : 0, ville?.fortif, (ville?.enceinte || []).join('.'), chez ? chez.c + ',' + chez.r : '', [...bati].filter(pres).sort((a, b) => a - b).join('.'), [...murees.keys()].filter(pres).join('.')].join('|');
+    let k = memo.get(s.case);
+    if (!k || k.cle !== cle || k.C !== C) { k = choisirCamp(s, ville, C, bati, murees, chez, etat); k.cle = cle; k.C = C; memo.set(s.case, k); }
+    camps.set(s.case, k);
   }
+  for (const c of memo.keys()) if (!camps.has(c)) memo.delete(c);
 }
+/** Les cases portant des ouvrages de siège (on en écarte le décor). */
+export function casesOuvrages() { const r = new Set(); for (const k of camps.values()) for (const c of k.cases) r.add(c); return r; }
 /** Le camp du siège de la place posée sur cette case (null sans siège). */
 export const campDe = c => camps.get(c) || null;
-/** Où se tient l'armée assiégeante (au camp, face à la place) : { x, z, ry } ou null. */
-export function campArmee(c) {
-  const S = sieges.get(c); if (S) { const p = S.pt(2.75, 1.05); return { x: p.x, z: p.z, ry: capVers(-S.ux, -S.uz) }; }
-  const k = camps.get(c); if (!k) return null;
-  const p0 = posCase(c); return { x: p0.x + k.u[0] * (SQ3 * (k.R0 + 1) + 0.4), z: p0.z + k.u[1] * (SQ3 * (k.R0 + 1) + 0.4), ry: capVers(-k.u[0], -k.u[1]) };
+/** Où se tient l'armée assiégeante (à côté du camp, face à la place) : { x, z, ry } ou null. */
+export const campArmee = c => camps.get(c)?.plan.armee || null;
+
+const DIST_PAR = [0.81, 0.52, 0.285], LONG_PAR = [0.48, 0.38, 0.26]; // parallèles de la maquette : distance au pied du mur, demi-longueur
+function choisirCamp(s, ville, C, bati, murees, chez, etat) {
+  const p0 = posCase(s.case), niveau = ville ? ville.fortif : 0, fort = !!s.fort, intra = ville?.enceinte?.length ? ville.enceinte : [s.case];
+  // l'enceinte (et son fossé en eau au niveau 4), ses bastions et demi-lunes ; le fort et l'armée qui le garde sur son glacis
+  const rD = fort ? 0.72 : 1 + (niveau >= 4 ? 0.17 : niveau >= 3 ? 0.03 : 0) / 0.866, dedans = new Map(murees), ronds = [];
+  for (const c of intra) dedans.set(c, rD);
+  const { P } = contourGroupe(intra), Q = decale(P, -RE);
+  if (fort) ronds.push([p0.x, p0.z + 0.58, 0.32]);
+  else if (niveau >= 3) P.forEach((q, v) => { const a = P[(v + P.length - 1) % P.length], b = P[(v + 1) % P.length]; if ((q[0] - a[0]) * (b[1] - q[1]) - (q[1] - a[1]) * (b[0] - q[0]) > 0) ronds.push([q[0], q[1], 0.34]); else if (niveau >= 4) ronds.push([q[0], q[1], 0.45]); });
+  const o = { C, bati, dedans, ronds };
+  // les camps possibles : cases de terre libres à une ou deux cases de l'enceinte
+  const foret = etat.cases?.foret || [], arbres = etat.cases?.arbres || [];
+  const cand = autourDe(intra, 2).filter(c => C.terrain[c] >= 3 && C.terrain[c] !== 6 && !bati.has(c) && !dedans.has(c));
+  const xs = [...cand, ...intra].map(c => posCase(c));
+  const G = quadriller(o, Math.min(...xs.map(q => q.x)) - 1, Math.min(...xs.map(q => q.z)) - 1, Math.max(...xs.map(q => q.x)) + 1, Math.max(...xs.map(q => q.z)) + 1);
+  // les sources : le terrain libre au pied du mur ; partir du milieu d'une courtine coûte moins que d'un angle, et quand les faubourgs
+  // ou les bastions ferment l'accès au mur, les tranchées s'arrêtent au plus près (partir de plus loin coûte trois fois la distance)
+  const milieux = Q.map((q, j) => { const r = Q[(j + 1) % Q.length]; return [(q[0] + r[0]) / 2, (q[1] + r[1]) / 2]; }), sources = [], qi = intra.map(c => posCase(c));
+  for (let kk = 0; kk < G.lib.length; kk++) {
+    if (!G.lib[kk]) continue;
+    const [gx, gz] = G.xz(kk), r = Math.min(...qi.map(q => rayonHex(gx - q.x, gz - q.z))) - rD; if (r > 0.8) continue;
+    sources.push([kk, Math.max(0, r - 0.2) * 0.866 * 3 + (fort ? 0 : Math.min(...milieux.map(m => Math.hypot(m[0] - gx, m[1] - gz))) * 0.8)]);
+  }
+  const { dist, prev } = dijkstra(G, sources);
+  const vers = chez ? [chez.x - p0.x, chez.z - p0.z] : [0, 0], lv = Math.hypot(...vers) || 1;
+  let best = null;
+  for (const c of cand) {
+    const q = posCase(c), kk = G.k(q.x, q.z); if (kk < 0 || !isFinite(dist[kk])) continue;
+    if (!libreEn(o, q.x, q.z, 0.1) || !DIRS.every(([dx, dz]) => libreEn(o, q.x + dx * 0.42, q.z + dz * 0.42, 0.02))) continue; // la place des tentes
+    const L = dist[kk], lq = Math.hypot(q.x - p0.x, q.z - p0.z) || 1;
+    const score = ((q.x - p0.x) * vers[0] + (q.z - p0.z) * vers[1]) / (lq * lv) * 1.2 - Math.abs(L - 1.9) * 0.8 - (L < 1.15 ? 2 : 0) - (foret[c] || arbres[c] > 2 ? 0.3 : 0) + hache(c, s.case, 91) * 0.1;
+    if (!best || score > best.score) best = { score, c, q, kk };
+  }
+  let W;
+  if (best) { W = tendre(G, remonter(G, prev, best.kk).reverse()); W[W.length - 1] = [best.q.x, best.q.z]; }
+  else { // shortcut: rien de libre autour (île, montagnes) : l'ancien camp en ligne droite ; les tronçons qui chevauchent quelque chose ne sont pas tracés
+    let d = 0, sc = -Infinity; DIRS.forEach(([dx, dz], i) => { const v = (dx * vers[0] + dz * vers[1]) / lv + hache(s.case, i, 91) * 0.1; if (v > sc) { sc = v; d = i; } });
+    const [ux, uz] = DIRS[d], e = SQ3 * (intra.length > 1 ? 1 : 0); W = [[p0.x + ux * (e + 0.95), p0.z + uz * (e + 0.95)], [p0.x + ux * (e + 2.5), p0.z + uz * (e + 2.5)]];
+  }
+  const PL = polyligne(W), w0 = W[0];
+  // le pied du mur : le point de l'enceinte (ou du fort) le plus proche du bout des tranchées, et la normale du mur là
+  let O, u;
+  if (fort) { const dx = w0[0] - p0.x, dz = w0[1] - p0.z, l = Math.hypot(dx, dz) || 1; u = [dx / l, dz / l]; O = [p0.x + u[0] * 0.42, p0.z + u[1] * 0.42]; }
+  else {
+    let dm = Infinity;
+    Q.forEach((a, j) => {
+      const b = Q[(j + 1) % Q.length], ex = b[0] - a[0], ez = b[1] - a[1], l = Math.hypot(ex, ez), f = Math.max(0.05, Math.min(0.95, ((w0[0] - a[0]) * ex + (w0[1] - a[1]) * ez) / (l * l)));
+      const px = a[0] + ex * f, pz = a[1] + ez * f, d = Math.hypot(w0[0] - px, w0[1] - pz);
+      if (d < dm) { dm = d; O = [px, pz]; u = [ez / l, -ex / l]; } // normale vers dehors (polygone direct)
+    });
+  }
+  const g = Math.hypot(w0[0] - O[0], w0[1] - O[1]), s0 = PL.L - 0.25, f = Math.max(0.1, Math.min(1, (s0 - 0.15) / Math.max(0.05, DIST_PAR[0] - g)));
+  // les trois parallèles (abscisses depuis le bout des tranchées) : à leur place, ou reculées le long du chemin jusqu'où elles tiennent
+  const sp = [], par = [];
+  for (let i = 2, mini = 0; i >= 0; i--) {
+    let s = Math.max(mini, Math.max(0.02, DIST_PAR[i] - g) * f), pts = [];
+    for (; s < s0 - 0.25 && !(pts = parallele(o, PL, s, LONG_PAR[i])).length; s += 0.05);
+    sp[i] = Math.min(s, Math.max(mini, s0 - 0.25)); par[i] = pts; mini = sp[i] + 0.15;
+  }
+  const plan = { etapes: [
+    { m: 1, pts: zigzag(o, PL, sp[0], s0) }, { m: 1, pts: par[0] },
+    { m: 2, pts: zigzag(o, PL, sp[1], sp[0]) }, { m: 2.6, pts: par[1] },
+    { m: 4, pts: zigzag(o, PL, sp[2], sp[1]) }, { m: 5, pts: par[2] },
+    { m: 4, pts: zigzag(o, PL, 0, sp[2] > 0.15 ? sp[2] : 0) }, // la sape jusqu'au mur quand la dernière parallèle a dû reculer
+  ], gabions: [], batteries: [], d0: (() => { const p = PL.sur(sp[2]); return [p.x, p.z]; })() };
+  // gabions et batteries le long de la deuxième parallèle, là où le terrain est libre
+  const c2 = PL.sur(sp[1]);
+  for (const sg of [-1, 1]) {
+    for (let i = 0; i < 6; i++) { const l = 0.15 + i * 0.081, x = c2.x - c2.tx * 0.043 + c2.nx * sg * l, z = c2.z - c2.tz * 0.043 + c2.nz * sg * l; if (libreEn(o, x, z, 0.02)) plan.gabions.push([x, z]); }
+    for (const l of [0.26, 0.2, 0.32, 0.14]) { const x = c2.x + c2.tx * 0.05 + c2.nx * sg * l, z = c2.z + c2.tz * 0.05 + c2.nz * sg * l; if (libreEn(o, x, z, 0.2)) { plan.batteries.push({ x, z, ry: capVers(O[0] - x, O[1] - z) }); break; } }
+  }
+  // le camp au bout des tranchées, l'allée de tentes vers la place ; l'armée à côté, sur du terrain libre
+  const fin = PL.sur(PL.L - 0.3), cx = W[W.length - 1][0], cz = W[W.length - 1][1];
+  plan.camp = { x: cx, z: cz, ry: capVers(-fin.tx, -fin.tz) - Math.PI / 2 };
+  const ry = capVers(-fin.tx, -fin.tz), c = Math.cos(ry), sn = Math.sin(ry), e = empriseArmee(), ECH_CAMP = 0.085;
+  const points = (x, z) => { const r = []; for (const u of [0, 0.5, 1]) for (const v of [0, 0.5, 1]) { const lx = (e.min.x + (e.max.x - e.min.x) * u) * ECH_CAMP, lz = (e.min.z + (e.max.z - e.min.z) * v) * ECH_CAMP; r.push([x + lx * c + lz * sn, z - lx * sn + lz * c]); } return r; };
+  const tente = ([x, z]) => { const f = -(x - cx) * fin.tx - (z - cz) * fin.tz, l = (x - cx) * fin.nx + (z - cz) * fin.nz; return f > -0.52 && f < 0.32 && Math.abs(l) < 0.48; }; // l'emprise des tentes
+  const poses = [[0.95, 0.1], [-0.95, 0.1], [0.8, 0.5], [-0.8, 0.5], [0, -1]].map(([a, b]) => [cx + fin.nx * a - fin.tx * b, cz + fin.nz * a - fin.tz * b]);
+  const pose = poses.find(([x, z]) => points(x, z).every(p => libreEn(o, p[0], p[1], 0) && !tente(p))) || poses[0];
+  plan.armee = { x: pose[0], z: pose[1], ry };
+  // les cases des ouvrages (on en écarte le décor)
+  const cases = new Set([caseA(cx, cz), caseA(...pose)]);
+  for (const { pts } of plan.etapes) for (let i = 0; i < pts.length - 1; i++) for (let t = 0; t <= 1; t += 0.1) cases.add(caseA(pts[i][0] + (pts[i + 1][0] - pts[i][0]) * t, pts[i][1] + (pts[i + 1][1] - pts[i][1]) * t));
+  for (const [x, z] of [...plan.gabions, ...plan.batteries.map(b => [b.x, b.z])]) cases.add(caseA(x, z));
+  cases.delete(-1);
+  return { cible: w0, O, u, plan, o, cases, id: ++numero };
+}
+let emprise = null;
+/** L'emprise au sol de l'armée la plus large (palier 5, avec son fourgon), en unités du modèle. */
+function empriseArmee() { if (!emprise) { const g = maillageArmee('#888', 5).children[0].geometry; g.computeBoundingBox(); emprise = g.boundingBox; } return emprise; }
+/** Un boyau en zigzag entre les abscisses sa et sb du chemin, les crochets réduits (ou effacés) là où le terrain manque. */
+function zigzag(o, PL, sa, sb, A = 0.12) {
+  if (sb - sa < 0.04) return [];
+  const n = Math.max(1, Math.round((sb - sa) / 0.16)), pts = [];
+  for (let j = 0; j <= n; j++) {
+    const p = PL.sur(sb - (sb - sa) * j / n); let q = [p.x, p.z];
+    if (j > 0 && j < n) for (const a of [A, A / 2]) { const sg = j % 2 ? 1 : -1, c = [p.x + p.nx * a * sg, p.z + p.nz * a * sg]; if (segLibre(o, pts[j - 1], c, M)) { q = c; break; } }
+    pts.push(q);
+  }
+  return pts;
+}
+/** Une parallèle à l'abscisse s, perpendiculaire au chemin, raccourcie de chaque côté au premier obstacle ([] si elle n'a plus de quoi se lire). */
+function parallele(o, PL, s, Lmax) {
+  const p = PL.sur(s), bout = sg => { let l = 0; while (l < Lmax && libreEn(o, p.x + p.nx * sg * (l + 0.03), p.z + p.nz * sg * (l + 0.03), M)) l += 0.03; return l; };
+  const a = bout(1), b = bout(-1);
+  return a + b < 0.25 ? [] : [[p.x - p.nx * b, p.z - p.nz * b], [p.x + p.nx * a, p.z + p.nz * a]];
+}
+/** Le chemin des pillards : du camp au bord du faubourg pillé, côté camp, en contournant les maisons. */
+function cheminPillards(k, fc) {
+  const a = k.plan.camp, f = posCase(fc), o = k.o;
+  const G = quadriller(o, Math.min(a.x, f.x) - 1.3, Math.min(a.z, f.z) - 1.3, Math.max(a.x, f.x) + 1.3, Math.max(a.z, f.z) + 1.3), sources = [];
+  for (let kk = 0; kk < G.lib.length; kk++) if (G.lib[kk]) { const [x, z] = G.xz(kk); if (rayonHex(x - f.x, z - f.z) < 1.2) sources.push([kk, 0]); }
+  const { dist, prev } = dijkstra(G, sources), ka = G.k(a.x, a.z);
+  if (ka < 0 || !isFinite(dist[ka])) { const dx = f.x - a.x, dz = f.z - a.z, l = Math.hypot(dx, dz) || 1; return polyligne([[a.x, a.z], [f.x - dx / l * 0.95, f.z - dz / l * 0.95]]); }
+  const pts = tendre(G, remonter(G, prev, ka)); pts[0] = [a.x, a.z];
+  return polyligne(pts.length > 2 ? lisser(pts) : pts);
 }
 
 // ---------------------------------------------------------------- les ouvrages d'un siège
 // S.pt(d, v) : point à la distance d (le pied du mur assiégé vers d = 0,58) et au décalage latéral v ; (S.ux, S.uz) va de la place vers le camp.
-const ETAPES_SIEGE = [ // parallèles de Vauban et boyaux en zigzag, avec le mois où chacun est creusé
-  { m: 1, pts: [[3.0, 0.05], [2.7, 0.24], [2.4, -0.18], [2.12, 0.16], [1.88, -0.04]] }, { m: 1, pts: [[1.88, -0.78], [1.86, 0.78]] },
-  { m: 2, pts: [[1.88, -0.04], [1.72, 0.2], [1.57, -0.17], [1.42, 0.04]] }, { m: 2.6, pts: [[1.42, -0.62], [1.42, 0.62]] },
-  { m: 4, pts: [[1.42, 0.04], [1.3, -0.17], [1.17, 0.14], [1.04, -0.02]] }, { m: 5, pts: [[1.04, -0.42], [1.04, 0.42]] },
-];
+// Les parallèles, les boyaux, les gabions, les batteries et le camp suivent le plan du siège (choisirCamp), tracé sur le terrain libre.
 const K = 0.62, E = 1.25; // K : le siège de la maquette ramené aux cases du jeu ; E : ouvrages un peu grossis pour la vue de loin
-function travauxSiege(S, g, ep, P, roy, bati) {
-  const solT = (x, z) => solEn(x, z) + (bati.has(caseA(x, z)) ? 0.032 : 0); // sur une case bâtie (un faubourg), par-dessus le bâtiment
-  S.tranchees = ETAPES_SIEGE.map(({ m, pts }) => {
+function travauxSiege(S, g, ep, P, roy, k) {
+  const { etapes, gabions, batteries } = k.plan, [Ox, Oz] = S.O;
+  S.tranchees = etapes.map(({ m, pts }) => {
     const Lt = lot();
     for (let i = 0; i < pts.length - 1; i++) {
-      const a = S.pt(...pts[i]), b = S.pt(...pts[i + 1]), l = Math.hypot(b.x - a.x, b.z - a.z), cap = -Math.atan2(b.z - a.z, b.x - a.x), nb = Math.ceil(l / 0.1);
-      let nx = -(b.z - a.z) / l, nz = (b.x - a.x) / l; if (nx * -S.ux + nz * -S.uz < 0) { nx = -nx; nz = -nz; } // parapet côté place
+      const a = { x: pts[i][0], z: pts[i][1] }, b = { x: pts[i + 1][0], z: pts[i + 1][1] }, l = Math.hypot(b.x - a.x, b.z - a.z), cap = -Math.atan2(b.z - a.z, b.x - a.x), nb = Math.ceil(l / 0.1);
+      if (l < 1e-4) continue;
+      let nx = -(b.z - a.z) / l, nz = (b.x - a.x) / l; if (nx * (Ox - a.x) + nz * (Oz - a.z) < 0) { nx = -nx; nz = -nz; } // parapet côté place
       for (let s = 0; s < nb; s++) { // par tronçons, chacun posé sur le sol de sa case
-        const f = (s + 0.5) / nb, mx = a.x + (b.x - a.x) * f, mz = a.z + (b.z - a.z) * f, y = solT(mx, mz);
+        const f = (s + 0.5) / nb, mx = a.x + (b.x - a.x) * f, mz = a.z + (b.z - a.z) * f, y = solEn(mx, mz);
+        if (!libreEn(k.o, mx, mz, 0)) continue; // le plan de secours (rien de libre autour) ne trace pas ce qui chevauche
         put(Lt, boite(l / nb + 0.05 * E, 0.003 * E, 0.062 * E), 0xb59c68, mx + nx * 0.008 * E, y + 0.0015 * E, mz + nz * 0.008 * E, cap, 0); // terre rejetée
         put(Lt, boite(l / nb + 0.026 * E, 0.004 * E, 0.026 * E), 0x4a3522, mx - nx * 0.004 * E, y + 0.0025 * E, mz - nz * 0.004 * E, cap, 0); // le fossé
       }
     }
     const t = fige(Lt, g); t.userData.m = m; return t;
   });
-  { const Lg = lot(); for (const s of [-1, 1]) for (let i = 0; i < 6; i++) { const p = S.pt(1.35, s * (0.24 + i * 0.065 * E / K)), y = solT(p.x, p.z); put(Lg, cyl(0.014 * E, 0.014 * E, 0.034 * E, 8), 0x9a7a4a, p.x, y + 0.017 * E, p.z, 0, 0.003); put(Lg, cyl(0.015 * E, 0.015 * E, 0.006 * E, 8), 0x6a5030, p.x, y + 0.036 * E, p.z, 0, 0); } S.gabions = fige(Lg, g); }
+  { const Lg = lot(); for (const [x, z] of gabions) { const y = solEn(x, z); put(Lg, cyl(0.014 * E, 0.014 * E, 0.034 * E, 8), 0x9a7a4a, x, y + 0.017 * E, z, 0, 0.003); put(Lg, cyl(0.015 * E, 0.015 * E, 0.006 * E, 8), 0x6a5030, x, y + 0.036 * E, z, 0, 0); } S.gabions = fige(Lg, g); }
   const pal = Math.max(0, Math.min(5, P | 0));
-  S.batteries = [-1, 1].map(s => {
+  S.batteries = batteries.map((pb, s) => {
     const b = maillageCache(`batterie|${ep}|${pal}|${roy}`, Lb => {
       for (const x of [-1.25, 1.25]) {
         if (ep === 'industrie') { // canon rayé de fer sur affût de fer
@@ -142,8 +329,8 @@ function travauxSiege(S, g, ep, P, roy, bati) {
       }
       for (const x of [-0.2, 0.25]) put(Lb, cyl(0.38, 0.38, 0.8, 8), 0x6b4a2a, x, 0.4, -2.2, 0, 0.05);
     });
-    partage(b); const p = S.pt(1.5, s * 0.42); b.scale.setScalar(0.05 * E); b.position.set(p.x, solT(p.x, p.z), p.z); b.rotation.y = capVers(-S.ux, -S.uz); g.add(b);
-    return { g: b, canonsL: [[-1.25, 1.12, 2.05], [1.25, 1.12, 2.05]], ph: s > 0 ? 0 : 1.3 };
+    partage(b); b.scale.setScalar(0.05 * E); b.position.set(pb.x, solEn(pb.x, pb.z), pb.z); b.rotation.y = pb.ry; g.add(b);
+    return { g: b, canonsL: [[-1.25, 1.12, 2.05], [1.25, 1.12, 2.05]], ph: s ? 0 : 1.3 };
   });
 }
 function gravatsSiege(S, g, pierre, x, y, z, ry, ech) {
@@ -153,7 +340,7 @@ function gravatsSiege(S, g, pierre, x, y, z, ry, ech) {
   });
   partage(r); r.position.set(x, y, z); r.rotation.y = ry; g.add(r); S.gravats = r; S.echG = ech;
 }
-function campSiege(S, g, roy, P) {
+function campSiege(S, g, roy, P, camp) {
   const c = maillageCache(`camp|${roy}|${P}`, Lc => {
     let i = 0;
     for (const [lx, lz] of [[-5, -3], [-1.5, -4.5], [2.5, -4], [-5, 3.2], [-1.5, 4.6], [2.5, 4]]) { put(Lc, cone(1.5, 2, 4), i++ % 2 ? 0xe9e2d0 : new THREE.Color(roy).getHex(), lx, 1, lz, Math.PI / 4, 0.09); put(Lc, boite(0.5, 0.9, 0.1), 0x2a2420, lx + 1.05, 0.45, lz, Math.PI / 2, 0); }
@@ -161,8 +348,8 @@ function campSiege(S, g, roy, P) {
     for (const a of [0, 1.2, 2.4]) put(Lc, boite(1.4, 0.18, 0.18), 0x6b4a2a, -1 + Math.cos(a) * 0.1, 0.12, 0, a, 0.06);
     for (const [x, z] of [[1.5, -1.6], [1.5, 1.6]]) fantassin(Lc, PALIERS[P], x, z, roy);
   });
-  partage(c); const p = S.pt(3.35, -0.3);
-  c.scale.setScalar(0.07); c.position.set(p.x, solEn(p.x, p.z), p.z); c.rotation.y = capVers(-S.ux, -S.uz) - Math.PI / 2; g.add(c);
+  partage(c);
+  c.scale.setScalar(0.07); c.position.set(camp.x, solEn(camp.x, camp.z), camp.z); c.rotation.y = camp.ry; g.add(c);
   drapeau(c, roy, 0, 4.7, 0, 2.4, 1.5);
   S.feuCamp = versMonde(c, -1, 0.9, 0); S.campFumee = 0;
   const f = feu(c, -1, 0.1, 0, 2.6); f.visible = true; S.flammeCamp = f;
@@ -182,19 +369,19 @@ export function majSieges(etat) {
     const ville = !s.fort && etat.villes.find(v => v.id === s.ville), info = ville ? infoRemparts(ville.id) : null, ib = info?.infoBreche;
     const roy = couleurDe(s.assiegeant), P = palierRoyaume(s.assiegeant), p0 = posCase(s.case), y0 = dessus(s.case);
     // le pied du mur : le milieu de la courtine percée, ou le bord de la place du côté du camp
-    const O = ib ? ib.O : [p0.x + k.u[0] * (s.fort ? 0.42 : SQ3 * k.R0 + 0.77), p0.z + k.u[1] * (s.fort ? 0.42 : SQ3 * k.R0 + 0.77)], n = ib ? ib.n : k.u;
-    const cle = [ep, roy, P, O.map(v => v.toFixed(3)).join(','), info ? info.g.uuid : 'f', s.fort ? 1 : 0].join('|');
+    const O = ib ? ib.O : k.O, n = ib ? ib.n : k.u;
+    const cle = [ep, roy, P, O.map(v => v.toFixed(3)).join(','), info ? info.g.uuid : 'f', s.fort ? 1 : 0, k.id].join('|');
     let S = sieges.get(s.case);
     if (S && S.cle !== cle) { oter(S.g); S = null; }
     if (!S) {
       const g = new THREE.Group(); groupe.add(g);
-      S = { cle, g, ux: n[0], uz: n[1], case: s.case, info };
+      S = { cle, g, ux: n[0], uz: n[1], case: s.case, info, O, k, d0: k.plan.d0 };
       S.pt = (d, v) => ({ x: O[0] + S.ux * (d - 0.58) * K - S.uz * v * K, z: O[1] + S.uz * (d - 0.58) * K + S.ux * v * K });
       S.H = (ib ? ib.y + ib.H : y0 + 0.13);
-      travauxSiege(S, g, ep, P, roy, new Set(etat.batiments.map(b => b.case)));
+      travauxSiege(S, g, ep, P, roy, k);
       const pierre = (STYLE_REMP[ep] || STYLE_REMP.ancien).pierre, gp = S.pt(0.66, 0);
       gravatsSiege(S, g, pierre, gp.x, ib ? ib.y : y0, gp.z, -Math.atan2(S.uz, S.ux), 0.1);
-      campSiege(S, g, roy, P);
+      campSiege(S, g, roy, P, k.plan.camp);
       // défenseurs et canons de la place : sur les bastions (ou les angles du mur) qui regardent le camp
       const cible = S.pt(3, 0), dist = p => Math.hypot(p.x - cible.x, p.z - cible.z);
       let postes = info ? info.pointes.filter(p => !p.demi && !p.rentrant).sort((a, b) => dist(a) - dist(b)) : [];
@@ -219,8 +406,8 @@ export function majSieges(etat) {
     if (S.br0 === undefined) S.br0 = S.br;
     // un faubourg pillé ce mois-ci : la sortie des pillards, l'incendie
     if (nouveauMois && s.pillage && s.pillage.case != null) {
-      const f = posCase(s.pillage.case), yf = dessus(s.pillage.case), dep = S.pt(3.1, 0), dx = f.x - dep.x, dz = f.z - dep.z, l = Math.hypot(dx, dz) || 1;
-      S.pillage = { debut: horloge, de: dep, a: { x: f.x - dx / l * 0.45, z: f.z - dz / l * 0.45 }, f: { x: f.x, y: yf, z: f.z } };
+      const f = posCase(s.pillage.case), yf = dessus(s.pillage.case);
+      S.pillage = { debut: horloge, ch: cheminPillards(k, s.pillage.case) };
       [[0.32, 0.1], [-0.28, 0.2], [0.02, -0.34]].forEach(([ox, oz], i) => S.feux[i].position.set(f.x + ox, yf + 0.1, f.z + oz));
     }
   }
@@ -274,7 +461,7 @@ chaqueImage((dt, t) => {
     const yb = S.info?.infoBreche ? S.info.infoBreche.y : S.H - 0.13, hB = yb + (S.H - yb) * (1 - 0.78 * br), k = 0.55; // k : l'assaut joué en moins de temps que dans la maquette
     S.assaut.forEach((s, i) => {
       s.visible = assaut; if (!s.visible) return;
-      const v = (i - 3.5) * 0.07, d0 = S.pt(1.04, v), d1 = S.pt(0.72, v * 0.5), d2 = S.pt(0.53, v * 0.3), d3 = S.pt(0.32, v * 0.8), w = ua / k - i * 0.22;
+      const v = (i - 3.5) * 0.07, d0 = { x: S.d0[0] - S.uz * v * K * 0.5, z: S.d0[1] + S.ux * v * K * 0.5 }, d1 = S.pt(0.72, v * 0.5), d2 = S.pt(0.53, v * 0.3), d3 = S.pt(0.32, v * 0.8), w = ua / k - i * 0.22;
       let x, z, y; const f1 = lisse(0, 3.2, w), f2 = lisse(3.2, 5, w), f3 = lisse(5.2, 7, w);
       if (!S.assautT.victoire && w > 3.4) { const r = lisse(4.2, 8, w); x = FL(d1.x, d0.x, r); z = FL(d1.z, d0.z, r); y = solEn(x, z); s.visible = w < 8; }
       else if (w < 3.2) { x = FL(d0.x, d1.x, f1); z = FL(d0.z, d1.z, f1); y = solEn(x, z); }
@@ -292,8 +479,8 @@ chaqueImage((dt, t) => {
     S.pillards.forEach(([v, b], i) => {
       const wi = w - i * 0.2, dehors = wi > 0 && wi < 5.9, retour = wi >= 3.9;
       v.visible = dehors && !retour; b.visible = dehors && retour; if (!dehors) return;
-      const s = retour ? b : v, sd = wi < 2.2 ? lisse(0, 2.2, wi) : wi < 3.9 ? 1 : 1 - lisse(3.9, 5.9, wi), cap = Math.atan2(pl.a.x - pl.de.x, pl.a.z - pl.de.z);
-      const lat = (i - 1.5) * 0.06; let x = FL(pl.de.x, pl.a.x, sd) + Math.cos(cap) * lat, z = FL(pl.de.z, pl.a.z, sd) - Math.sin(cap) * lat, ry = cap + (retour ? Math.PI : 0);
+      const s = retour ? b : v, sd = wi < 2.2 ? lisse(0, 2.2, wi) : wi < 3.9 ? 1 : 1 - lisse(3.9, 5.9, wi), p = pl.ch.sur(sd * pl.ch.L);
+      const lat = (i - 1.5) * 0.025; let x = p.x + p.nx * lat, z = p.z + p.nz * lat, ry = capVers(p.tx, p.tz) + (retour ? Math.PI : 0); // à la file, presque l'un derrière l'autre (le chemin passe entre les maisons)
       if (wi >= 2.2 && wi < 3.9) { const a = t * 1.3 + i * 1.6; x += Math.cos(a) * 0.05; z += Math.sin(a) * 0.05; ry = capVers(-Math.sin(a), Math.cos(a)); } // ils fouillent
       s.position.set(x, solEn(x, z) + Math.abs(Math.sin(t * 9 + i)) * 0.006, z); s.rotation.y = ry;
     });
