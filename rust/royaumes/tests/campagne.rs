@@ -64,6 +64,48 @@ fn robot(p: &mut Partie) {
             let _ = executer(p, &json!({"action": "recruter", "batiment": b, "unite": "milice"}));
         }
     }
+    // événements à choix : la première option si on peut la payer, sinon la dernière (gratuite)
+    for c in p.choix.clone() {
+        if executer(p, &json!({"action": "choisir", "evenement": c.id, "option": 0})).is_err() {
+            executer(p, &json!({"action": "choisir", "evenement": c.id, "option": c.options.len() - 1})).unwrap();
+        }
+    }
+    // la marine : un port, une flûte mise au commerce
+    if nb(p, "port") == 0 && p.niveau_capitale(0) >= 3 {
+        construire(p, "port");
+    }
+    if let Some(b) = p.batiments.iter().find(|b| b.proprio == 0 && b.cle == "port" && b.fini()).map(|b| b.id) {
+        if p.flottes.iter().all(|f| f.proprio != 0) && p.batiments.iter().all(|x| x.file.is_empty()) {
+            let _ = executer(p, &json!({"action": "recruter", "batiment": b, "unite": "flute"}));
+        }
+    }
+    for f in p.flottes.iter().filter(|f| f.proprio == 0 && !f.commerce).map(|f| f.id).collect::<Vec<_>>() {
+        let _ = executer(p, &json!({"action": "commerce_flotte", "flotte": f, "actif": true}));
+    }
+    // un espion : vers la ville rivale connue la plus proche, puis une mission de renseignement
+    if p.espions.iter().all(|e| e.proprio != 0) && j.stock["or"] > 400.0 {
+        if let Some(b) = p.batiments.iter().find(|b| b.proprio == 0 && b.cle == "taverne" && b.fini()).map(|b| b.id) {
+            let _ = executer(p, &json!({"action": "recruter", "batiment": b, "unite": "espion"}));
+        }
+    }
+    for e in p.espions.iter().filter(|e| e.proprio == 0 && e.mission.is_none() && e.chemin.is_empty()).cloned().collect::<Vec<_>>() {
+        let mut cibles: Vec<(u32, usize)> = p.villes.iter().filter(|v| v.proprio > 0 && p.connait(0, v.case)).map(|v| (v.id, v.case)).collect();
+        cibles.sort_by_key(|&(_, c)| p.carte.dist(c, e.case));
+        if let Some(&(vid, c)) = cibles.first() {
+            if p.carte.dist(c, e.case) <= 1 {
+                let _ = executer(p, &json!({"action": "mission", "espion": e.id, "genre": "renseignement", "ville": vid}));
+            } else {
+                let _ = executer(p, &json!({"action": "deplacer_espion", "espion": e.id, "case": c}));
+            }
+        } else {
+            // aucune ville rivale connue : l'espion part explorer la terre inconnue la plus proche
+            let comp = p.carte.cases[e.case].comp;
+            let inconnue = (0..p.carte.cases.len()).filter(|&c| !p.connait(0, c) && p.praticable(c) && p.carte.cases[c].comp == comp).min_by_key(|&c| p.carte.dist(c, e.case));
+            if let Some(c) = inconnue {
+                let _ = executer(p, &json!({"action": "deplacer_espion", "espion": e.id, "case": c}));
+            }
+        }
+    }
     // répondre aux propositions : on paie les tributs, on accepte paix et alliances, on refuse le reste
     let props = p.propositions.clone();
     for pr in props {
@@ -76,16 +118,20 @@ fn robot(p: &mut Partie) {
 fn dix_ans_de_campagne() {
     let mut p = Partie::nouvelle(Options { graine: 1789, ..Options::default() });
     let mut famines = 0;
+    let (mut choix, mut espion, mut commerce_mer) = (0, false, 0.0);
     for mois in 0..120 {
         robot(&mut p);
+        espion |= p.espions.iter().any(|e| e.proprio == 0);
         let r = p.fin_du_mois();
+        choix += p.choix.len();
+        commerce_mer += p.joueur().commerce_mer;
         if p.joueur().famine {
             famines += 1;
         }
         if mois % 12 == 11 {
             let j = p.joueur();
             println!(
-                "{} · pop {} · bonheur {:.0} · or {:.0} · bois {:.0} · pain {:.0} · poisson {:.0} · blé {:.0} · bât. {} · techs {} · rang {} · rivaux {} bât.",
+                "{} · pop {} · bonheur {:.0} · or {:.0} · bois {:.0} · pain {:.0} · poisson {:.0} · blé {:.0} · bât. {} · techs {} · rang {} · rivaux {} bât. · navires {} · espions {} · explorées {}",
                 r.date,
                 j.pop,
                 j.bonheur,
@@ -97,13 +143,19 @@ fn dix_ans_de_campagne() {
                 p.batiments.iter().filter(|b| b.proprio == 0).count(),
                 j.techs.len(),
                 p.niveau_capitale(0),
-                p.batiments.iter().filter(|b| b.proprio != 0).count()
+                p.batiments.iter().filter(|b| b.proprio != 0).count(),
+                p.flottes.iter().filter(|f| f.proprio == 0).map(|f| f.navires.values().sum::<u32>()).sum::<u32>(),
+                p.espions.iter().filter(|e| e.proprio == 0).count(),
+                j.explore.iter().filter(|&&x| x == 1).count()
             );
         }
         if p.fin.is_some() {
             break;
         }
     }
+    println!("événements à choix : {choix} · commerce maritime : {commerce_mer} 🪙");
+    assert!(choix >= 20, "un événement à choix tous les 3 ou 4 mois ({choix})");
+    assert!(espion, "le robot a recruté un espion");
     let j = p.joueur();
     assert!(p.villes.iter().any(|v| v.proprio == 0), "le joueur a survécu");
     assert!(j.pop > 40, "la population a grandi : {}", j.pop);
@@ -125,6 +177,41 @@ fn sauvegarde_relue() {
     let b = q.fin_du_mois();
     assert_eq!(a.date, b.date);
     assert_eq!(p.joueur().pop, q.joueur().pop, "même partie, même suite");
+}
+
+#[test]
+fn ancienne_sauvegarde_relue() {
+    // une sauvegarde d'avant la marine, l'espionnage, les sièges et le brouillard
+    let mut p = Partie::nouvelle(Options { graine: 4, ..Options::default() });
+    for _ in 0..3 {
+        p.fin_du_mois();
+    }
+    let mut v = serde_json::to_value(&p).unwrap();
+    let o = v.as_object_mut().unwrap();
+    for k in ["flottes", "espions", "sieges", "blocus", "choix"] {
+        o.remove(k);
+    }
+    for r in o["royaumes"].as_array_mut().unwrap() {
+        for k in ["explore", "revele", "prochain_choix", "dernier_choix", "commerce_mer"] {
+            r.as_object_mut().unwrap().remove(k);
+        }
+    }
+    for b in o["batiments"].as_array_mut().unwrap() {
+        b.as_object_mut().unwrap().remove("arret");
+    }
+    for m in o["rapport"]["mouvements"].as_array_mut().unwrap() {
+        m.as_object_mut().unwrap().remove("flotte");
+    }
+    let mut q: Partie = serde_json::from_value(v).unwrap();
+    assert!(q.flottes.is_empty() && q.royaumes[0].explore.is_empty());
+    // l'interface voit au moins ce que le royaume voit, puis l'exploration reprend au premier mois
+    let e = royaumes::vue::etat(&q);
+    let cap = q.villes[0].case;
+    assert_eq!(e["explore"][cap], 1);
+    for _ in 0..6 {
+        q.fin_du_mois();
+    }
+    assert!(q.connait(0, cap));
 }
 
 #[test]

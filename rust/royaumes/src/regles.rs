@@ -58,7 +58,132 @@ pub struct DefUnite {
     pub niveau: u32,
     pub tech: Option<String>,
     pub obsolete: Option<String>,
+    /// navires : soldats transportés (flûtes, vapeurs)
+    pub transport: u32,
+    /// navires : peut commercer depuis un port (flûte)
+    pub commerce: bool,
+    /// or par mois (navires et espions ; les soldats coûtent 0,5)
+    pub entretien: f64,
     pub desc: String,
+}
+
+impl DefUnite {
+    /// Un navire de guerre (assez armé pour combattre et bloquer un port) ; les flûtes n'en sont pas.
+    pub fn guerre(&self) -> bool {
+        self.genre == "marine" && self.att >= 3.0
+    }
+}
+
+/// Rayons de vue (brouillard de guerre).
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DefVision {
+    pub ville: i32,
+    pub capitale: i32,
+    pub tour: i32,
+    pub armee: i32,
+    pub cavalerie: i32,
+    pub flotte: i32,
+    pub espion: i32,
+    pub depart: i32,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DefMarine {
+    /// or par flûte au commerce et par mois, plus par royaume partenaire (et selon la distance)
+    pub commerce_base: f64,
+    pub commerce_partenaire: f64,
+    pub commerce_distance: f64,
+    pub commerce_max: f64,
+    /// or perdu chaque mois par un royaume de l'ordinateur pour chaque ville bloquée
+    pub blocus_ia: f64,
+    /// part des navires perdus par le vaincu d'une bataille navale
+    pub pertes_vaincu: f64,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DefMission {
+    pub cle: String,
+    pub nom: String,
+    pub icone: String,
+    pub duree: u32,
+    pub chance: f64,
+    pub rayon: i32,
+    pub mois: u32,
+    pub savoir: f64,
+    pub incendie: f64,
+    pub desc: String,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DefEspionnage {
+    /// chance en plus avec une Académie des sciences
+    pub academie: f64,
+    /// chance en moins par point de défense de la ville visée
+    pub defense: f64,
+    /// risque de capture en cas d'échec
+    pub capture: f64,
+    /// relation perdue quand un espion est démasqué
+    pub relation: f64,
+    pub missions: Vec<DefMission>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DefSiege {
+    /// usure des murs par mois : tranchées et sape, plus l'artillerie (× la valeur de siège des canons)
+    pub tranchees: f64,
+    pub artillerie: f64,
+    pub vauban_attaque: f64,
+    pub vauban_defense: f64,
+    pub gribeauval: f64,
+    /// murs donnés par des bastions Vauban (les tours et citadelles donnent leur défense)
+    pub rempart: f64,
+    /// mois de vivres d'une ville assiégée : base, + par grenier, + rang de la ville
+    pub vivres_base: f64,
+    pub vivres_grenier: f64,
+    pub usure_garnison: f64,
+    pub usure_assiegeant: f64,
+    /// pertes de la garnison et défense perdue par mois de faim
+    pub faim: f64,
+    /// mois de faim avant la reddition
+    pub reddition_faim: u32,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DefOption {
+    pub texte: String,
+    /// payé d'avance (ressources)
+    pub cout: Panier,
+    /// ressources, ou bonheur, savoir, pop, relation, tech, gisement
+    pub effets: Panier,
+    pub unites: BTreeMap<String, u32>,
+    /// risque d'échec : on paie le coût, et `echec` remplace `effets`
+    pub risque: f64,
+    pub echec: Panier,
+    pub echec_texte: String,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DefChoix {
+    pub cle: String,
+    pub titre: String,
+    pub icone: String,
+    /// {ville} : la capitale, {royaume} : un rival tiré au sort
+    pub texte: String,
+    /// époques et saisons possibles (vide : toutes)
+    pub epoques: Vec<String>,
+    pub saisons: Vec<usize>,
+    /// situation requise : vivres_bas, guerre, paix, port, eglise
+    pub si: String,
+    pub royaume: bool,
+    /// la dernière option est appliquée si l'on ne répond pas
+    pub options: Vec<DefOption>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -109,6 +234,11 @@ pub struct Regles {
     pub batiments: Vec<DefBat>,
     pub unites: Vec<DefUnite>,
     pub techs: Vec<DefTech>,
+    pub vision: DefVision,
+    pub marine: DefMarine,
+    pub espionnage: DefEspionnage,
+    pub siege: DefSiege,
+    pub evenements_choix: Vec<DefChoix>,
 }
 
 pub fn regles() -> &'static Regles {
@@ -141,6 +271,9 @@ impl Regles {
     pub fn epoque(&self, annee: i32) -> &DefEpoque {
         self.epoques.iter().rev().find(|e| annee >= e.debut).unwrap_or(&self.epoques[0])
     }
+    pub fn mission(&self, cle: &str) -> Option<&DefMission> {
+        self.espionnage.missions.iter().find(|m| m.cle == cle)
+    }
     pub fn est_vivre(&self, r: &str) -> bool {
         self.vivres.iter().any(|v| v == r)
     }
@@ -171,6 +304,28 @@ mod essais {
                 assert!(r.tech(t).is_some(), "{} : tech inconnue {t}", u.cle);
             }
         }
+        let effets = ["bonheur", "savoir", "pop", "relation", "tech", "gisement"];
+        for e in &r.evenements_choix {
+            assert!(e.options.len() >= 2, "{} : au moins deux options", e.cle);
+            for o in &e.options {
+                for k in o.cout.keys() {
+                    assert!(res.contains(&k.as_str()), "{} : coût inconnu {k}", e.cle);
+                }
+                for k in o.effets.keys().chain(o.echec.keys()) {
+                    assert!(res.contains(&k.as_str()) || effets.contains(&k.as_str()), "{} : effet inconnu {k}", e.cle);
+                }
+                for u in o.unites.keys() {
+                    assert!(r.unite(u).is_some(), "{} : unité inconnue {u}", e.cle);
+                }
+            }
+            // la dernière option (appliquée sans réponse) ne coûte rien
+            assert!(e.options.last().unwrap().cout.is_empty(), "{}", e.cle);
+        }
+        assert!(r.evenements_choix.len() >= 20);
+        assert_eq!(r.unites.iter().filter(|u| u.genre == "marine").count(), 5);
+        assert!(r.unite("vaisseau").unwrap().guerre() && !r.unite("flute").unwrap().guerre());
+        assert_eq!(r.espionnage.missions.len(), 3);
+        assert!(r.siege.tranchees > 0.0 && r.vision.capitale > 0);
         assert_eq!(r.epoque(1700).cle, "ancien");
         assert_eq!(r.epoque(1790).cle, "empire");
         assert_eq!(r.epoque(1850).cle, "industrie");

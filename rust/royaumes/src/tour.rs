@@ -81,6 +81,14 @@ impl Partie {
                 r.relation -= 2.0;
             }
         }
+        // événements à choix laissés sans réponse : la dernière option (qui ne coûte rien) s'applique
+        let en_attente: Vec<(u32, usize)> = self.choix.iter().map(|c| (c.id, c.options.len().saturating_sub(1))).collect();
+        for (id, o) in en_attente {
+            match self.choisir(id, o) {
+                Ok(t) => rapport.evenements.push(Evenement { texte: format!("Sans réponse de votre part — {t}"), genre: "info".into(), case: None }),
+                Err(_) => self.choix.retain(|c| c.id != id),
+            }
+        }
         if let Some(h) = self.meteo.historique.clone() {
             self.evt(&mut rapport, h, "meteo", None);
         }
@@ -91,11 +99,17 @@ impl Partie {
             }
         }
         self.brigands(&mut rapport);
+        self.navigation(&eff, &mut rapport);
         self.marches(&eff, &mut rapport);
+        self.espions_mois(&eff, &mut rapport);
+        self.sieges_mois(&eff, &mut rapport);
+        self.blocus_mois(&mut rapport);
         self.chantiers(&mut rapport);
         self.economie(&eff, &mut rapport);
         self.recherche(&mut rapport);
         self.evenements(&eff, &mut rapport);
+        self.choix_mois(&mut rapport);
+        self.explorer();
         // quêtes
         while self.joueur().quete < QUETES.len() - 1 && self.quete_faite(self.joueur().quete) {
             let q = &QUETES[self.joueur().quete];
@@ -134,7 +148,7 @@ impl Partie {
             })
             .collect();
         let Some(&depart) = self.hasard.choix(&cand) else { return };
-        let Some(ch) = self.chemin(depart, cap, BRIGANDS) else { return };
+        let Some(ch) = self.chemin(depart, cap) else { return };
         let mut u = BTreeMap::new();
         u.insert("milice".to_string(), 3 + self.tour / 18);
         if self.tour > 60 {
@@ -177,6 +191,8 @@ impl Partie {
                 points.insert(id, pts - self.cout_case(suiv));
                 self.armees[i].chemin.remove(0);
                 self.armees[i].case = suiv;
+                let pr = self.armees[i].proprio;
+                self.decouvrir(pr, suiv, regles().vision.armee);
                 trajets.entry(id).or_default().push(suiv);
                 bouge = true;
                 self.entrer(id, eff, rapport, etape + 1);
@@ -191,14 +207,23 @@ impl Partie {
                     // l'armée a péri en route : on garde son trajet pour l'animation
                     rapport.combats.iter().find(|c| c.case == *t.last().unwrap()).map(|c| c.attaquant).unwrap_or(-1)
                 });
-                rapport.mouvements.push(Mouvement { armee: id, proprio, trajet: t });
+                rapport.mouvements.push(Mouvement { armee: id, proprio, trajet: t, flotte: false });
             }
         }
         // regroupement des armées immobiles sur la même case ; retour des armées de l'ordinateur
         let mut i = 0;
         while i < self.armees.len() {
             let a = self.armees[i].clone();
-            if a.chemin.is_empty() {
+            if a.chemin.is_empty() && !self.praticable(a.case) {
+                // une armée restée sur l'eau sans flotte (ancienne sauvegarde, débarquement manqué) regagne sa ville
+                if let Some(vi) = self.ville_proche(a.case, a.proprio) {
+                    self.armees[i].case = self.villes[vi].case;
+                    continue;
+                }
+                self.armees.remove(i);
+                continue;
+            }
+            if a.chemin.is_empty() && !self.assiege(a.proprio, a.case) {
                 if let Some(j) = self.armees.iter().position(|o| o.id != a.id && o.proprio == a.proprio && o.case == a.case && o.chemin.is_empty() && o.id < a.id) {
                     for (u, n) in &a.unites {
                         *self.armees[j].unites.entry(u.clone()).or_insert(0) += n;
@@ -216,7 +241,7 @@ impl Partie {
                     if let Some(vi) = self.ville_proche(a.case, a.proprio) {
                         let maison = self.villes[vi].case;
                         if maison != a.case && self.hasard.p(0.5) {
-                            if let Some(ch) = self.chemin(a.case, maison, a.proprio) {
+                            if let Some(ch) = self.chemin(a.case, maison) {
                                 self.armees[i].chemin = ch;
                             }
                         }
@@ -233,7 +258,12 @@ impl Partie {
         let (case, proprio) = (self.armees[i].case, self.armees[i].proprio);
         if let Some(vi) = self.ville_a(case) {
             if self.est_ennemi(proprio, self.villes[vi].proprio) {
-                self.bataille(id, Some(vi), eff, rapport, etape);
+                // une ville fortifiée s'assiège ; sans murs, elle se prend d'une bataille (les brigands ne font que piller)
+                if proprio != BRIGANDS && (self.murs_ville(vi) > 0.0 || self.siege_de(self.villes[vi].id).is_some()) {
+                    self.commencer_siege(id, vi, rapport);
+                } else {
+                    self.bataille(id, Some(vi), eff, rapport, etape);
+                }
                 return;
             }
         }
@@ -356,6 +386,8 @@ impl Partie {
         let vid = self.villes[vi].id;
         let etait_capitale = self.villes[vi].capitale;
         self.villes[vi].proprio = nouveau;
+        self.sieges.retain(|s| s.ville != vid);
+        self.blocus.retain(|b| b.ville != vid);
         self.villes[vi].capitale = !self.villes.iter().any(|v| v.proprio == nouveau && v.capitale);
         for b in self.batiments.iter_mut() {
             if b.proprio == ancien && (b.ville == Some(vid) || b.case == self.villes[vi].case) {
@@ -389,6 +421,8 @@ impl Partie {
                 let a = ancien as usize;
                 self.royaumes[a].vivant = false;
                 self.armees.retain(|x| x.proprio != ancien);
+                self.flottes.retain(|x| x.proprio != ancien);
+                self.espions.retain(|x| x.proprio != ancien);
                 let n = self.royaumes[a].nom.clone();
                 self.evt(rapport, format!("☠️ {n} a été anéanti !"), "or", None);
             }
@@ -507,6 +541,10 @@ impl Partie {
                 self.batiments[i].etat = "👷 Aucun ouvrier disponible".into();
                 continue;
             }
+            if self.batiments[i].arret > self.tour {
+                self.batiments[i].etat = format!("💣 Saboté : arrêté jusqu'en {}", meteo::date_texte(self.batiments[i].arret));
+                continue;
+            }
             if !d.unites.is_empty() {
                 let mut formes = 0.0;
                 let mut credit = 2.0 * staff;
@@ -519,6 +557,13 @@ impl Partie {
                 }
                 let n = self.batiments[i].file.len();
                 self.batiments[i].etat = if formes > 0.0 { format!("{formes} recrue(s) formée(s), {n} en file") } else if n > 0 { format!("{n} en file") } else { "Prête à recruter".into() };
+                // le port forme ses navires et pêche aussi
+                if d.prod.is_empty() {
+                    continue;
+                }
+            }
+            if (cle_b == "port" || cle_b == "pecheur") && self.bloquee(self.batiments[i].ville) {
+                self.batiments[i].etat = "⚓ Blocus : pêche et commerce coupés".into();
                 continue;
             }
             if cle_b == "forestier" {
@@ -722,15 +767,17 @@ impl Partie {
         let nb_routes = self.royaumes.iter().filter(|r| !r.joueur && r.vivant && r.commerce && r.statut != "guerre").count() as f64;
         let commerce = nb_routes * 25.0 * routes;
         let nb_bat = self.batiments.iter().filter(|b| b.proprio == 0 && b.fini()).count() as f64;
-        let entretien = s.soldats as f64 * 0.5 + nb_bat * 0.2;
+        let entretien = s.soldats as f64 * 0.5 + nb_bat * 0.2 + s.entretien_flotte;
+        let commerce_mer = self.commerce_maritime(0);
         let j = &mut self.royaumes[0];
+        j.commerce_mer = commerce_mer;
         let or = j.stock.entry("or".into()).or_insert(0.0);
-        *or += impot + commerce - entretien;
+        *or += impot + commerce + commerce_mer - entretien;
         if *or < 0.0 {
             *or = 0.0;
             j.bonheur = (j.bonheur - 3.0).max(0.0);
         }
-        j.revenus = Panier::from([("impots".to_string(), impot), ("commerce".to_string(), commerce), ("entretien".to_string(), entretien)]);
+        j.revenus = Panier::from([("impots".to_string(), impot), ("commerce".to_string(), commerce), ("commerce_mer".to_string(), commerce_mer), ("entretien".to_string(), entretien)]);
         for (r, v) in j.stock.iter_mut() {
             if r != "or" {
                 *v = v.min(cap[r]).max(0.0);
@@ -868,14 +915,8 @@ impl Partie {
             self.royaumes[0].pop += n;
             self.evt(rapport, format!("🧑‍🌾 {n} familles de réfugiés s'installent chez vous"), "bon", None);
         } else if x < 0.09 {
-            let cand: Vec<usize> = (0..self.carte.cases.len())
-                .filter(|&c| self.carte.cases[c].proprio == 0 && matches!(self.carte.cases[c].t, Terrain::Colline | Terrain::Montagne) && self.carte.cases[c].gisement.is_none())
-                .collect();
-            if let Some(&c) = self.hasard.choix(&cand) {
-                let g = if self.hasard.p(0.5) { "fer" } else if self.hasard.p(0.5) { "charbon" } else { "or" };
-                self.carte.cases[c].gisement = Some(g.into());
-                self.version_carte += 1;
-                self.evt(rapport, format!("⛏️ Un gisement {} est découvert !", match g { "fer" => "de fer", "or" => "d'or", _ => "de charbon" }), "or", Some(c));
+            if let Some((c, g)) = self.decouvrir_gisement(0) {
+                self.evt(rapport, format!("⛏️ Un gisement {g} est découvert !"), "or", Some(c));
             }
         } else if x < 0.11 {
             let id = self.id();
@@ -946,6 +987,26 @@ mod essais {
         let _ = avant;
         // les IA ont grandi
         assert!(p.batiments.iter().filter(|b| b.proprio != 0).count() > 15);
+    }
+
+    #[test]
+    fn les_rivaux_explorent_naviguent_et_espionnent() {
+        let (mut flottes, mut espions, mut trouve) = (0, 0, 0);
+        for g in [1u64, 7, 42, 99] {
+            let mut p = Partie::nouvelle(Options { graine: g, rivaux: 5, attitude: "agressifs".into(), ..Options::default() });
+            let cap = p.villes[0].case;
+            assert!((1..p.royaumes.len()).all(|k| !p.connait(k as i32, cap)), "personne ne connaît le joueur au départ");
+            for _ in 0..(12 * 25) {
+                p.fin_du_mois();
+                flottes += p.flottes.iter().filter(|f| f.proprio != 0).count();
+                espions += p.espions.iter().filter(|e| e.proprio != 0).count();
+                if p.fin.is_some() {
+                    break;
+                }
+            }
+            trouve += (1..p.royaumes.len()).filter(|&k| p.connait(k as i32, cap)).count();
+        }
+        assert!(flottes > 0 && espions > 0 && trouve > 0, "flottes {flottes}, espions {espions}, découvertes {trouve}");
     }
 
     #[test]

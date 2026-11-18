@@ -33,6 +33,19 @@ fn royaume(p: &Partie, c: &Value) -> Result<usize, String> {
     Ok(k as usize)
 }
 
+fn armee(p: &Partie, c: &Value) -> Result<usize, String> {
+    let id = num(c, "armee")? as u32;
+    p.armee(id).filter(|&i| p.armees[i].proprio == 0).ok_or_else(|| "armée inconnue".into())
+}
+fn flotte(p: &Partie, c: &Value) -> Result<usize, String> {
+    let id = num(c, "flotte")? as u32;
+    p.flotte(id).filter(|&i| p.flottes[i].proprio == 0).ok_or_else(|| "flotte inconnue".into())
+}
+fn espion(p: &Partie, c: &Value) -> Result<usize, String> {
+    let id = num(c, "espion")? as u32;
+    p.espion(id).filter(|&i| p.espions[i].proprio == 0).ok_or_else(|| "espion inconnu".into())
+}
+
 fn ok(msg: impl Into<String>) -> Result<Value, String> {
     Ok(json!({"ok": true, "msg": msg.into()}))
 }
@@ -105,11 +118,7 @@ pub fn executer(p: &mut Partie, c: &Value) -> Result<Value, String> {
                 return Err("Unité indisponible ici".into());
             }
             let du = rg.unite(&u).unwrap();
-            let mult = if p.a_tech(0, "levee_masse") { 0.75 } else { 1.0 };
-            let mut cout = du.cout.clone();
-            if let Some(o) = cout.get_mut("or") {
-                *o = (*o * mult).round();
-            }
+            let cout = cout_recrue(p, &u);
             if !p.peut_payer(&cout, 1.0) {
                 return Err("Ressources insuffisantes".into());
             }
@@ -156,12 +165,12 @@ pub fn executer(p: &mut Partie, c: &Value) -> Result<Value, String> {
                 }
             }
             let depart = p.armees[ai].case;
-            if depart == vers {
+            if depart == vers && p.praticable(vers) {
                 p.armees[ai].chemin.clear();
                 return ok("L'armée reste sur place");
             }
-            let ch = p.chemin(depart, vers, 0).ok_or_else(|| {
-                if p.carte.cases[vers].terre() { "Destination inaccessible".to_string() } else { "Il faut un Port pour traverser la mer".to_string() }
+            let ch = p.chemin(depart, vers).ok_or_else(|| {
+                if p.carte.cases[vers].terre() { "Destination inaccessible à pied (embarquez l'armée sur une flotte)".to_string() } else { "Une armée ne marche pas sur l'eau : embarquez-la sur des flûtes au port".to_string() }
             })?;
             let mois = p.mois_trajet(&p.armees[ai], &ch);
             p.armees[ai].chemin = ch.clone();
@@ -170,12 +179,18 @@ pub fn executer(p: &mut Partie, c: &Value) -> Result<Value, String> {
         "halte" => {
             let id = num(c, "armee")? as u32;
             let ai = p.armee(id).filter(|&i| p.armees[i].proprio == 0).ok_or("armée inconnue")?;
+            if !p.praticable(p.armees[ai].case) {
+                return Err("L'armée débarque : elle ne peut s'arrêter sur l'eau".into());
+            }
             p.armees[ai].chemin.clear();
             ok("Halte !")
         }
         "diviser" => {
             let id = num(c, "armee")? as u32;
             let ai = p.armee(id).filter(|&i| p.armees[i].proprio == 0).ok_or("armée inconnue")?;
+            if !p.praticable(p.armees[ai].case) {
+                return Err("L'armée débarque : attendez qu'elle touche terre".into());
+            }
             let demande = c.get("unites").and_then(Value::as_object).ok_or("paramètre « unites » manquant")?;
             let mut part = BTreeMap::new();
             for (u, n) in demande {
@@ -254,8 +269,112 @@ pub fn executer(p: &mut Partie, c: &Value) -> Result<Value, String> {
             let oui = c.get("accepte").and_then(Value::as_bool).unwrap_or(false);
             repondre(p, id, oui)
         }
+        "choisir" => {
+            let id = num(c, "evenement")? as u32;
+            let o = usize::try_from(num(c, "option")?).map_err(|_| "option inconnue")?;
+            ok(p.choisir(id, o)?)
+        }
+        // ---------------------------------------------------------------- marine
+        "deplacer_flotte" => {
+            let fi = flotte(p, c)?;
+            let vers = case(p, c)?;
+            if p.carte.cases[vers].terre() {
+                return Err("Une flotte navigue sur l'eau : choisissez une case de mer".into());
+            }
+            if p.flottes[fi].case == vers {
+                p.flottes[fi].chemin.clear();
+                return ok("La flotte reste au mouillage");
+            }
+            let ch = p.chemin_mer(p.flottes[fi].case, vers).ok_or("Aucune route maritime jusque-là")?;
+            p.flottes[fi].chemin = ch.clone();
+            p.flottes[fi].commerce = false;
+            let mois = p.mois_navigation(&p.flottes[fi]);
+            Ok(json!({"ok": true, "msg": format!("⛵ Cap sur la destination : {} cases, environ {} mois", ch.len(), mois), "chemin": ch, "mois": mois}))
+        }
+        "embarquer" => {
+            let fi = flotte(p, c)?;
+            let ai = armee(p, c)?;
+            p.peut_embarquer(fi, ai)?;
+            let n = p.armees[ai].effectif();
+            p.embarquer(fi, ai);
+            ok(format!("⛵ {n} soldats embarquent"))
+        }
+        "debarquer" => {
+            let fi = flotte(p, c)?;
+            let vers = case(p, c)?;
+            p.peut_debarquer(fi, vers)?;
+            let id = p.debarquer(fi, vers);
+            Ok(json!({"ok": true, "msg": "⚓ L'armée débarque : elle touche terre à la fin du mois", "armee": id}))
+        }
+        "commerce_flotte" => {
+            let fi = flotte(p, c)?;
+            let actif = c.get("actif").and_then(Value::as_bool).unwrap_or(true);
+            if actif {
+                let f = &p.flottes[fi];
+                if p.flutes(f) == 0 {
+                    return Err("Il faut des flûtes marchandes pour commercer".into());
+                }
+                if f.armee.is_some() {
+                    return Err("La flotte transporte une armée".into());
+                }
+                if p.port_voisin(f).is_none() {
+                    return Err("La flotte doit être à quai, à côté d'un de vos ports".into());
+                }
+                p.flottes[fi].chemin.clear();
+            }
+            p.flottes[fi].commerce = actif;
+            ok(if actif { format!("⚖️ Les flûtes commercent : environ {} 🪙 par mois par mer en tout", p.commerce_maritime(0)) } else { "Les flûtes cessent le commerce".into() })
+        }
+        // ---------------------------------------------------------------- espionnage
+        "deplacer_espion" => {
+            let ei = espion(p, c)?;
+            let vers = case(p, c)?;
+            if p.espions[ei].mission.is_some() {
+                return Err("L'espion est en mission".into());
+            }
+            if p.espions[ei].case == vers {
+                p.espions[ei].chemin.clear();
+                return ok("L'espion reste où il est");
+            }
+            let ch = p.chemin(p.espions[ei].case, vers).ok_or("Destination inaccessible à pied")?;
+            let cout: f64 = ch.iter().map(|&x| p.cout_case(x)).sum();
+            let mois = (cout / rg.unite("espion").map_or(7.0, |d| d.vitesse)).ceil().max(1.0);
+            p.espions[ei].chemin = ch.clone();
+            Ok(json!({"ok": true, "msg": format!("🕵️ L'espion part : environ {mois} mois"), "chemin": ch, "mois": mois}))
+        }
+        "mission" => {
+            let ei = espion(p, c)?;
+            let genre = txt(c, "genre")?;
+            let vid = num(c, "ville")? as u32;
+            let vi = p.villes.iter().position(|v| v.id == vid).ok_or("ville inconnue")?;
+            p.peut_lancer(ei, genre, vi)?;
+            let chance = (p.chance_mission(0, genre, vi) * 100.0).round();
+            p.lancer_mission(ei, genre, vi);
+            let m = rg.mission(genre).unwrap();
+            ok(format!("{} {} à {} : {} mois, environ {chance} % de réussite", m.icone, m.nom, p.villes[vi].nom, m.duree.max(1)))
+        }
+        // ---------------------------------------------------------------- sièges
+        "assaut" => {
+            let vid = num(c, "ville")? as u32;
+            let si = p.siege_de(vid).filter(|&i| p.sieges[i].assiegeant == 0).ok_or("Vous n'assiégez pas cette ville")?;
+            p.sieges[si].assaut = true;
+            let (at, de) = p.forces_assaut(&p.sieges[si], p.meteo.effets(p.tour).tir);
+            ok(format!("⚔️ L'assaut sera donné à la fin du mois : vos forces {at:.0} contre {de:.0}"))
+        }
         autre => Err(format!("ordre inconnu : {autre}")),
     }
+}
+
+/// Ce que coûte une recrue au joueur (la levée en masse rend les soldats moins chers, pas les navires ni les espions).
+pub fn cout_recrue(p: &Partie, u: &str) -> Panier {
+    let Some(du) = regles().unite(u) else { return Panier::new() };
+    let mut cout = du.cout.clone();
+    if p.a_tech(0, "levee_masse") && du.genre != "marine" && du.genre != "espion" {
+        if let Some(o) = cout.get_mut("or") {
+            *o = (*o * 0.75).round();
+        }
+    }
+    cout
 }
 
 pub fn prix(p: &Partie, k: usize, r: &str, achat: bool) -> f64 {
@@ -498,12 +617,64 @@ mod essais {
         assert!(executer(&mut p, &json!({"action": "construire", "cle": "cabane", "case": c})).is_err());
         // déplacer l'armée d'une case
         let a = p.armees.iter().find(|a| a.proprio == 0).unwrap().clone();
-        let v = p.carte.voisins(a.case).into_iter().find(|&x| p.praticable(x, 0)).unwrap();
+        let v = p.carte.voisins(a.case).into_iter().find(|&x| p.praticable(x)).unwrap();
         let r = executer(&mut p, &json!({"action": "deplacer", "armee": a.id, "case": v})).unwrap();
         assert_eq!(r["ok"], true);
         assert!(executer(&mut p, &json!({"action": "rechercher", "tech": "chemin_fer"})).is_err());
         assert!(executer(&mut p, &json!({"action": "rechercher", "tech": "assolement"})).is_ok());
         assert!(executer(&mut p, &json!({"action": "diplo", "royaume": 1, "acte": "cadeau"})).is_ok());
         assert!(executer(&mut p, &json!({"action": "impots", "niveau": "eleve"})).is_ok());
+    }
+
+    #[test]
+    fn ordres_de_marine_d_espionnage_et_de_siege_verifies() {
+        let mut p = Partie::nouvelle(Options { graine: 5, ..Options::default() });
+        let cap = p.villes[0].case;
+        let ordre = |p: &mut Partie, c: Value| executer(p, &c);
+        // flottes
+        assert_eq!(ordre(&mut p, json!({"action": "deplacer_flotte", "flotte": 1, "case": 0})), Err("flotte inconnue".into()));
+        let mut cotes: Vec<usize> = (0..p.carte.cases.len()).filter(|&c| p.praticable(c) && p.carte.cases[c].bat.is_none() && p.carte.voisins(c).iter().any(|&v| p.carte.cases[v].mer())).collect();
+        cotes.sort_by_key(|&c| p.carte.dist(c, cap));
+        let port = cotes[0];
+        p.poser("port", port, 0, true);
+        p.recruter_dans(0, "corvette", port);
+        let f = p.flottes[0].id;
+        let a = p.armees.iter().find(|a| a.proprio == 0).unwrap().id;
+        assert!(ordre(&mut p, json!({"action": "deplacer_flotte", "flotte": f, "case": cap})).unwrap_err().contains("l'eau"));
+        assert!(ordre(&mut p, json!({"action": "embarquer", "flotte": f, "armee": a})).unwrap_err().contains("transport"));
+        assert!(ordre(&mut p, json!({"action": "debarquer", "flotte": f, "case": port})).unwrap_err().contains("aucune armée"));
+        assert!(ordre(&mut p, json!({"action": "commerce_flotte", "flotte": f, "actif": true})).unwrap_err().contains("flûtes"));
+        p.recruter_dans(0, "flute", port);
+        let loin_terre = (0..p.carte.cases.len()).filter(|&c| p.praticable(c)).max_by_key(|&c| p.carte.dist(c, port)).unwrap();
+        let egaree = p.creer_armee(0, loin_terre, BTreeMap::from([("milice".to_string(), 2)]));
+        assert!(ordre(&mut p, json!({"action": "embarquer", "flotte": f, "armee": egaree})).unwrap_err().contains("côte"), "l'armée est loin");
+        // l'armée de la capitale embarque : le port est celui de sa ville
+        assert!(ordre(&mut p, json!({"action": "embarquer", "flotte": f, "armee": a})).is_ok());
+        assert!(ordre(&mut p, json!({"action": "commerce_flotte", "flotte": f, "actif": true})).unwrap_err().contains("armée"));
+        let eau = p.flottes[0].case;
+        let loin = (0..p.carte.cases.len()).filter(|&c| !p.carte.cases[c].terre() && p.chemin_mer(eau, c).is_some()).max_by_key(|&c| p.carte.dist(c, eau)).unwrap();
+        let r = ordre(&mut p, json!({"action": "deplacer_flotte", "flotte": f, "case": loin})).unwrap();
+        assert!(r["mois"].as_u64().unwrap() >= 1);
+        // espions
+        assert_eq!(ordre(&mut p, json!({"action": "mission", "espion": 1, "genre": "vol", "ville": 1})), Err("espion inconnu".into()));
+        p.recruter_dans(0, "espion", cap);
+        let e = p.espions[0].id;
+        let vid = p.villes.iter().find(|v| v.proprio == 1).unwrap().id;
+        assert!(ordre(&mut p, json!({"action": "mission", "espion": e, "genre": "vol", "ville": vid})).unwrap_err().contains("juste à côté"));
+        assert!(ordre(&mut p, json!({"action": "mission", "espion": e, "genre": "vol", "ville": 999_999})).is_err());
+        assert!(ordre(&mut p, json!({"action": "deplacer_espion", "espion": e, "case": eau})).is_err(), "pas sur l'eau");
+        // sièges et événements
+        assert_eq!(ordre(&mut p, json!({"action": "assaut", "ville": vid})), Err("Vous n'assiégez pas cette ville".into()));
+        assert_eq!(ordre(&mut p, json!({"action": "choisir", "evenement": 1, "option": 0})), Err("événement inconnu".into()));
+        assert_eq!(ordre(&mut p, json!({"action": "choisir", "evenement": 1, "option": -1})), Err("option inconnue".into()));
+        // l'interface reçoit de quoi tout brancher (navires au rang Bourg)
+        p.villes[0].niveau = 3;
+        let v = crate::vue::etat(&p);
+        assert!(v["flottes"][0]["armee"]["effectif"].as_u64().unwrap() > 0);
+        assert!(v["espions"].as_array().unwrap().len() == 1 && v["joueur"]["unites_dispo"]["port"].as_array().unwrap().iter().any(|u| u == "flute"));
+        assert!(v["joueur"]["prix_unites"]["espion"]["or"].as_f64().unwrap() > 0.0);
+        for k in ["sieges", "blocus", "choix", "visible"] {
+            assert!(v[k].is_array(), "{k}");
+        }
     }
 }

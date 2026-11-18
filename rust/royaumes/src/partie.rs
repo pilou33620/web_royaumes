@@ -84,6 +84,15 @@ pub struct Royaume {
     pub attitude: f64,
     /// 1 chemins de terre, 2 routes pavées, 3 routes royales (0 : ancienne sauvegarde, vaut 1)
     pub niveau_routes: u32,
+    /// cases explorées (1) : le brouillard de guerre ; les cases visibles se recalculent (`vision`)
+    pub explore: Vec<u8>,
+    /// zones révélées par les espions : [case, rayon, jusqu'au tour compris]
+    pub revele: Vec<[u32; 3]>,
+    /// tour du prochain événement à choix (0 : à tirer)
+    pub prochain_choix: u32,
+    pub dernier_choix: String,
+    /// or rapporté par le commerce maritime le mois dernier
+    pub commerce_mer: f64,
 }
 
 impl Royaume {
@@ -121,6 +130,8 @@ pub struct Batiment {
     pub produit: Panier,
     /// orientation du modèle (radians)
     pub face: f64,
+    /// saboté : ne produit plus avant ce tour
+    pub arret: u32,
 }
 
 impl Batiment {
@@ -144,6 +155,75 @@ impl Armee {
     pub fn effectif(&self) -> u32 {
         self.unites.values().sum()
     }
+}
+
+/// Une flotte : des navires sur une case d'eau, et peut-être une armée à bord.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Flotte {
+    pub id: u32,
+    pub proprio: i32,
+    pub case: usize,
+    pub navires: BTreeMap<String, u32>,
+    pub chemin: Vec<usize>,
+    pub armee: Option<Armee>,
+    /// à quai, ses flûtes commercent
+    pub commerce: bool,
+    /// (ordinateur) en arrivant, débarquer l'armée et marcher vers cette case
+    pub cible: Option<usize>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Espion {
+    pub id: u32,
+    pub proprio: i32,
+    pub case: usize,
+    pub chemin: Vec<usize>,
+    /// renseignement, vol, sabotage
+    pub mission: Option<String>,
+    /// la ville visée par la mission
+    pub ville: Option<u32>,
+    /// mois de mission restants
+    pub reste: u32,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Siege {
+    pub ville: u32,
+    pub case: usize,
+    pub assiegeant: i32,
+    pub mois: u32,
+    pub murs: f64,
+    pub murs_max: f64,
+    /// mois de vivres restants dans la ville
+    pub vivres: f64,
+    /// mois passés à souffrir de la faim
+    pub faim: u32,
+    /// assaut ordonné : il se donne à la fin du mois
+    pub assaut: bool,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Blocus {
+    pub ville: u32,
+    pub case: usize,
+    pub par: i32,
+}
+
+/// Un événement à choix en attente de la réponse du joueur.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Choix {
+    pub id: u32,
+    pub cle: String,
+    pub titre: String,
+    pub icone: String,
+    pub texte: String,
+    pub royaume: Option<usize>,
+    pub options: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -173,6 +253,8 @@ pub struct Mouvement {
     pub armee: u32,
     pub proprio: i32,
     pub trajet: Vec<usize>,
+    /// une flotte (sinon une armée)
+    pub flotte: bool,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -225,6 +307,8 @@ pub struct Stats {
     pub comptoir: bool,
     pub port: bool,
     pub gare: bool,
+    /// or par mois pour les navires et les espions
+    pub entretien_flotte: f64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -251,6 +335,16 @@ pub struct Partie {
     /// Les routes, tracées toutes seules : [case, case voisine, royaume qui l'entretient].
     #[serde(default)]
     pub routes: Vec<[usize; 3]>,
+    #[serde(default)]
+    pub flottes: Vec<Flotte>,
+    #[serde(default)]
+    pub espions: Vec<Espion>,
+    #[serde(default)]
+    pub sieges: Vec<Siege>,
+    #[serde(default)]
+    pub blocus: Vec<Blocus>,
+    #[serde(default)]
+    pub choix: Vec<Choix>,
 }
 
 impl Partie {
@@ -398,6 +492,11 @@ impl Partie {
             sans_victoire: false,
             version_carte: 1,
             routes: Vec::new(),
+            flottes: Vec::new(),
+            espions: Vec::new(),
+            sieges: Vec::new(),
+            blocus: Vec::new(),
+            choix: Vec::new(),
         };
         p.meteo = Meteo::tirer(&Meteo { temperature: 9.0, ..Meteo::default() }, TOUR_DEPART, &mut p.hasard);
         for (k, &s) in departs.iter().enumerate() {
@@ -440,6 +539,12 @@ impl Partie {
             p.creer_armee(k as i32, case, u);
         }
         p.recalculer_routes();
+        // chacun connaît les environs de sa capitale
+        for k in 0..p.royaumes.len() {
+            let c = p.villes[k].case;
+            p.decouvrir(k as i32, c, regles().vision.depart);
+        }
+        p.explorer();
         p.noter(format!("{} : vous fondez {}.", meteo::date_texte(TOUR_DEPART), p.villes[0].nom));
         p
     }
@@ -521,6 +626,68 @@ impl Partie {
             return self.royaumes[a as usize].statut == "guerre";
         }
         false
+    }
+
+    // ------------------------------------------------------------------ brouillard de guerre
+    /// Marque explorées, pour `id`, les cases à `r` de `case`.
+    pub fn decouvrir(&mut self, id: i32, case: usize, r: i32) {
+        if id < 0 || id as usize >= self.royaumes.len() {
+            return;
+        }
+        let zone = self.carte.rayon(case, r);
+        let e = &mut self.royaumes[id as usize].explore;
+        e.resize(self.carte.cases.len(), 0);
+        for c in zone {
+            e[c] = 1;
+        }
+    }
+
+    /// Les cases que `id` voit ce mois-ci (1) : autour de ses villes, tours, armées, flottes et espions,
+    /// tout son territoire, et ce que ses espions ont révélé.
+    pub fn vision(&self, id: i32) -> Vec<u8> {
+        let rv = &regles().vision;
+        let mut v = vec![0u8; self.carte.cases.len()];
+        let Some(roy) = (id >= 0).then(|| self.royaumes.get(id as usize)).flatten() else { return v };
+        let mut sources: Vec<(usize, i32)> = Vec::new();
+        sources.extend(self.villes.iter().filter(|x| x.proprio == id).map(|x| (x.case, if x.capitale { rv.capitale } else { rv.ville })));
+        sources.extend(self.batiments.iter().filter(|b| b.proprio == id && b.fini() && (b.cle == "tour" || b.cle == "citadelle")).map(|b| (b.case, rv.tour)));
+        for a in self.armees.iter().filter(|a| a.proprio == id) {
+            let cavalerie = a.unites.keys().any(|u| regles().unite(u).is_some_and(|d| d.genre == "cavalerie"));
+            sources.push((a.case, if cavalerie { rv.cavalerie } else { rv.armee }));
+        }
+        sources.extend(self.flottes.iter().filter(|f| f.proprio == id).map(|f| (f.case, rv.flotte)));
+        sources.extend(self.espions.iter().filter(|e| e.proprio == id).map(|e| (e.case, rv.espion)));
+        sources.extend(roy.revele.iter().filter(|r| r[2] >= self.tour && (r[0] as usize) < v.len()).map(|r| (r[0] as usize, r[1] as i32)));
+        for (c, r) in sources {
+            for x in self.carte.rayon(c, r) {
+                v[x] = 1;
+            }
+        }
+        for (i, k) in self.carte.cases.iter().enumerate() {
+            if k.proprio == id {
+                v[i] = 1;
+            }
+        }
+        v
+    }
+
+    /// Ce que chacun voit devient exploré (chaque mois, et au départ).
+    pub fn explorer(&mut self) {
+        for k in 0..self.royaumes.len() {
+            let v = self.vision(k as i32);
+            let tour = self.tour;
+            let r = &mut self.royaumes[k];
+            r.revele.retain(|x| x[2] >= tour);
+            r.explore.resize(v.len(), 0);
+            for (x, y) in r.explore.iter_mut().zip(v) {
+                *x |= y;
+            }
+        }
+    }
+
+    /// `id` a-t-il exploré cette case ?
+    pub fn connait(&self, id: i32, case: usize) -> bool {
+        id >= 0 && self.royaumes.get(id as usize).and_then(|r| r.explore.get(case)) == Some(&1)
     }
 
     // ------------------------------------------------------------------ villes et territoire
@@ -685,7 +852,7 @@ impl Partie {
                 s.stockage += 40.0;
                 continue;
             }
-            let actif = d.ouvriers == 0 || b.ouvriers > 0;
+            let actif = (d.ouvriers == 0 || b.ouvriers > 0) && b.arret <= self.tour;
             s.logement += d.logement as i64;
             s.stockage += d.stockage;
             s.vivres += d.stock_vivres;
@@ -710,6 +877,11 @@ impl Partie {
                 s.soldats += a.effectif() as i64;
             }
         }
+        for f in self.flottes.iter().filter(|f| f.proprio == id) {
+            s.soldats += f.armee.as_ref().map_or(0, |a| a.effectif()) as i64;
+            s.entretien_flotte += f.navires.iter().map(|(u, &n)| regles().unite(u).map_or(0.0, |d| d.entretien) * n as f64).sum::<f64>();
+        }
+        s.entretien_flotte += self.espions.iter().filter(|e| e.proprio == id).count() as f64 * regles().unite("espion").map_or(0.0, |d| d.entretien);
         s
     }
 
@@ -812,27 +984,20 @@ impl Partie {
     pub fn puissance(&self, id: i32) -> f64 {
         let armees: f64 = self.armees.iter().filter(|a| a.proprio == id).map(|a| self.attaque(a, false, 1.0) + self.defense(a)).sum();
         let villes: f64 = (0..self.villes.len()).filter(|&i| self.villes[i].proprio == id).map(|i| self.defense_ville(i)).sum();
-        (armees + villes).round()
+        let flottes: f64 = self.flottes.iter().filter(|f| f.proprio == id).map(|f| self.force_navale(f, true) + self.force_navale(f, false)).sum();
+        (armees + villes + flottes).round()
     }
 
-    pub fn praticable(&self, case: usize, id: i32) -> bool {
+    /// Une armée marche sur la terre, montagnes exceptées ; la mer se traverse à bord d'une flotte.
+    pub fn praticable(&self, case: usize) -> bool {
         let k = &self.carte.cases[case];
-        if k.terre() {
-            return k.t != Terrain::Montagne;
-        }
-        if id == BRIGANDS {
-            return false;
-        }
-        if id == 0 {
-            return self.stats(0).port;
-        }
-        true
+        k.terre() && k.t != Terrain::Montagne
     }
 
     pub fn cout_case(&self, case: usize) -> f64 {
         let k = &self.carte.cases[case];
         let base = if !k.terre() {
-            1.5
+            1.0
         } else if k.t == Terrain::Colline {
             2.0
         } else if k.foret {
@@ -968,20 +1133,16 @@ impl Partie {
         self.routes = routes;
     }
 
-    /// Plus court chemin (A*) de `de` à `vers` pour une armée de `id` ; sans la case de départ.
-    pub fn chemin(&self, de: usize, vers: usize, id: i32) -> Option<Vec<usize>> {
-        if vers >= self.carte.cases.len() || !self.praticable(vers, id) {
+    /// Plus court chemin (A*) à pied de `de` à `vers` ; sans la case de départ.
+    pub fn chemin(&self, de: usize, vers: usize) -> Option<Vec<usize>> {
+        if vers >= self.carte.cases.len() || !self.praticable(vers) {
             return None;
         }
-        let port = id == 0 && self.stats(0).port;
-        let passe = |c: usize| {
-            let k = &self.carte.cases[c];
-            if k.terre() {
-                k.t != Terrain::Montagne
-            } else {
-                id != BRIGANDS && (id != 0 || port)
-            }
-        };
+        self.a_etoile(de, vers, &|c| self.praticable(c))
+    }
+
+    /// A* de `de` à `vers` sur les cases que `passe` accepte (armées à pied, flottes sur l'eau).
+    pub fn a_etoile(&self, de: usize, vers: usize, passe: &dyn Fn(usize) -> bool) -> Option<Vec<usize>> {
         let mut g: HashMap<usize, f64> = HashMap::from([(de, 0.0)]);
         let mut venu: HashMap<usize, usize> = HashMap::new();
         let mut ouvert = BinaryHeap::new();
@@ -1027,9 +1188,21 @@ impl Partie {
         (cout / pts.max(0.5)).ceil().max(1.0) as u32
     }
 
+    /// Une recrue sort du bâtiment près de `pres` : un soldat rejoint la garnison de la ville,
+    /// un navire la flotte du port, un espion attend en ville.
     pub fn recruter_dans(&mut self, proprio: i32, unite: &str, pres: usize) {
+        let genre = regles().unite(unite).map(|d| d.genre.as_str()).unwrap_or("");
+        if genre == "marine" {
+            self.lancer_navire(proprio, unite, pres);
+            return;
+        }
         let Some(vi) = self.ville_proche(pres, proprio) else { return };
         let case = self.villes[vi].case;
+        if genre == "espion" {
+            let id = self.id();
+            self.espions.push(Espion { id, proprio, case, ..Default::default() });
+            return;
+        }
         if let Some(a) = self.armees.iter_mut().find(|a| a.proprio == proprio && a.case == case && a.chemin.is_empty()) {
             *a.unites.entry(unite.into()).or_insert(0) += 1;
         } else {
@@ -1070,9 +1243,37 @@ mod essais {
         assert_eq!(p.carte.cases[cap].proprio, 0);
         assert!(p.carte.rayon(cap, 3).iter().all(|&c| p.carte.cases[c].proprio == 0 || p.carte.cases[c].proprio != -1 || !p.carte.cases[c].terre() || true));
         // un chemin d'une ville à l'autre existe le plus souvent (même île) ; au moins vers une case voisine
-        let v = p.carte.voisins(cap).into_iter().find(|&c| p.praticable(c, 0)).unwrap();
-        assert_eq!(p.chemin(cap, v, 0), Some(vec![v]));
+        let v = p.carte.voisins(cap).into_iter().find(|&c| p.praticable(c)).unwrap();
+        assert_eq!(p.chemin(cap, v), Some(vec![v]));
         assert!(p.defense_ville(0) > 0.0);
+    }
+
+    #[test]
+    fn brouillard_de_guerre() {
+        let mut p = Partie::nouvelle(Options { graine: 99, ..Options::default() });
+        let cap = p.villes[0].case;
+        assert!(p.carte.rayon(cap, regles().vision.depart).iter().all(|&c| p.connait(0, c)), "on connaît les environs de sa capitale");
+        let rival = p.villes.iter().find(|v| v.proprio == 1).unwrap().case;
+        assert!(!p.connait(0, rival) && p.vision(0)[rival] == 0);
+        // l'interface ne reçoit ni la ville, ni l'armée, ni les bâtiments du rival
+        let e = crate::vue::etat(&p);
+        assert_eq!(e["explore"].as_array().unwrap().len(), p.carte.cases.len());
+        assert!(e["villes"].as_array().unwrap().iter().all(|v| v["proprio"] == 0));
+        assert!(e["armees"].as_array().unwrap().iter().all(|a| a["proprio"] == 0));
+        assert!(e["batiments"].as_array().unwrap().iter().all(|b| b["proprio"] == 0));
+        // une armée envoyée à côté de la ville rivale l'explore, et la voit tant qu'elle y reste
+        let a = p.armees.iter().position(|a| a.proprio == 0).unwrap();
+        p.armees[a].case = p.carte.voisins(rival)[0];
+        p.explorer();
+        assert!(p.connait(0, rival) && p.vision(0)[rival] == 1);
+        let e = crate::vue::etat(&p);
+        assert!(e["villes"].as_array().unwrap().iter().any(|v| v["proprio"] == 1));
+        assert!(e["armees"].as_array().unwrap().iter().any(|a| a["proprio"] == 1), "la garnison rivale est visible");
+        // l'armée repart : la ville reste explorée, sa garnison n'est plus vue
+        p.armees[a].case = cap;
+        let e = crate::vue::etat(&p);
+        assert!(e["villes"].as_array().unwrap().iter().any(|v| v["proprio"] == 1));
+        assert!(e["armees"].as_array().unwrap().iter().all(|a| a["proprio"] == 0));
     }
 
     #[test]

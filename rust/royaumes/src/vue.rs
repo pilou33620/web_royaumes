@@ -3,7 +3,7 @@
 use serde_json::{json, Value};
 
 use crate::carte::{Carte, Terrain};
-use crate::commandes::prix;
+use crate::commandes::{cout_recrue, prix};
 use crate::meteo::{self, Meteo};
 use crate::partie::{nom_caractere, Partie};
 use crate::regles::regles;
@@ -66,9 +66,24 @@ pub fn etat(p: &Partie) -> Value {
         .collect();
     let quete = QUETES.get(j.quete).map(|q| json!({"n": j.quete + 1, "texte": q.texte, "prime": q.prime}));
     let mut dispo = serde_json::Map::new();
-    for b in ["caserne", "haras", "arsenal"] {
-        dispo.insert(b.into(), json!(p.unites_dispo(0, b)));
+    let mut prix_unites = serde_json::Map::new();
+    for b in ["caserne", "haras", "arsenal", "port", "taverne"] {
+        let l = p.unites_dispo(0, b);
+        for u in &l {
+            prix_unites.insert(u.clone(), json!(cout_recrue(p, u)));
+        }
+        dispo.insert(b.into(), json!(l));
     }
+    // brouillard de guerre : le joueur ne reçoit des autres que ce qu'il voit (armées, flottes, espions)
+    // ou a exploré (villes, bâtiments) ; le terrain part en entier, l'interface le masque
+    let visible = p.vision(0);
+    let explore: Vec<u8> = (0..visible.len()).map(|i| (p.connait(0, i) || visible[i] == 1) as u8).collect();
+    let vu = |c: usize| visible.get(c) == Some(&1);
+    let connu = |c: usize| explore.get(c) == Some(&1);
+    let tir = p.meteo.effets(p.tour).tir;
+    let mut rapport = p.rapport.clone();
+    rapport.mouvements.retain(|m| m.proprio == 0 || m.trajet.iter().any(|&c| vu(c)));
+    rapport.combats.retain(|c| c.attaquant == 0 || c.defenseur == 0 || vu(c.case));
     let nr = p.niveau_routes(0);
     let nom_routes = ["", "Chemins de terre", "Routes pavées", "Routes royales"][nr as usize];
     let routes_joueur = json!({
@@ -114,8 +129,13 @@ pub fn etat(p: &Partie) -> Value {
             "quete": quete,
             "routes": routes_joueur,
             "unites_dispo": dispo,
+            "prix_unites": prix_unites,
             "remise_recrues": if j.a("levee_masse") { 0.75 } else { 1.0 },
+            "commerce_mer": j.commerce_mer,
+            "entretien_flotte": s.entretien_flotte,
         },
+        "explore": explore,
+        "visible": visible,
         "royaumes": p.royaumes.iter().map(|r| {
             let prix_: serde_json::Map<String, Value> = if r.joueur { serde_json::Map::new() } else {
                 rg.prix.keys().map(|k| (k.clone(), json!([prix(p, r.id, k, true), prix(p, r.id, k, false)]))).collect()
@@ -128,20 +148,85 @@ pub fn etat(p: &Partie) -> Value {
                 "techs": r.techs.len(), "techs_liste": r.techs,
             })
         }).collect::<Vec<_>>(),
-        "villes": p.villes.iter().enumerate().map(|(i, v)| json!({
+        "villes": p.villes.iter().enumerate().filter(|(_, v)| v.proprio == 0 || connu(v.case)).map(|(i, v)| json!({
             "id": v.id, "nom": v.nom, "proprio": v.proprio, "case": v.case, "niveau": v.niveau,
             "capitale": v.capitale, "defense": p.defense_ville(i), "rang": rg.nom_niveau(v.niveau),
+            "murs": p.murs_ville(i), "assiegee": p.siege_de(v.id).is_some(), "blocus": p.bloquee(Some(v.id)),
         })).collect::<Vec<_>>(),
-        "batiments": p.batiments.iter().map(|b| json!({
+        "batiments": p.batiments.iter().filter(|b| b.proprio == 0 || connu(b.case)).map(|b| json!({
             "id": b.id, "cle": b.cle, "proprio": b.proprio, "case": b.case, "reste": b.reste,
             "ouvriers": b.ouvriers, "etat": b.etat, "pause": b.pause, "file": b.file, "face": b.face,
-            "ville": b.ville, "produit": b.produit,
+            "ville": b.ville, "produit": b.produit, "arret": if b.arret > p.tour { json!(b.arret) } else { Value::Null },
         })).collect::<Vec<_>>(),
-        "armees": p.armees.iter().map(|a| json!({
-            "id": a.id, "proprio": a.proprio, "case": a.case, "unites": a.unites, "chemin": a.chemin,
+        "armees": p.armees.iter().filter(|a| a.proprio == 0 || vu(a.case)).map(|a| json!({
+            "id": a.id, "proprio": a.proprio, "case": a.case, "unites": a.unites, "chemin": if a.proprio == 0 { json!(a.chemin) } else { json!([]) },
             "effectif": a.effectif(), "att": p.attaque(a, false, 1.0), "def": p.defense(a),
             "mois": if a.chemin.is_empty() { 0 } else { p.mois_trajet(a, &a.chemin) },
+            "assiege": p.assiege(a.proprio, a.case),
         })).collect::<Vec<_>>(),
+        "flottes": p.flottes.iter().filter(|f| f.proprio == 0 || vu(f.case)).map(|f| {
+            let a_moi = f.proprio == 0;
+            json!({
+                "id": f.id, "proprio": f.proprio, "case": f.case, "navires": f.navires,
+                "chemin": if a_moi { json!(f.chemin) } else { json!([]) },
+                "mois": if a_moi && !f.chemin.is_empty() { p.mois_navigation(f) } else { 0 },
+                "att": p.force_navale(f, true), "def": p.force_navale(f, false), "guerre": p.de_guerre(f),
+                "capacite": p.capacite_transport(f), "flutes": p.flutes(f), "commerce": f.commerce,
+                "a_quai": p.port_voisin(f).is_some(),
+                "armee": f.armee.as_ref().map(|a| if a_moi {
+                    json!({"id": a.id, "unites": a.unites, "effectif": a.effectif(), "att": p.attaque(a, false, 1.0), "def": p.defense(a)})
+                } else {
+                    json!({"effectif": a.effectif()})
+                }),
+            })
+        }).collect::<Vec<_>>(),
+        "espions": p.espions.iter().filter(|e| e.proprio == 0 || p.detecte(e, 0, &visible)).map(|e| {
+            let ville = e.ville.and_then(|vid| p.villes.iter().find(|v| v.id == vid));
+            let missions: Vec<Value> = if e.proprio == 0 && e.mission.is_none() && e.chemin.is_empty() {
+                p.villes_a_portee(e).into_iter().flat_map(|vi| rg.espionnage.missions.iter().map(move |m| (vi, m))).map(|(vi, m)| json!({
+                    "ville": p.villes[vi].id, "nom_ville": p.villes[vi].nom, "genre": m.cle, "nom": m.nom, "icone": m.icone,
+                    "duree": m.duree.max(1), "chance": (p.chance_mission(0, &m.cle, vi) * 100.0).round(),
+                })).collect()
+            } else { Vec::new() };
+            json!({
+                "id": e.id, "proprio": e.proprio, "case": e.case,
+                "chemin": if e.proprio == 0 { json!(e.chemin) } else { json!([]) },
+                "mission": if e.proprio == 0 { json!(e.mission) } else { Value::Null },
+                "ville": if e.proprio == 0 { json!(e.ville) } else { Value::Null },
+                "nom_ville": if e.proprio == 0 { json!(ville.map(|v| v.nom.clone())) } else { Value::Null },
+                "reste": if e.proprio == 0 { e.reste } else { 0 },
+                "missions": missions,
+            })
+        }).collect::<Vec<_>>(),
+        "sieges": p.sieges.iter().filter(|s| s.assiegeant == 0 || p.villes.iter().any(|v| v.id == s.ville && v.proprio == 0) || vu(s.case)).map(|s| {
+            let v = p.villes.iter().find(|v| v.id == s.ville);
+            let (at, de) = p.forces_assaut(s, tir);
+            json!({
+                "ville": s.ville, "nom": v.map(|v| v.nom.clone()), "case": s.case, "proprio": v.map(|v| v.proprio),
+                "assiegeant": s.assiegeant, "mois": s.mois, "murs": s.murs, "murs_max": s.murs_max,
+                "murs_pct": if s.murs_max > 0.0 { (s.murs / s.murs_max * 100.0).round() } else { 0.0 },
+                "vivres": s.vivres, "faim": s.faim, "assaut": s.assaut,
+                "armees": p.armees.iter().filter(|a| a.proprio == s.assiegeant && a.case == s.case).map(|a| a.id).collect::<Vec<_>>(),
+                "garnison": p.armees.iter().filter(|a| Some(a.proprio) == v.map(|v| v.proprio) && a.case == s.case).map(|a| a.effectif()).sum::<u32>(),
+                "force_assaut": at.round(), "defense_assaut": de.round(),
+                "chance_assaut": (at / (at + de) * 100.0).round(),
+            })
+        }).collect::<Vec<_>>(),
+        "blocus": p.blocus.iter().filter(|b| b.par == 0 || p.villes.iter().any(|v| v.id == b.ville && v.proprio == 0) || connu(b.case)).map(|b| json!({
+            "ville": b.ville, "case": b.case, "par": b.par,
+            "nom": p.villes.iter().find(|v| v.id == b.ville).map(|v| v.nom.clone()),
+        })).collect::<Vec<_>>(),
+        "choix": p.choix.iter().map(|c| {
+            let d = rg.evenements_choix.iter().find(|d| d.cle == c.cle);
+            json!({
+                "id": c.id, "cle": c.cle, "titre": c.titre, "icone": c.icone, "texte": c.texte, "royaume": c.royaume,
+                "options": c.options.iter().enumerate().map(|(i, t)| {
+                    let o = d.and_then(|d| d.options.get(i));
+                    let cout = o.map(|o| o.cout.clone()).unwrap_or_default();
+                    json!({"texte": t, "cout": cout, "possible": p.peut_payer(&cout, 1.0), "risque": o.map_or(0.0, |o| o.risque)})
+                }).collect::<Vec<_>>(),
+            })
+        }).collect::<Vec<_>>(),
         "cases": {
             "proprio": p.carte.cases.iter().map(|k| k.proprio).collect::<Vec<_>>(),
             "arbres": p.carte.cases.iter().map(|k| k.arbres).collect::<Vec<_>>(),
@@ -151,7 +236,7 @@ pub fn etat(p: &Partie) -> Value {
         "routes": p.routes.iter().map(|r| json!([r[0], r[1], p.niveau_routes(r[2] as i32)])).collect::<Vec<_>>(),
         "propositions": p.propositions,
         "journal": p.journal.iter().take(40).collect::<Vec<_>>(),
-        "rapport": p.rapport,
+        "rapport": rapport,
         "fin": p.fin,
         "sans_victoire": p.sans_victoire,
         "couleurs": {"99": "#4b4b4b"},
