@@ -586,7 +586,7 @@ function effetsOption(o, d) {
 }
 export function carteChoix(c) {
   const E = J.etat, def = R().evenements_choix?.find(d => d.cle === c.cle);
-  const illus = ILLUSTRE.includes(c.cle) ? `<img src="img/evenement-${c.cle}.svg" alt="">` : `<span>${c.icone}</span>`;
+  const illus = ILLUSTRE.includes(c.cle) ? `<img src="graphismes/royaumes/img/evenement-${c.cle}.svg" alt="">` : `<span>${c.icone}</span>`;
   const n = c.options.length;
   return modale(`${c.icone} ${e(c.titre)}`, `<div class="illus">${illus}</div><p class="mini">${e(E.date)} · ${e(E.epoque.nom)}</p><p>${e(c.texte)}</p>`,
     c.options.map((o, i) => { const fx = effetsOption(o, def?.options[i]); return { l: `${e(o.texte)}${fx ? ` · ${fx}` : ''}`, c: i === n - 1 ? 'rouge' : i === 0 ? 'vert' : 'b2', v: i, d: !o.possible }; }), 'choix');
