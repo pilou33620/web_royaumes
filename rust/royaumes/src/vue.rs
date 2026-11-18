@@ -56,10 +56,6 @@ pub fn etat(p: &Partie) -> Value {
     let m = meteo::mois(p.tour);
     let ep = rg.epoque(an);
     let caps: serde_json::Map<String, Value> = rg.ressources.iter().map(|r| (r.cle.clone(), json!(p.capacite(&s, &r.cle).min(1e9)))).collect();
-    let mut savoir_mois = j.pop as f64 * 0.04 + s.savoir;
-    if j.a("lumieres") {
-        savoir_mois *= 1.25;
-    }
     let previsions: Vec<Value> = Meteo::previsions(p.tour + 1, &p.meteo)
         .into_iter()
         .map(|(g, pc)| json!({"genre": g, "pourcent": pc}))
@@ -100,8 +96,20 @@ pub fn etat(p: &Partie) -> Value {
             json!({"niveau": f.niveau, "nom": f.nom, "icone": f.icone, "cout": f.cout, "duree": f.duree, "murs": f.murs, "defense": f.defense,
                    "possible": verrou.is_none() && p.peut_payer(&f.cout, 1.0), "verrou": verrou})
         });
+        // la vie de la ville (cite.rs) ; le détail n'est donné que pour les villes du joueur
+        let x = p.vie_ville(i);
+        let mien = v.proprio == 0;
         json!({
             "id": v.id, "nom": v.nom, "proprio": v.proprio, "case": v.case, "niveau": v.niveau,
+            // la foule au marché, pour le rendu : jour de marché, une halle, ni siège ni blocus, et (joueur) pas de disette le mois dernier
+            "jour_marche": x.marche && !(mien && j.famine),
+            // réverbères allumés (rendu : les lumières la nuit)
+            "eclairage": v.eclairage,
+            "eclairage_verrou": if mien { json!(p.peut_eclairer(i).err()) } else { Value::Null },
+            "ecoles": if mien { json!(x.ecoles) } else { Value::Null },
+            "ateliers": if mien { json!(x.ateliers) } else { Value::Null },
+            "ignorance": mien && x.ignorance,
+            "delinquance": mien && x.delinquance,
             "capitale": v.capitale, "defense": p.defense_ville(i), "rang": rg.nom_niveau(v.niveau),
             "murs": p.murs_ville(i), "assiegee": p.siege_de(v.id).is_some(), "blocus": p.bloquee(Some(v.id)),
             "fortif": v.fortif, "fortif_nom": rg.fortif(v.fortif).map_or("Ville ouverte", |f| f.nom.as_str()),
@@ -117,6 +125,8 @@ pub fn etat(p: &Partie) -> Value {
         "mois_nom": meteo::MOIS[m],
         "saison": meteo::saison(m),
         "saison_nom": meteo::SAISONS[meteo::saison(m)],
+        // ce mois-ci est jour de marché (tous les `regles.jour_marche.tous_les` mois) ; la foule de chaque ville : `villes[].jour_marche`
+        "jour_marche": p.jour_marche(),
         "epoque": {"cle": ep.cle, "nom": ep.nom},
         "meteo": meteo_json(&p.meteo, p.tour),
         "previsions": previsions,
@@ -136,7 +146,9 @@ pub fn etat(p: &Partie) -> Value {
             "techs": j.techs,
             "recherche": j.recherche,
             "savoir": j.savoir,
-            "savoir_mois": savoir_mois,
+            "savoir_mois": p.savoir_mois(),
+            // bois (ou équivalent en charbon) que brûleront les foyers à la fin du mois (0 hors de l'hiver)
+            "chauffage": j.pop as f64 * p.chauffage_par_habitant(),
             "famine": j.famine,
             "variete": j.variete,
             "comptoir": s.comptoir,

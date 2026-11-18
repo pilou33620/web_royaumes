@@ -13,7 +13,8 @@ use crate::regles::{regles, Panier};
 
 /// 2 : les remparts et citadelles sont devenus des niveaux de fortification des villes
 /// 3 : forts bâtis par les armées, retranchements (champs nouveaux, lus par défaut)
-pub const VERSION_SAUVEGARDE: u32 = 3;
+/// 4 : éclairage public des villes (`Ville::eclairage`, éteint par défaut)
+pub const VERSION_SAUVEGARDE: u32 = 4;
 /// La partie commence en avril 1700 (le printemps : on sème avant l'hiver).
 pub const TOUR_DEPART: u32 = 3;
 /// Les brigands : un « royaume » à part, ennemi de tous.
@@ -119,6 +120,9 @@ pub struct Ville {
     /// mois de travaux restants avant le niveau suivant (0 : pas de travaux)
     #[serde(default)]
     pub travaux_fortif: u32,
+    /// éclairage public allumé (réverbères et veilleur, payés chaque mois : `regles.eclairage`)
+    #[serde(default)]
+    pub eclairage: bool,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -790,7 +794,7 @@ impl Partie {
     // ------------------------------------------------------------------ villes et territoire
     pub fn fonder_ville(&mut self, proprio: i32, case: usize, nom: String, niveau: u32, capitale: bool) -> usize {
         let id = self.id();
-        self.villes.push(Ville { id, nom, proprio, case, niveau, capitale, fortif: 0, travaux_fortif: 0 });
+        self.villes.push(Ville { id, nom, proprio, case, niveau, capitale, fortif: 0, travaux_fortif: 0, eclairage: false });
         let b = self.poser("hotel", case, proprio, true);
         if let Some(bb) = self.batiments.iter_mut().find(|x| x.id == b) {
             bb.ville = Some(id);
@@ -954,7 +958,7 @@ impl Partie {
                 s.stockage += 40.0;
                 continue;
             }
-            let actif = (d.ouvriers == 0 || b.ouvriers > 0) && b.arret <= self.tour && !self.faubourg_assiege(b);
+            let actif = self.actif(b);
             s.logement += d.logement as i64;
             s.stockage += d.stockage;
             s.vivres += d.stock_vivres;
@@ -964,7 +968,8 @@ impl Partie {
                 s.foi += d.foi;
                 s.taverne += d.taverne;
                 s.taxe += d.taxe;
-                s.savoir += d.savoir;
+                // l'été, vacances et moissons : l'école ne rend qu'une part de son savoir
+                s.savoir += d.savoir * if b.cle == "ecole" && self.vacances() { regles().ecoles.ete } else { 1.0 };
             }
             match b.cle.as_str() {
                 "comptoir" => s.comptoir = true,
@@ -985,6 +990,12 @@ impl Partie {
         }
         s.entretien_flotte += self.espions.iter().filter(|e| e.proprio == id).count() as f64 * regles().unite("espion").map_or(0.0, |d| d.entretien);
         s
+    }
+
+    /// Un bâtiment achevé qui travaille : pourvu d'ouvriers (ceux de l'ordinateur le sont toujours), ni saboté ni faubourg assiégé.
+    pub fn actif(&self, b: &Batiment) -> bool {
+        let d = regles().bat(&b.cle).unwrap();
+        b.fini() && (d.ouvriers == 0 || b.ouvriers > 0 || b.proprio != 0) && b.arret <= self.tour && !self.faubourg_assiege(b)
     }
 
     pub fn capacite(&self, s: &Stats, r: &str) -> f64 {
@@ -1418,8 +1429,10 @@ mod essais {
             let o = ville.as_object_mut().unwrap();
             o.remove("fortif");
             o.remove("travaux_fortif");
+            o.remove("eclairage");
         }
         let q = Partie::relire(&v.to_string()).unwrap();
+        assert!(q.villes.iter().all(|v| !v.eclairage), "l'éclairage public est éteint dans une ancienne sauvegarde");
         assert_eq!(q.villes[q.capitale(0).unwrap()].fortif, 4, "citadelle → 4 (le plus haut l'emporte)");
         assert_eq!(q.villes[q.capitale(1).unwrap()].fortif, 3, "remparts → 3");
         assert!(q.batiments.iter().all(|b| b.cle != "remparts" && b.cle != "citadelle" && !anciens.contains(&b.id)));

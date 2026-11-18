@@ -45,6 +45,8 @@ pub fn mois(p: &mut Partie, k: usize, rapport: &mut Rapport) {
         construire(p, id, &mes_villes);
     }
     fortifier(p, k, &mes_villes);
+    // la vie des villes (marchés, écoles, chauffage, éclairage), résumée en or (cite.rs)
+    p.vie_ia(k);
     // les villes grandissent avec leurs bâtiments
     for &vi in &mes_villes {
         let vid = p.villes[vi].id;

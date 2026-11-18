@@ -167,6 +167,21 @@ pub fn executer(p: &mut Partie, c: &Value) -> Result<Value, String> {
             p.villes[vi].travaux_fortif = f.duree.max(1);
             Ok(json!({"ok": true, "msg": format!("{} {} : {} en travaux ({} mois)", f.icone, p.villes[vi].nom, f.nom, f.duree.max(1)), "mois": f.duree.max(1)}))
         }
+        // {"action": "eclairer", "ville": id, "actif": true|false} : allume ou éteint l'éclairage public (payé chaque mois)
+        "eclairer" => {
+            let vid = num(c, "ville")? as u32;
+            let vi = p.villes.iter().position(|v| v.id == vid).ok_or("ville inconnue")?;
+            if p.villes[vi].proprio != 0 {
+                return Err("Cette ville ne vous appartient pas".into());
+            }
+            let actif = c.get("actif").and_then(Value::as_bool).unwrap_or(true);
+            if actif {
+                p.peut_eclairer(vi)?;
+            }
+            p.villes[vi].eclairage = actif;
+            let l = &rg.eclairage;
+            ok(if actif { format!("🏮 {} : réverbères allumés, un veilleur fait sa ronde ({} 🪙 par mois)", p.villes[vi].nom, l.entretien) } else { format!("{} : éclairage public éteint", p.villes[vi].nom) })
+        }
         "deplacer" => {
             let id = num(c, "armee")? as u32;
             let vers = case(p, c)?;

@@ -4,7 +4,9 @@
 
 use royaumes::carte::Options;
 use royaumes::commandes::executer;
+use royaumes::meteo;
 use royaumes::partie::Partie;
+use royaumes::regles::regles;
 use serde_json::json;
 
 fn construire(p: &mut Partie, cle: &str) -> bool {
@@ -27,7 +29,20 @@ fn robot(p: &mut Partie) {
     let econome = p.niveau_capitale(0) == 1 && j.pop >= 40;
     // pendant l'économie, la scierie ne dévore pas le bois que demande l'Hôtel de ville quand les planches s'entassent
     let garder_bois = econome && j.stock["bois"] < 60.0 && j.stock["planches"] >= 80.0;
-    for b in p.batiments.iter().filter(|b| b.proprio == 0 && b.cle == "scierie" && b.pause != garder_bois).map(|b| b.id).collect::<Vec<_>>() {
+    // l'automne et l'hiver, on garde trois mois de grand froid de bois de chauffage : scierie et fonderie s'arrêtent
+    let c = &regles().chauffage;
+    let reserve = j.pop as f64 * c.par_habitant * c.grand_froid * 3.0;
+    let froid = matches!(meteo::saison(meteo::mois(p.tour)), 0 | 3) && j.stock["bois"] < reserve;
+    let garder_bois = garder_bois || froid;
+    // et s'il manque encore du bois, on en achète aux rivaux (par lots de 10) tant que le trésor le permet
+    for k in 1..p.royaumes.len() {
+        while froid && p.joueur().stock["bois"] < reserve && p.joueur().stock["or"] > 200.0 {
+            if executer(p, &json!({"action": "echanger", "royaume": k, "ressource": "bois", "achat": true})).is_err() {
+                break;
+            }
+        }
+    }
+    for b in p.batiments.iter().filter(|b| b.proprio == 0 && matches!(b.cle.as_str(), "scierie" | "fonderie") && b.pause != garder_bois).map(|b| b.id).collect::<Vec<_>>() {
         let _ = executer(p, &json!({"action": "pause", "batiment": b}));
     }
     if econome {
@@ -36,10 +51,20 @@ fn robot(p: &mut Partie) {
         }
         return;
     }
-    // la ville : logements quand on approche du plafond
-    if j.pop + 6 >= s.logement {
+    // la ville : logements quand on approche du plafond, si les greniers suivent (bien chauffée, elle grandit vite)
+    let vivres: f64 = regles().nourriture.iter().map(|r| j.stock.get(r).copied().unwrap_or(0.0)).sum();
+    if j.pop + 6 >= s.logement && vivres >= j.pop as f64 {
         let cle = if p.niveau_capitale(0) >= 2 { "maison" } else { "cabane" };
         construire(p, cle);
+    }
+    // des vivres à la mesure de la population
+    if p.niveau_capitale(0) >= 2 && vivres < j.pop as f64 * 2.0 && nb(p, "pecheur") + nb(p, "ferme") < 4 + j.pop as usize / 30 {
+        let _ = construire(p, "pecheur") || construire(p, "ferme");
+    }
+    // le bois de chauffage : quand les forêts voisines sont rasées, un bûcheron part vers une forêt intacte
+    let abattent = p.batiments.iter().filter(|b| b.proprio == 0 && b.cle == "bucheron" && !b.etat.starts_with("🌲")).count();
+    if froid && abattent < 2 && nb(p, "bucheron") < 8 {
+        construire(p, "bucheron");
     }
     let voulus: &[(&str, usize)] = &[
         ("bucheron", 2), ("pecheur", 2), ("ferme", 2), ("carriere", 1), ("scierie", 1), ("grenier", 1), ("puits", 1), ("forestier", 1),
@@ -60,6 +85,12 @@ fn robot(p: &mut Partie) {
             if executer(p, &json!({"action": "rechercher", "tech": t})).is_ok() {
                 break;
             }
+        }
+    }
+    // l'éclairage public, dès qu'il est permis et que le trésor suit (refusé tant qu'il ne l'est pas)
+    if p.joueur().stock["or"] > 500.0 {
+        for v in p.villes.iter().filter(|v| v.proprio == 0 && !v.eclairage).map(|v| v.id).collect::<Vec<_>>() {
+            let _ = executer(p, &json!({"action": "eclairer", "ville": v, "actif": true}));
         }
     }
     // une petite armée
@@ -138,10 +169,13 @@ fn campagne(o: Options) {
     let mut p = Partie::nouvelle(o);
     let mut famines = 0;
     let (mut choix, mut espion, mut commerce_mer) = (0, false, 0.0);
+    let (mut geles, mut marches) = (0, 0);
     for mois in 0..120 {
         robot(&mut p);
         espion |= p.espions.iter().any(|e| e.proprio == 0);
         let r = p.fin_du_mois();
+        let evt = |debut: &str| r.evenements.iter().filter(|e| e.texte.starts_with(debut)).count();
+        (geles, marches) = (geles + evt("🥶"), marches + evt("🧺 Jour de marché"));
         choix += p.choix.len();
         commerce_mer += p.joueur().commerce_mer;
         if p.joueur().famine {
@@ -174,7 +208,10 @@ fn campagne(o: Options) {
     }
     let fortifs: Vec<u32> = p.villes.iter().filter(|v| v.proprio > 0).map(|v| v.fortif).collect();
     let forts: Vec<u32> = p.forts.iter().filter(|f| f.proprio > 0).map(|f| f.niveau).collect();
-    println!("événements à choix : {choix} · commerce maritime : {commerce_mer} 🪙 · fortifications des rivaux : {fortifs:?} · leurs forts : {forts:?}");
+    println!("événements à choix : {choix} · commerce maritime : {commerce_mer} 🪙 · fortifications des rivaux : {fortifs:?} · leurs forts : {forts:?} · mois de froid : {geles} · jours de marché : {marches}");
+    // forêts rasées et sans comptoir pour acheter du bois (petites îles), le robot grelotte certains hivers, mais tient
+    assert!(geles < 30, "le robot chauffe ses foyers : {geles} mois de froid en 10 ans");
+    assert!(marches > 0 || !p.a_batiment(0, "marche"), "la halle anime la capitale tous les 3 mois");
     assert!(fortifs.iter().any(|&f| f > 0), "les rivaux fortifient leurs villes");
     assert!(choix >= 20, "un événement à choix tous les 3 ou 4 mois ({choix})");
     assert!(espion, "le robot a recruté un espion");

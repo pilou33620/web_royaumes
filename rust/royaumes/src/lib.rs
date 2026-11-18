@@ -5,6 +5,7 @@
 #![recursion_limit = "256"]
 
 pub mod carte;
+pub mod cite;
 pub mod choix;
 pub mod commandes;
 pub mod espions;
