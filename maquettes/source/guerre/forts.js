@@ -320,7 +320,9 @@ function texteForts() {
 const allerForts = () => { if (SC.courante === 'forts') return; voir('forts', false); document.querySelectorAll('[data-voir]').forEach(x => x.setAttribute('aria-pressed', String(x.dataset.voir === 'forts'))); };
 document.querySelectorAll('[data-fort]').forEach(b => b.addEventListener('click', () => { allerForts(); niveauFort(+b.dataset.fort); document.querySelectorAll('[data-fort]').forEach(x => x.setAttribute('aria-pressed', String(x === b))); }));
 document.querySelectorAll('[data-retranche]').forEach(b => b.addEventListener('click', () => {
-  allerForts(); const st = FORTS.ret, oui = b.dataset.retranche === 'oui';
-  if (oui ? st.etat === 'creuse' || st.etat === 'retranche' : st.etat === 'leve' || st.etat === 'marche') { st.auto = false; return; }
+  allerForts(); const st = FORTS.ret, oui = b.dataset.retranche === 'oui', k = FORTS.kRet;
+  vue.auto = false; vue.but = { x: k.x, z: k.z - 0.05, d: 3.4, tg: 0.8, la: 0.08 }; // la caméra se rapproche de l'armée pour qu'on voie l'ordre
+  // « Se retrancher » recommence toujours le chantier depuis zéro ; « Lever le camp » n'a rien à faire si l'armée est déjà partie
+  if (!oui && (st.etat === 'leve' || st.etat === 'marche')) { st.auto = false; return; }
   Object.assign(st, { etat: oui ? 'creuse' : 'leve', debut: t, auto: false });
 }));
