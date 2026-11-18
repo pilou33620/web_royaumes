@@ -150,6 +150,20 @@ pub fn executer(p: &mut Partie, c: &Value) -> Result<Value, String> {
             p.recalculer_territoire();
             ok(format!("🎉 {} devient un(e) {} !", p.villes[vi].nom, def.nom))
         }
+        "fortifier" => {
+            let vid = num(c, "ville")? as u32;
+            let vi = p.villes.iter().position(|v| v.id == vid).ok_or("ville inconnue")?;
+            if p.villes[vi].proprio != 0 {
+                return Err("Cette ville ne vous appartient pas".into());
+            }
+            let f = p.peut_fortifier(vi)?;
+            if !p.peut_payer(&f.cout, 1.0) {
+                return Err("Ressources insuffisantes".into());
+            }
+            p.payer(&f.cout, 1.0);
+            p.villes[vi].travaux_fortif = f.duree.max(1);
+            Ok(json!({"ok": true, "msg": format!("{} {} : {} en travaux ({} mois)", f.icone, p.villes[vi].nom, f.nom, f.duree.max(1)), "mois": f.duree.max(1)}))
+        }
         "deplacer" => {
             let id = num(c, "armee")? as u32;
             let vers = case(p, c)?;

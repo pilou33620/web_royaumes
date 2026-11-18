@@ -156,7 +156,7 @@ pub fn sauver(p: &Partie, nom: &str) -> Result<String, String> {
 pub fn charger(nom: &str) -> Result<Partie, String> {
     let f = dossier_saves().join(format!("{}.json", nom_sur(nom)));
     let texte = std::fs::read_to_string(&f).map_err(|_| "Sauvegarde introuvable".to_string())?;
-    serde_json::from_str(&texte).map_err(|e| format!("Sauvegarde illisible : {e}"))
+    Partie::relire(&texte).map_err(|e| format!("Sauvegarde illisible : {e}"))
 }
 
 fn liste_sauvegardes() -> Vec<Value> {

@@ -93,6 +93,22 @@ pub fn etat(p: &Partie) -> Value {
         "cout": if nr < 3 { json!(p.cout_routes(nr + 1)) } else { Value::Null },
         "verrou": if nr == 1 && p.niveau_capitale(0) < 2 { json!("Capitale au rang Village") } else if nr == 2 && !j.a("routes") { json!("Technologie « Routes royales et canaux »") } else { Value::Null },
     });
+    let villes: Vec<Value> = p.villes.iter().enumerate().filter(|(_, v)| v.proprio == 0 || connu(v.case)).map(|(i, v)| {
+        // le niveau suivant, pour le joueur : son coût, et ce qui le bloque (travaux, rang, technologie)
+        let suivante = rg.fortif(v.fortif + 1).filter(|_| v.proprio == 0).map(|f| {
+            let verrou = p.peut_fortifier(i).err();
+            json!({"niveau": f.niveau, "nom": f.nom, "icone": f.icone, "cout": f.cout, "duree": f.duree, "murs": f.murs, "defense": f.defense,
+                   "possible": verrou.is_none() && p.peut_payer(&f.cout, 1.0), "verrou": verrou})
+        });
+        json!({
+            "id": v.id, "nom": v.nom, "proprio": v.proprio, "case": v.case, "niveau": v.niveau,
+            "capitale": v.capitale, "defense": p.defense_ville(i), "rang": rg.nom_niveau(v.niveau),
+            "murs": p.murs_ville(i), "assiegee": p.siege_de(v.id).is_some(), "blocus": p.bloquee(Some(v.id)),
+            "fortif": v.fortif, "fortif_nom": rg.fortif(v.fortif).map_or("Ville ouverte", |f| f.nom.as_str()),
+            "travaux_fortif": if v.travaux_fortif > 0 { json!(v.travaux_fortif) } else { Value::Null },
+            "fortif_suivante": suivante, "enceinte": p.enceinte(i),
+        })
+    }).collect();
     json!({
         "tour": p.tour,
         "date": meteo::date_texte(p.tour),
@@ -148,11 +164,7 @@ pub fn etat(p: &Partie) -> Value {
                 "techs": r.techs.len(), "techs_liste": r.techs,
             })
         }).collect::<Vec<_>>(),
-        "villes": p.villes.iter().enumerate().filter(|(_, v)| v.proprio == 0 || connu(v.case)).map(|(i, v)| json!({
-            "id": v.id, "nom": v.nom, "proprio": v.proprio, "case": v.case, "niveau": v.niveau,
-            "capitale": v.capitale, "defense": p.defense_ville(i), "rang": rg.nom_niveau(v.niveau),
-            "murs": p.murs_ville(i), "assiegee": p.siege_de(v.id).is_some(), "blocus": p.bloquee(Some(v.id)),
-        })).collect::<Vec<_>>(),
+        "villes": villes,
         "batiments": p.batiments.iter().filter(|b| b.proprio == 0 || connu(b.case)).map(|b| json!({
             "id": b.id, "cle": b.cle, "proprio": b.proprio, "case": b.case, "reste": b.reste,
             "ouvriers": b.ouvriers, "etat": b.etat, "pause": b.pause, "file": b.file, "face": b.face,
@@ -201,6 +213,11 @@ pub fn etat(p: &Partie) -> Value {
         "sieges": p.sieges.iter().filter(|s| s.assiegeant == 0 || p.villes.iter().any(|v| v.id == s.ville && v.proprio == 0) || vu(s.case)).map(|s| {
             let v = p.villes.iter().find(|v| v.id == s.ville);
             let (at, de) = p.forces_assaut(s, tir);
+            // les faubourgs (bâtiments hors de l'enceinte, à l'arrêt) et le dernier pillé
+            let faubourgs: Vec<Value> = p.batiments.iter().filter(|b| b.ville == Some(s.ville) && p.faubourg_assiege(b)).map(|b| json!({
+                "id": b.id, "cle": b.cle, "case": b.case, "pille": b.arret > p.tour,
+            })).collect();
+            let pillage = s.pillage.as_ref().map(|(c, cle)| json!({"case": c, "batiment": cle, "nom": rg.bat(cle).map(|d| d.nom.clone())}));
             json!({
                 "ville": s.ville, "nom": v.map(|v| v.nom.clone()), "case": s.case, "proprio": v.map(|v| v.proprio),
                 "assiegeant": s.assiegeant, "mois": s.mois, "murs": s.murs, "murs_max": s.murs_max,
@@ -210,6 +227,7 @@ pub fn etat(p: &Partie) -> Value {
                 "garnison": p.armees.iter().filter(|a| Some(a.proprio) == v.map(|v| v.proprio) && a.case == s.case).map(|a| a.effectif()).sum::<u32>(),
                 "force_assaut": at.round(), "defense_assaut": de.round(),
                 "chance_assaut": (at / (at + de) * 100.0).round(),
+                "faubourgs": faubourgs, "pillage": pillage,
             })
         }).collect::<Vec<_>>(),
         "blocus": p.blocus.iter().filter(|b| b.par == 0 || p.villes.iter().any(|v| v.id == b.ville && v.proprio == 0) || connu(b.case)).map(|b| json!({

@@ -1,32 +1,101 @@
 //! Les sièges : une ville ennemie fortifiée ne tombe pas d'un coup. Les murs s'usent sous le canon
 //! et la sape, les vivres s'épuisent, la garnison fond ; la ville se rend, à moins qu'un assaut
-//! ne l'emporte ou qu'une armée de secours ne chasse les assiégeants.
+//! ne l'emporte ou qu'une armée de secours ne chasse les assiégeants. Hors de l'enceinte, les
+//! faubourgs ne produisent plus et l'assiégeant les pille.
+//! Les fortifications sont une amélioration de la ville : Palissade, Murailles, Bastions, Citadelle.
 
 use crate::meteo::Effets;
-use crate::partie::{Combat, Partie, Rapport, Siege};
-use crate::regles::regles;
+use crate::partie::{Batiment, Combat, Partie, Rapport, Siege};
+use crate::regles::{regles, DefFortif, Panier};
 
 impl Partie {
-    /// Les murs d'une ville : tours et citadelles proches (leur défense) et bastions Vauban.
+    /// Les murs d'une ville : sa fortification, plus les tours de guet proches (leur défense) ; ×Vauban.
     /// Zéro : la ville n'est pas fortifiée, elle se prend d'une bataille.
     pub fn murs_ville(&self, vi: usize) -> f64 {
         let v = &self.villes[vi];
-        let rs = &regles().siege;
-        let mut m = 0.0;
+        let mut m = regles().fortif(v.fortif).map_or(0.0, |f| f.murs);
         for b in self.batiments.iter().filter(|b| b.proprio == v.proprio && b.fini()) {
             let d = regles().bat(&b.cle).unwrap();
-            let dd = self.carte.dist(b.case, v.case);
-            if d.defense > 0.0 && dd <= 4 {
+            if d.defense > 0.0 && self.carte.dist(b.case, v.case) <= 4 {
                 m += d.defense;
-            }
-            if d.rempart && dd <= 3 {
-                m += rs.rempart;
             }
         }
         if self.a_tech(v.proprio, "vauban") {
-            m *= rs.vauban_defense;
+            m *= regles().siege.vauban_defense;
         }
         m.round()
+    }
+
+    /// Les cases intra-muros : la mairie seule (Palissade, Murailles), puis aussi les cases voisines
+    /// qui appartiennent à la ville (Bastions, Citadelle). Vide pour une ville ouverte.
+    pub fn enceinte(&self, vi: usize) -> Vec<usize> {
+        let v = &self.villes[vi];
+        let Some(f) = regles().fortif(v.fortif) else { return Vec::new() };
+        self.carte.rayon(v.case, f.enceinte).into_iter().filter(|&c| c == v.case || (self.carte.cases[c].terre() && self.carte.cases[c].proprio == v.proprio)).collect()
+    }
+
+    /// Un bâtiment d'une ville assiégée, hors de l'enceinte : un faubourg, qui ne produit plus.
+    pub fn faubourg_assiege(&self, b: &Batiment) -> bool {
+        let Some(vid) = b.ville else { return false };
+        if b.cle == "hotel" || self.siege_de(vid).is_none() {
+            return false;
+        }
+        let Some(vi) = self.villes.iter().position(|v| v.id == vid && v.proprio == b.proprio) else { return false };
+        !self.enceinte(vi).contains(&b.case)
+    }
+
+    /// Le niveau de fortification suivant de la ville `vi`, s'il est permis (travaux, rang, technologie) ;
+    /// le paiement est vérifié par l'appelant.
+    pub fn peut_fortifier(&self, vi: usize) -> Result<&'static DefFortif, String> {
+        let v = &self.villes[vi];
+        if v.travaux_fortif > 0 {
+            return Err(format!("{} est déjà en travaux ({} mois)", v.nom, v.travaux_fortif));
+        }
+        let f = regles().fortif(v.fortif + 1).ok_or("Fortifications au niveau maximal")?;
+        if v.niveau < f.rang {
+            return Err(format!("Il faut une ville au rang {}", regles().nom_niveau(f.rang)));
+        }
+        if let Some(t) = &f.tech {
+            if !self.a_tech(v.proprio, t) {
+                return Err(format!("Il faut la technologie « {} »", regles().tech(t).map_or(t.as_str(), |x| x.nom.as_str())));
+            }
+        }
+        Ok(f)
+    }
+
+    /// Chaque mois de siège, l'assiégeant pille un bâtiment des faubourgs : il emporte de l'or et une part
+    /// de ce qu'il a coûté, et le bâtiment reste arrêté quelques mois.
+    fn piller_faubourg(&mut self, vid: u32, rapport: &mut Rapport) {
+        let (Some(si), Some(vi)) = (self.siege_de(vid), self.villes.iter().position(|v| v.id == vid)) else { return };
+        let (pr, qui, tour) = (self.sieges[si].assiegeant, self.villes[vi].proprio, self.tour);
+        let cibles: Vec<usize> = (0..self.batiments.len()).filter(|&i| {
+            let b = &self.batiments[i];
+            b.proprio == qui && b.fini() && b.arret <= tour && self.faubourg_assiege(b)
+        }).collect();
+        let Some(&i) = self.hasard.choix(&cibles) else { return };
+        let rs = &regles().siege;
+        let d = regles().bat(&self.batiments[i].cle).unwrap();
+        self.batiments[i].arret = tour + rs.pillage_mois;
+        let case = self.batiments[i].case;
+        let mut butin: Panier = d.cout.iter().map(|(r, q)| (r.clone(), (q * rs.pillage_part).floor())).filter(|x| x.1 > 0.0).collect();
+        *butin.entry("or".into()).or_insert(0.0) += rs.pillage_or;
+        if pr == 0 {
+            let s = self.stats(0);
+            for (r, q) in &butin {
+                let cap = self.capacite(&s, r);
+                let x = self.royaumes[0].stock.entry(r.clone()).or_insert(0.0);
+                *x = (*x + q).min(cap.max(*x));
+            }
+        } else if let Some(r) = self.royaumes.get_mut(pr as usize) {
+            r.or += regles().valeur(&butin);
+        }
+        self.sieges[si].pillage = Some((case, d.cle.clone()));
+        if pr == 0 || qui == 0 {
+            let gain = butin.iter().map(|(r, q)| format!("{q} {}", regles().res_icone(r))).collect::<Vec<_>>().join(", ");
+            let qui_pille = if pr == 0 { "Vos troupes pillent".to_string() } else { format!("{} pille", self.nom_royaume(pr)) };
+            let texte = format!("🔥 {qui_pille} {} {} dans les faubourgs de {} (butin : {gain})", d.icone, d.nom, self.villes[vi].nom);
+            self.evt(rapport, texte, if pr == 0 { "or" } else { "guerre" }, Some(case));
+        }
     }
 
     pub fn siege_de(&self, ville: u32) -> Option<usize> {
@@ -150,7 +219,10 @@ impl Partie {
                 if self.armees.iter().any(|a| a.proprio == s.assiegeant && a.case == s.case) {
                     self.prise(vi, s.assiegeant, rapport);
                 }
-            } else if implique {
+                continue;
+            }
+            self.piller_faubourg(vid, rapport);
+            if implique {
                 let pct = if s.murs_max > 0.0 { (s.murs / s.murs_max * 100.0).round() } else { 0.0 };
                 let faim = if s.faim > 0 { format!(", la ville a faim depuis {} mois", s.faim) } else { format!(", {} mois de vivres", s.vivres) };
                 self.evt(rapport, format!("🏰 Siège de {} ({} mois) : murs à {pct} %{faim}", v.nom, s.mois), "info", Some(v.case));
@@ -217,8 +289,7 @@ mod essais {
         let vi = p.villes.iter().position(|v| v.proprio == 1).unwrap();
         let cv = p.villes[vi].case;
         if murs {
-            let c = p.carte.rayon(cv, 2).into_iter().find(|&c| p.carte.cases[c].bat.is_none() && p.praticable(c)).unwrap();
-            p.poser("remparts", c, 1, true);
+            p.villes[vi].fortif = 3;
         }
         let pres = p.carte.voisins(cv).into_iter().find(|&c| p.praticable(c) && p.carte.cases[c].bat.is_none()).unwrap();
         let mut u = BTreeMap::new();
@@ -256,7 +327,7 @@ mod essais {
     #[test]
     fn ville_sans_murs_prise_d_un_coup() {
         let (mut p, vi, _) = devant_la_ville(false);
-        p.batiments.retain(|b| !(b.proprio == 1 && matches!(b.cle.as_str(), "tour" | "remparts" | "citadelle")));
+        p.batiments.retain(|b| !(b.proprio == 1 && b.cle == "tour"));
         assert_eq!(p.murs_ville(vi), 0.0);
         p.fin_du_mois();
         assert_eq!(p.villes[vi].proprio, 0);
@@ -272,6 +343,123 @@ mod essais {
         assert!(p.armee(id).is_none() && p.sieges.is_empty(), "une sortie disperse l'éclaireur");
         assert!(r.evenements.iter().any(|e| e.texte.contains("sortie")));
         assert_eq!(p.villes[vi].proprio, 1);
+    }
+
+    #[test]
+    fn fortifier_la_ville_et_refus() {
+        let mut p = Partie::nouvelle(Options { graine: 31, ..Options::default() });
+        let ordre = |p: &mut Partie, v: u32| crate::commandes::executer(p, &serde_json::json!({"action": "fortifier", "ville": v}));
+        let vid = p.villes[0].id;
+        let autre = p.villes.iter().find(|v| v.proprio == 1).unwrap().id;
+        assert_eq!(ordre(&mut p, autre), Err("Cette ville ne vous appartient pas".into()));
+        assert_eq!(ordre(&mut p, 999_999), Err("ville inconnue".into()));
+        let stock = |p: &mut Partie, n: f64| {
+            for r in ["bois", "planches", "pierre", "outils", "or"] {
+                p.royaumes[0].stock.insert(r.into(), n);
+            }
+        };
+        stock(&mut p, 0.0);
+        let e = crate::vue::etat(&p);
+        assert_eq!((e["villes"][0]["fortif"].as_u64(), e["villes"][0]["fortif_nom"].as_str()), (Some(0), Some("Ville ouverte")));
+        assert_eq!(e["villes"][0]["fortif_suivante"]["nom"], "Palissade");
+        assert_eq!(e["villes"][0]["fortif_suivante"]["possible"], false);
+        assert_eq!(ordre(&mut p, vid), Err("Ressources insuffisantes".into()));
+        stock(&mut p, 5000.0);
+        assert!(ordre(&mut p, vid).is_ok());
+        assert_eq!(p.villes[0].travaux_fortif, 2);
+        assert!(ordre(&mut p, vid).unwrap_err().contains("déjà en travaux"));
+        assert_eq!(crate::vue::etat(&p)["villes"][0]["travaux_fortif"], 2);
+        p.fin_du_mois();
+        assert_eq!(p.villes[0].fortif, 0, "la ville est encore en travaux");
+        let r = p.fin_du_mois();
+        assert_eq!((p.villes[0].fortif, p.villes[0].travaux_fortif), (1, 0));
+        assert!(r.evenements.iter().any(|e| e.texte.contains("Palissade")));
+        assert!(p.murs_ville(0) >= 15.0, "la palissade donne des murs");
+        // Murailles : rang Village ; Bastions : la technologie Vauban ; Citadelle : rang Ville
+        stock(&mut p, 5000.0);
+        p.villes[0].niveau = 1;
+        assert_eq!(ordre(&mut p, vid), Err("Il faut une ville au rang Village".into()));
+        assert_eq!(crate::vue::etat(&p)["villes"][0]["fortif_suivante"]["verrou"], "Il faut une ville au rang Village");
+        p.villes[0].niveau = 3;
+        assert!(ordre(&mut p, vid).is_ok());
+        p.villes[0].travaux_fortif = 0;
+        p.villes[0].fortif = 2;
+        p.royaumes[0].techs.retain(|t| t != "vauban");
+        assert_eq!(ordre(&mut p, vid), Err("Il faut la technologie « Fortifications Vauban »".into()));
+        p.royaumes[0].techs.push("vauban".into());
+        assert!(ordre(&mut p, vid).is_ok());
+        p.villes[0].travaux_fortif = 0;
+        p.villes[0].fortif = 3;
+        assert_eq!(ordre(&mut p, vid), Err("Il faut une ville au rang Ville".into()));
+        p.villes[0].niveau = 4;
+        let territoire = |p: &Partie| p.carte.cases.iter().filter(|k| k.proprio == 0).count();
+        let avant = territoire(&p);
+        assert!(ordre(&mut p, vid).is_ok());
+        p.villes[0].travaux_fortif = 1;
+        p.fin_du_mois();
+        assert_eq!(p.villes[0].fortif, 4);
+        assert!(territoire(&p) > avant, "la citadelle étend le territoire");
+        assert_eq!(ordre(&mut p, vid), Err("Fortifications au niveau maximal".into()));
+        let e = crate::vue::etat(&p);
+        assert!(e["villes"][0]["fortif_suivante"].is_null() && e["villes"][0]["fortif_nom"] == "Citadelle");
+    }
+
+    #[test]
+    fn enceinte_rayon_un_aux_niveaux_trois_et_quatre() {
+        let mut p = Partie::nouvelle(Options { graine: 31, ..Options::default() });
+        let cv = p.villes[0].case;
+        assert!(p.enceinte(0).is_empty(), "ville ouverte");
+        for n in [1, 2] {
+            p.villes[0].fortif = n;
+            assert_eq!(p.enceinte(0), vec![cv], "la mairie seule");
+        }
+        for n in [3, 4] {
+            p.villes[0].fortif = n;
+            let e = p.enceinte(0);
+            assert!(e.len() > 1 && e.contains(&cv));
+            assert!(e.iter().all(|&c| p.carte.dist(c, cv) <= 1 && p.carte.cases[c].proprio == 0));
+            assert_eq!(crate::vue::etat(&p)["villes"][0]["enceinte"].as_array().unwrap().len(), e.len());
+        }
+    }
+
+    #[test]
+    fn faubourgs_arretes_et_pilles_l_intra_muros_produit() {
+        let mut p = Partie::nouvelle(Options { graine: 31, ..Options::default() });
+        p.royaumes[1].statut = "guerre".into();
+        let cv = p.villes[0].case;
+        p.villes[0].fortif = 3;
+        // une scierie dans l'enceinte, une autre dans les faubourgs
+        let dedans = p.enceinte(0).into_iter().find(|&c| p.peut_construire("scierie", c, 0).is_ok()).unwrap();
+        let dehors = p.carte.rayon(cv, 3).into_iter().find(|&c| p.carte.dist(c, cv) >= 2 && p.peut_construire("scierie", c, 0).is_ok()).unwrap();
+        let (bi, bo) = (p.poser("scierie", dedans, 0, true), p.poser("scierie", dehors, 0, true));
+        p.royaumes[0].stock.insert("bois".into(), 300.0);
+        // une armée du royaume 1 arrive devant la capitale
+        let pres = p.carte.voisins(cv).into_iter().find(|&c| p.praticable(c) && p.carte.cases[c].bat.is_none()).unwrap();
+        let id = p.creer_armee(1, pres, BTreeMap::from([("grenadier".to_string(), 30), ("canon".to_string(), 2)]));
+        let i = p.armee(id).unwrap();
+        p.armees[i].chemin = vec![cv];
+        let r = p.fin_du_mois();
+        let vid = p.villes[0].id;
+        let si = p.siege_de(vid).expect("la capitale fortifiée est assiégée");
+        let (case, cle) = p.sieges[si].pillage.clone().expect("un faubourg pillé");
+        assert!(!p.enceinte(0).contains(&case));
+        assert!(p.batiments.iter().any(|b| b.case == case && b.cle == cle && b.arret > p.tour), "le bâtiment pillé est arrêté");
+        assert!(r.evenements.iter().any(|e| e.texte.contains("faubourgs")));
+        assert!(p.bat(bi).unwrap().produit.get("planches").copied().unwrap_or(0.0) > 0.0, "l'intra-muros produit : {}", p.bat(bi).unwrap().etat);
+        assert!(p.bat(bo).unwrap().produit.is_empty(), "le faubourg ne produit plus : {}", p.bat(bo).unwrap().etat);
+        let e = crate::vue::etat(&p);
+        let s = &e["sieges"][0];
+        assert!(s["faubourgs"].as_array().unwrap().iter().any(|f| f["id"] == bo));
+        assert!(!s["faubourgs"].as_array().unwrap().iter().any(|f| f["id"] == bi));
+        assert_eq!(s["pillage"]["case"], case);
+        // chaque mois un autre pillage, et l'assiégeant s'enrichit
+        for b in p.batiments.iter_mut() {
+            b.arret = 0;
+        }
+        let or = p.royaumes[1].or;
+        let eff = p.meteo.effets(p.tour);
+        p.sieges_mois(&eff, &mut Rapport::default());
+        assert!(p.royaumes[1].or > or, "butin");
     }
 
     #[test]

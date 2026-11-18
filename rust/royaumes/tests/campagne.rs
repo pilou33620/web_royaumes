@@ -153,7 +153,9 @@ fn dix_ans_de_campagne() {
             break;
         }
     }
-    println!("événements à choix : {choix} · commerce maritime : {commerce_mer} 🪙");
+    let fortifs: Vec<u32> = p.villes.iter().filter(|v| v.proprio > 0).map(|v| v.fortif).collect();
+    println!("événements à choix : {choix} · commerce maritime : {commerce_mer} 🪙 · fortifications des rivaux : {fortifs:?}");
+    assert!(fortifs.iter().any(|&f| f > 0), "les rivaux fortifient leurs villes");
     assert!(choix >= 20, "un événement à choix tous les 3 ou 4 mois ({choix})");
     assert!(espion, "le robot a recruté un espion");
     let j = p.joueur();

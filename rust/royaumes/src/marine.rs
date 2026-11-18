@@ -386,6 +386,9 @@ mod essais {
     #[test]
     fn bataille_navale_et_blocus() {
         let (mut p, port) = avec_port(5);
+        // un puits : un incendie tiré au sort ne brûle pas le port pendant le test
+        let c = (0..p.carte.cases.len()).find(|&c| p.peut_construire("puits", c, 0).is_ok()).unwrap();
+        p.poser("puits", c, 0, true);
         p.recruter_dans(0, "flute", port);
         let eau = p.flottes[0].case;
         let mut u = std::collections::BTreeMap::new();

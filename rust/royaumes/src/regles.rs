@@ -37,7 +37,6 @@ pub struct DefBat {
     pub savoir: f64,
     pub territoire: i32,
     pub defense: f64,
-    pub rempart: bool,
     pub unites: Vec<String>,
     pub colons: u32,
     pub desc: String,
@@ -140,8 +139,12 @@ pub struct DefSiege {
     pub vauban_attaque: f64,
     pub vauban_defense: f64,
     pub gribeauval: f64,
-    /// murs donnés par des bastions Vauban (les tours et citadelles donnent leur défense)
-    pub rempart: f64,
+    /// part du coût des fortifications payée par l'ordinateur (en or, son économie est résumée)
+    pub fortif_ia: f64,
+    /// pillage d'un faubourg : or, part du coût du bâtiment emportée, mois d'arrêt
+    pub pillage_or: f64,
+    pub pillage_part: f64,
+    pub pillage_mois: u32,
     /// mois de vivres d'une ville assiégée : base, + par grenier, + rang de la ville
     pub vivres_base: f64,
     pub vivres_grenier: f64,
@@ -151,6 +154,29 @@ pub struct DefSiege {
     pub faim: f64,
     /// mois de faim avant la reddition
     pub reddition_faim: u32,
+}
+
+/// Un niveau de fortification de ville (1 Palissade … 4 Citadelle).
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DefFortif {
+    pub niveau: u32,
+    pub nom: String,
+    pub icone: String,
+    /// rang de la ville requis
+    pub rang: u32,
+    pub tech: Option<String>,
+    pub cout: Panier,
+    pub murs: f64,
+    /// multiplicateur de la défense de la ville
+    pub defense: f64,
+    /// mois de travaux
+    pub duree: u32,
+    /// rayon de l'enceinte autour de la mairie (0 : la mairie seule)
+    pub enceinte: i32,
+    /// cases de territoire en plus autour de la ville
+    pub territoire: i32,
+    pub desc: String,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -237,6 +263,7 @@ pub struct Regles {
     pub vision: DefVision,
     pub marine: DefMarine,
     pub espionnage: DefEspionnage,
+    pub fortifications: Vec<DefFortif>,
     pub siege: DefSiege,
     pub evenements_choix: Vec<DefChoix>,
 }
@@ -271,8 +298,15 @@ impl Regles {
     pub fn epoque(&self, annee: i32) -> &DefEpoque {
         self.epoques.iter().rev().find(|e| annee >= e.debut).unwrap_or(&self.epoques[0])
     }
+    pub fn fortif(&self, n: u32) -> Option<&DefFortif> {
+        self.fortifications.iter().find(|f| f.niveau == n)
+    }
     pub fn mission(&self, cle: &str) -> Option<&DefMission> {
         self.espionnage.missions.iter().find(|m| m.cle == cle)
+    }
+    /// Ce que vaut un panier en or (au prix de base des marchandises).
+    pub fn valeur(&self, p: &Panier) -> f64 {
+        p.iter().map(|(r, q)| if r == "or" { *q } else { self.prix.get(r).copied().unwrap_or(1.0) * q }).sum()
     }
     pub fn est_vivre(&self, r: &str) -> bool {
         self.vivres.iter().any(|v| v == r)
@@ -326,6 +360,13 @@ mod essais {
         assert!(r.unite("vaisseau").unwrap().guerre() && !r.unite("flute").unwrap().guerre());
         assert_eq!(r.espionnage.missions.len(), 3);
         assert!(r.siege.tranchees > 0.0 && r.vision.capitale > 0);
+        assert_eq!(r.fortifications.len(), 4);
+        for (i, f) in r.fortifications.iter().enumerate() {
+            assert_eq!(f.niveau, i as u32 + 1);
+            assert!(f.murs > 0.0 && f.defense > 1.0 && f.duree > 0 && r.niveau(f.rang).is_some(), "{}", f.nom);
+            assert!(f.tech.as_ref().map_or(true, |t| r.tech(t).is_some()) && f.cout.keys().all(|k| res.contains(&k.as_str())), "{}", f.nom);
+        }
+        assert!(r.bat("remparts").unwrap().cat == "aucune" && r.bat("citadelle").unwrap().cat == "aucune", "ils ne se construisent plus");
         assert_eq!(r.epoque(1700).cle, "ancien");
         assert_eq!(r.epoque(1790).cle, "empire");
         assert_eq!(r.epoque(1850).cle, "industrie");

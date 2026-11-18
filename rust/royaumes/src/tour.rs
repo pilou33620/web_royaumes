@@ -386,6 +386,7 @@ impl Partie {
         let vid = self.villes[vi].id;
         let etait_capitale = self.villes[vi].capitale;
         self.villes[vi].proprio = nouveau;
+        self.villes[vi].travaux_fortif = 0;
         self.sieges.retain(|s| s.ville != vid);
         self.blocus.retain(|b| b.ville != vid);
         self.villes[vi].capitale = !self.villes.iter().any(|v| v.proprio == nouveau && v.capitale);
@@ -455,7 +456,7 @@ impl Partie {
                     format!("Nouvelle-{}", self.prochain_id)
                 };
                 let vid = self.id();
-                self.villes.push(crate::partie::Ville { id: vid, nom: nom.clone(), proprio: pr, case: b.case, niveau: 1, capitale: false });
+                self.villes.push(crate::partie::Ville { id: vid, nom: nom.clone(), proprio: pr, case: b.case, niveau: 1, capitale: false, fortif: 0, travaux_fortif: 0 });
                 if let Some(bb) = self.batiments.iter_mut().find(|x| x.id == id) {
                     bb.cle = "hotel".into();
                     bb.ville = Some(vid);
@@ -471,6 +472,24 @@ impl Partie {
             }
             if b.proprio == 0 {
                 self.evt(rapport, format!("{} {} achevé(e)", d.icone, d.nom), "bon", Some(b.case));
+            }
+        }
+        // les villes en travaux de fortification
+        for vi in 0..self.villes.len() {
+            let v = &mut self.villes[vi];
+            if v.travaux_fortif == 0 {
+                continue;
+            }
+            v.travaux_fortif -= 1;
+            if v.travaux_fortif > 0 {
+                continue;
+            }
+            v.fortif += 1;
+            let (nom, case, proprio) = (v.nom.clone(), v.case, v.proprio);
+            let Some(f) = regles().fortif(self.villes[vi].fortif) else { continue };
+            territoire |= f.territoire > 0;
+            if proprio == 0 {
+                self.evt(rapport, format!("{} {nom} : {} achevé(e)s !", f.icone, f.nom), "bon", Some(case));
             }
         }
         if territoire {
@@ -542,7 +561,11 @@ impl Partie {
                 continue;
             }
             if self.batiments[i].arret > self.tour {
-                self.batiments[i].etat = format!("💣 Saboté : arrêté jusqu'en {}", meteo::date_texte(self.batiments[i].arret));
+                self.batiments[i].etat = format!("💣 Endommagé : arrêté jusqu'en {}", meteo::date_texte(self.batiments[i].arret));
+                continue;
+            }
+            if self.faubourg_assiege(&self.batiments[i]) {
+                self.batiments[i].etat = "🔥 Faubourg assiégé : hors de l'enceinte, plus rien ne sort".into();
                 continue;
             }
             if !d.unites.is_empty() {
@@ -881,7 +904,7 @@ impl Partie {
             let bois_: Vec<u32> = self
                 .batiments
                 .iter()
-                .filter(|b| b.proprio == 0 && b.fini() && !["hotel", "maison_pierre", "hotel_particulier", "immeuble", "eglise", "cathedrale", "citadelle", "remparts", "tour", "palais", "puits", "fontaine"].contains(&b.cle.as_str()))
+                .filter(|b| b.proprio == 0 && b.fini() && !["hotel", "maison_pierre", "hotel_particulier", "immeuble", "eglise", "cathedrale", "tour", "palais", "puits", "fontaine"].contains(&b.cle.as_str()))
                 .map(|b| b.id)
                 .collect();
             if let Some(&id) = self.hasard.choix(&bois_) {

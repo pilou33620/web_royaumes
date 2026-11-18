@@ -104,8 +104,8 @@
     {"cle": "haras", "nom": "Haras", "icone": "🐎", "cat": "militaire", "niveau": 2, "cout": {"planches": 30, "pierre": 15, "ble": 20}, "duree": 3, "ouvriers": 2, "unites": ["dragon", "hussard", "cuirassier"], "desc": "Forme la cavalerie."},
     {"cle": "arsenal", "nom": "Arsenal", "icone": "💣", "cat": "militaire", "niveau": 3, "cout": {"pierre": 50, "planches": 30, "outils": 10}, "duree": 4, "ouvriers": 3, "unites": ["canon", "canon_gribeauval"], "desc": "Fond les canons (×4 contre les villes)."},
     {"cle": "tour", "nom": "Tour de guet", "icone": "🗼", "cat": "militaire", "niveau": 1, "cout": {"pierre": 25, "bois": 15}, "duree": 2, "territoire": 2, "defense": 10, "desc": "Étend le territoire (rayon 2) et défend la ville proche."},
-    {"cle": "remparts", "nom": "Bastions Vauban", "icone": "🧱", "cat": "militaire", "niveau": 2, "cout": {"pierre": 80, "bois": 20}, "duree": 4, "rempart": true, "desc": "Défense de la ville proche ×1,5."},
-    {"cle": "citadelle", "nom": "Citadelle étoilée", "icone": "🏯", "cat": "militaire", "niveau": 3, "cout": {"pierre": 150, "planches": 40, "outils": 15, "or": 250}, "duree": 8, "ouvriers": 2, "territoire": 3, "defense": 30, "desc": "Étend le territoire (rayon 3), défense considérable."},
+    {"cle": "remparts", "nom": "Bastions Vauban", "icone": "🧱", "cat": "aucune", "niveau": 99, "duree": 4, "desc": "Obsolète : les remparts sont désormais une amélioration de la ville (fortifications)."},
+    {"cle": "citadelle", "nom": "Citadelle étoilée", "icone": "🏯", "cat": "aucune", "niveau": 99, "duree": 8, "desc": "Obsolète : la citadelle est désormais le niveau 4 des fortifications de la ville."},
 
     {"cle": "colonie", "nom": "Colonie", "icone": "🚩", "cat": "admin", "niveau": 2, "cout": {"bois": 60, "planches": 40, "pierre": 40, "outils": 10, "or": 250}, "duree": 6, "colons": 12, "desc": "Fonde un village hors de vos frontières (12 colons, à 4 cases au moins d'une ville)."},
     {"cle": "hotel", "nom": "Hôtel de ville", "icone": "🏰", "cat": "aucune", "niveau": 99, "duree": 1, "desc": "Cœur de la ville."}
@@ -130,7 +130,7 @@
   ],
   "techs": [
     {"cle": "assolement", "nom": "Assolement", "annee": 1700, "cout": 40, "desc": "Fermes +20 %."},
-    {"cle": "vauban", "nom": "Fortifications Vauban", "annee": 1700, "cout": 50, "desc": "Défense des villes +25 %."},
+    {"cle": "vauban", "nom": "Fortifications Vauban", "annee": 1700, "cout": 50, "desc": "Bastions à la Vauban et citadelles ; défense des villes +25 %."},
     {"cle": "silex", "nom": "Fusil à silex et baïonnette", "annee": 1703, "cout": 60, "desc": "Infanterie +1 attaque, grenadiers."},
     {"cle": "manufactures", "nom": "Manufactures royales", "annee": 1710, "cout": 80, "desc": "Débloque la Manufacture royale."},
     {"cle": "routes", "nom": "Routes royales et canaux", "annee": 1720, "cout": 90, "desc": "Armées +1 case par mois, routes commerciales +50 %."},
@@ -157,7 +157,13 @@
       {"cle": "sabotage", "nom": "Sabotage", "icone": "💣", "duree": 1, "chance": 0.55, "mois": 4, "incendie": 0.3, "desc": "Un bâtiment de la ville cesse de produire quelques mois, ou part en fumée."}
     ]
   },
-  "siege": {"tranchees": 6, "artillerie": 1.0, "vauban_attaque": 1.5, "vauban_defense": 1.25, "gribeauval": 1.3, "rempart": 40, "vivres_base": 2, "vivres_grenier": 2, "usure_garnison": 0.05, "usure_assiegeant": 0.03, "faim": 0.15, "reddition_faim": 2},
+  "fortifications": [
+    {"niveau": 1, "nom": "Palissade", "icone": "🪵", "rang": 1, "cout": {"bois": 60, "planches": 20, "or": 60}, "murs": 15, "defense": 1.15, "duree": 2, "enceinte": 0, "desc": "Pieux de bois et fossé autour de la mairie."},
+    {"niveau": 2, "nom": "Murailles", "icone": "🧱", "rang": 2, "cout": {"pierre": 120, "planches": 30, "or": 200}, "murs": 30, "defense": 1.3, "duree": 4, "enceinte": 0, "desc": "Murs de pierre et tours rondes autour de la mairie."},
+    {"niveau": 3, "nom": "Bastions à la Vauban", "icone": "⭐", "rang": 3, "tech": "vauban", "cout": {"pierre": 220, "planches": 40, "outils": 15, "or": 400}, "murs": 50, "defense": 1.5, "duree": 6, "enceinte": 1, "desc": "Enceinte bastionnée : elle englobe les cases voisines de la mairie."},
+    {"niveau": 4, "nom": "Citadelle", "icone": "🏯", "rang": 4, "tech": "vauban", "cout": {"pierre": 350, "planches": 80, "outils": 40, "or": 900}, "murs": 80, "defense": 1.8, "duree": 10, "enceinte": 1, "territoire": 1, "desc": "Double enceinte et demi-lunes ; le territoire de la ville s'étend d'une case."}
+  ],
+  "siege": {"tranchees": 6, "artillerie": 1.0, "vauban_attaque": 1.5, "vauban_defense": 1.25, "gribeauval": 1.3, "fortif_ia": 0.5, "pillage_or": 30, "pillage_part": 0.3, "pillage_mois": 4, "vivres_base": 2, "vivres_grenier": 2, "usure_garnison": 0.05, "usure_assiegeant": 0.03, "faim": 0.15, "reddition_faim": 2},
   "evenements_choix": [
     {"cle": "inventeur", "titre": "Un inventeur", "icone": "⚙️", "epoques": ["lumieres", "empire", "industrie"], "texte": "Un inventeur se présente à la cour de {ville} avec les plans d'une machine extraordinaire. Il ne lui manque que l'argent.", "options": [
       {"texte": "Financer ses travaux", "cout": {"or": 150}, "effets": {"savoir": 120}, "risque": 0.25, "echec": {"savoir": 20}, "echec_texte": "La machine explose au premier essai… on en tire tout de même quelques leçons."},

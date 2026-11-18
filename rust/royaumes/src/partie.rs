@@ -11,7 +11,8 @@ use crate::hasard::Hasard;
 use crate::meteo::{self, Meteo};
 use crate::regles::{regles, Panier};
 
-pub const VERSION_SAUVEGARDE: u32 = 1;
+/// 2 : les remparts et citadelles sont devenus des niveaux de fortification des villes
+pub const VERSION_SAUVEGARDE: u32 = 2;
 /// La partie commence en avril 1700 (le printemps : on sème avant l'hiver).
 pub const TOUR_DEPART: u32 = 3;
 /// Les brigands : un « royaume » à part, ennemi de tous.
@@ -109,6 +110,12 @@ pub struct Ville {
     pub case: usize,
     pub niveau: u32,
     pub capitale: bool,
+    /// niveau de fortification : 0 ville ouverte, 1 Palissade … 4 Citadelle (`regles.fortifications`)
+    #[serde(default)]
+    pub fortif: u32,
+    /// mois de travaux restants avant le niveau suivant (0 : pas de travaux)
+    #[serde(default)]
+    pub travaux_fortif: u32,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -203,6 +210,8 @@ pub struct Siege {
     pub faim: u32,
     /// assaut ordonné : il se donne à la fin du mois
     pub assaut: bool,
+    /// dernier faubourg pillé : (case, clé du bâtiment)
+    pub pillage: Option<(usize, String)>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -549,6 +558,35 @@ impl Partie {
         p
     }
 
+    /// Relit une sauvegarde (même ancienne) et la met à jour.
+    pub fn relire(texte: &str) -> Result<Partie, String> {
+        let mut p: Partie = serde_json::from_str(texte).map_err(|e| e.to_string())?;
+        p.migrer();
+        Ok(p)
+    }
+
+    /// Les anciens bâtiments « remparts » et « citadelle » deviennent la fortification de la ville proche
+    /// (remparts → 3, citadelle → 4, le plus haut l'emporte).
+    pub fn migrer(&mut self) {
+        let anciens: Vec<Batiment> = self.batiments.iter().filter(|b| b.cle == "remparts" || b.cle == "citadelle").cloned().collect();
+        for b in &anciens {
+            let vi = b.ville.and_then(|vid| self.villes.iter().position(|v| v.id == vid && v.proprio == b.proprio)).or_else(|| self.ville_proche(b.case, b.proprio));
+            if let Some(vi) = vi {
+                let v = &mut self.villes[vi];
+                v.fortif = v.fortif.max(if b.cle == "citadelle" { 4 } else { 3 });
+            }
+            self.batiments.retain(|x| x.id != b.id);
+            if self.carte.cases[b.case].bat == Some(b.id) {
+                self.carte.cases[b.case].bat = None;
+            }
+        }
+        if !anciens.is_empty() {
+            self.recalculer_territoire();
+            self.recalculer_routes();
+        }
+        self.version = VERSION_SAUVEGARDE;
+    }
+
     // ------------------------------------------------------------------ utilitaires
     pub fn annee(&self) -> i32 {
         meteo::annee(self.tour)
@@ -650,7 +688,7 @@ impl Partie {
         let Some(roy) = (id >= 0).then(|| self.royaumes.get(id as usize)).flatten() else { return v };
         let mut sources: Vec<(usize, i32)> = Vec::new();
         sources.extend(self.villes.iter().filter(|x| x.proprio == id).map(|x| (x.case, if x.capitale { rv.capitale } else { rv.ville })));
-        sources.extend(self.batiments.iter().filter(|b| b.proprio == id && b.fini() && (b.cle == "tour" || b.cle == "citadelle")).map(|b| (b.case, rv.tour)));
+        sources.extend(self.batiments.iter().filter(|b| b.proprio == id && b.fini() && b.cle == "tour").map(|b| (b.case, rv.tour)));
         for a in self.armees.iter().filter(|a| a.proprio == id) {
             let cavalerie = a.unites.keys().any(|u| regles().unite(u).is_some_and(|d| d.genre == "cavalerie"));
             sources.push((a.case, if cavalerie { rv.cavalerie } else { rv.armee }));
@@ -693,7 +731,7 @@ impl Partie {
     // ------------------------------------------------------------------ villes et territoire
     pub fn fonder_ville(&mut self, proprio: i32, case: usize, nom: String, niveau: u32, capitale: bool) -> usize {
         let id = self.id();
-        self.villes.push(Ville { id, nom, proprio, case, niveau, capitale });
+        self.villes.push(Ville { id, nom, proprio, case, niveau, capitale, fortif: 0, travaux_fortif: 0 });
         let b = self.poser("hotel", case, proprio, true);
         if let Some(bb) = self.batiments.iter_mut().find(|x| x.id == b) {
             bb.ville = Some(id);
@@ -702,7 +740,7 @@ impl Partie {
     }
 
     pub fn recalculer_territoire(&mut self) {
-        let mut sources: Vec<(usize, i32, i32, u8)> = self.villes.iter().map(|v| (v.case, v.proprio, 2 + v.niveau as i32, 0)).collect();
+        let mut sources: Vec<(usize, i32, i32, u8)> = self.villes.iter().map(|v| (v.case, v.proprio, 2 + v.niveau as i32 + regles().fortif(v.fortif).map_or(0, |f| f.territoire), 0)).collect();
         for b in &self.batiments {
             if let Some(d) = regles().bat(&b.cle) {
                 if b.fini() && d.territoire > 0 {
@@ -852,7 +890,7 @@ impl Partie {
                 s.stockage += 40.0;
                 continue;
             }
-            let actif = (d.ouvriers == 0 || b.ouvriers > 0) && b.arret <= self.tour;
+            let actif = (d.ouvriers == 0 || b.ouvriers > 0) && b.arret <= self.tour && !self.faubourg_assiege(b);
             s.logement += d.logement as i64;
             s.stockage += d.stockage;
             s.vivres += d.stock_vivres;
@@ -958,23 +996,16 @@ impl Partie {
     pub fn defense_ville(&self, vi: usize) -> f64 {
         let v = &self.villes[vi];
         let mut d = 8.0 + v.niveau as f64 * 8.0;
-        let mut rempart = false;
         for b in &self.batiments {
             if b.proprio != v.proprio || !b.fini() {
                 continue;
             }
-            let dd = self.carte.dist(b.case, v.case);
             let def = regles().bat(&b.cle).unwrap();
-            if def.defense > 0.0 && dd <= 4 {
+            if def.defense > 0.0 && self.carte.dist(b.case, v.case) <= 4 {
                 d += def.defense;
             }
-            if def.rempart && dd <= 3 {
-                rempart = true;
-            }
         }
-        if rempart {
-            d *= 1.5;
-        }
+        d *= regles().fortif(v.fortif).map_or(1.0, |f| f.defense);
         if self.a_tech(v.proprio, "vauban") {
             d *= 1.25;
         }
@@ -1274,6 +1305,34 @@ mod essais {
         let e = crate::vue::etat(&p);
         assert!(e["villes"].as_array().unwrap().iter().any(|v| v["proprio"] == 1));
         assert!(e["armees"].as_array().unwrap().iter().all(|a| a["proprio"] == 0));
+    }
+
+    #[test]
+    fn ancienne_sauvegarde_remparts_et_citadelle() {
+        let mut p = Partie::nouvelle(Options { graine: 31, ..Options::default() });
+        let libres = |p: &Partie, id: i32| -> Vec<usize> {
+            let c = p.villes[p.capitale(id).unwrap()].case;
+            p.carte.rayon(c, 3).into_iter().filter(|&x| p.peut_construire("cabane", x, id).is_ok()).collect()
+        };
+        let (l0, l1) = (libres(&p, 0), libres(&p, 1));
+        let anciens = [p.poser("remparts", l0[0], 0, true), p.poser("citadelle", l0[1], 0, true), p.poser("remparts", l1[0], 1, true)];
+        // une sauvegarde d'avant les fortifications de ville
+        let mut v = serde_json::to_value(&p).unwrap();
+        v["version"] = serde_json::json!(1);
+        for ville in v["villes"].as_array_mut().unwrap() {
+            let o = ville.as_object_mut().unwrap();
+            o.remove("fortif");
+            o.remove("travaux_fortif");
+        }
+        let q = Partie::relire(&v.to_string()).unwrap();
+        assert_eq!(q.villes[q.capitale(0).unwrap()].fortif, 4, "citadelle → 4 (le plus haut l'emporte)");
+        assert_eq!(q.villes[q.capitale(1).unwrap()].fortif, 3, "remparts → 3");
+        assert!(q.batiments.iter().all(|b| b.cle != "remparts" && b.cle != "citadelle" && !anciens.contains(&b.id)));
+        assert!(q.carte.cases[l0[0]].bat.is_none() && q.carte.cases[l0[1]].bat.is_none() && q.carte.cases[l1[0]].bat.is_none());
+        assert_eq!(q.version, VERSION_SAUVEGARDE);
+        // relire une sauvegarde à jour ne change rien
+        let r = Partie::relire(&serde_json::to_string(&q).unwrap()).unwrap();
+        assert_eq!((r.batiments.len(), r.villes[0].fortif), (q.batiments.len(), q.villes[0].fortif));
     }
 
     #[test]

@@ -6,10 +6,10 @@ use std::collections::{BTreeMap, VecDeque};
 use crate::partie::{Partie, Proposition, Rapport};
 use crate::regles::{regles, Panier};
 
-const TYPES: [&str; 40] = [
+const TYPES: [&str; 38] = [
     "cabane", "cabane", "maison", "maison", "maison_pierre", "ferme", "ferme", "bucheron", "carriere", "pecheur", "scierie", "moulin", "boulangerie", "caserne",
-    "tour", "marche", "eglise", "entrepot", "taverne", "bergerie", "forge", "grenier", "haras", "fontaine", "jardin", "statue", "citadelle", "port", "comptoir",
-    "hotel_particulier", "cathedrale", "mine_fer", "fonderie", "remparts", "vignoble", "ecole", "arsenal", "manufacture", "immeuble", "usine",
+    "tour", "marche", "eglise", "entrepot", "taverne", "bergerie", "forge", "grenier", "haras", "fontaine", "jardin", "statue", "port", "comptoir",
+    "hotel_particulier", "cathedrale", "mine_fer", "fonderie", "vignoble", "ecole", "arsenal", "manufacture", "immeuble", "usine",
 ];
 
 pub fn mois(p: &mut Partie, k: usize, rapport: &mut Rapport) {
@@ -42,6 +42,7 @@ pub fn mois(p: &mut Partie, k: usize, rapport: &mut Rapport) {
     if p.hasard.p(chance.min(0.95)) {
         construire(p, id, &mes_villes);
     }
+    fortifier(p, k, &mes_villes);
     // les villes grandissent avec leurs bâtiments
     for &vi in &mes_villes {
         let vid = p.villes[vi].id;
@@ -219,6 +220,29 @@ fn construire(p: &mut Partie, id: i32, villes: &[usize]) {
             return;
         }
     }
+}
+
+/// Les fortifications : de temps en temps (bien plus souvent en guerre), la ville la plus exposée
+/// — la capitale, puis les villes frontalières ou côtières ; à égalité la moins fortifiée — passe au niveau suivant.
+fn fortifier(p: &mut Partie, k: usize, villes: &[usize]) {
+    let id = k as i32;
+    if !p.hasard.p(if p.royaumes[k].statut == "guerre" { 0.25 } else { 0.06 }) {
+        return;
+    }
+    let exposee = |vi: usize| {
+        let v = &p.villes[vi];
+        let cotiere = p.carte.rayon(v.case, 2).iter().any(|&c| p.carte.cases[c].mer());
+        let frontaliere = p.villes.iter().any(|o| o.proprio != id && p.carte.dist(o.case, v.case) <= 10);
+        (2 * v.capitale as u32 + cotiere as u32 + frontaliere as u32, 4u32.saturating_sub(v.fortif))
+    };
+    let Some(vi) = villes.iter().copied().filter(|&vi| p.peut_fortifier(vi).is_ok()).max_by_key(|&vi| exposee(vi)) else { return };
+    let f = p.peut_fortifier(vi).unwrap();
+    let cout = regles().valeur(&f.cout) * regles().siege.fortif_ia;
+    if p.royaumes[k].or < cout + 100.0 {
+        return;
+    }
+    p.royaumes[k].or -= cout;
+    p.villes[vi].travaux_fortif = ((f.duree as f64) / p.options.difficulte).ceil().max(1.0) as u32;
 }
 
 fn fonder(p: &mut Partie, id: i32, villes: &[usize], rapport: &mut Rapport) {
@@ -468,6 +492,27 @@ mod essais {
         let a = p.armees.iter().find(|a| a.proprio == 1 && !a.chemin.is_empty());
         let convoi = p.flottes.iter().any(|f| f.proprio == 1 && f.armee.is_some());
         assert!(a.is_some_and(|a| *a.chemin.last().unwrap() == c0) || convoi || p.chemin(cap, c0).is_none());
+    }
+
+    #[test]
+    fn les_rivaux_fortifient_leur_capitale_en_guerre() {
+        let mut p = Partie::nouvelle(Options { graine: 42, ..Options::default() });
+        p.royaumes[1].statut = "guerre".into();
+        p.royaumes[1].or = 5000.0;
+        let villes: Vec<usize> = (0..p.villes.len()).filter(|&i| p.villes[i].proprio == 1).collect();
+        let cap = p.capitale(1).unwrap();
+        for _ in 0..80 {
+            fortifier(&mut p, 1, &villes);
+            if p.villes[cap].travaux_fortif > 0 {
+                break;
+            }
+        }
+        assert!(p.villes[cap].travaux_fortif > 0, "la capitale passe en travaux");
+        assert!(p.royaumes[1].or < 5000.0, "les travaux sont payés");
+        // les travaux s'achèvent
+        p.villes[cap].travaux_fortif = 1;
+        p.fin_du_mois();
+        assert!(p.villes[cap].fortif >= 1);
     }
 
     #[test]
