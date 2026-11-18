@@ -2,8 +2,8 @@
 //! sur la carte, des villes qui grandissent, une armée, des humeurs et des propositions.
 
 use crate::ia_militaire;
-use crate::partie::{Partie, Proposition, Rapport};
-use crate::regles::{regles, Panier};
+use crate::partie::{Partie, Rapport};
+use crate::regles::regles;
 
 const TYPES: [&str; 38] = [
     "cabane", "cabane", "maison", "maison", "maison_pierre", "ferme", "ferme", "bucheron", "carriere", "pecheur", "scierie", "moulin", "boulangerie", "caserne",
@@ -63,65 +63,15 @@ pub fn mois(p: &mut Partie, k: usize, rapport: &mut Rapport) {
     let cm = p.commerce_maritime(id);
     p.royaumes[k].or += cm;
     p.royaumes[k].commerce_mer = cm;
+    // diplomatie : humeurs, traités, guerres, paix et propositions, envers le joueur et les rivaux (ia_diplomatie.rs)
+    crate::ia_diplomatie::mois(p, k, rapport);
     // le militaire : défense, campagnes, sièges, recrutement, marine, espions, forts, exploration (ia_militaire.rs)
     ia_militaire::mois(p, k, rapport);
-    // humeur envers le joueur
-    let r = &mut p.royaumes[k];
-    let base = match r.caractere.as_str() {
-        "guerrier" => -20.0,
-        "marchand" => 15.0,
-        _ => 0.0,
-    } + r.attitude;
-    if r.statut == "alliance" {
-        r.relation += 0.3;
-    }
-    if r.commerce && r.statut != "guerre" {
-        r.relation += 0.4;
-    }
-    r.relation += (base - r.relation) * 0.03;
-    if r.statut == "guerre" {
-        r.relation = r.relation.min(-20.0);
-    }
-    r.relation = r.relation.clamp(-100.0, 100.0);
-    // guerre et paix
-    if r.statut != "guerre" && r.statut != "alliance" && p.tour > r.treve && r.relation <= -50.0 && p.tour > 18 && p.hasard.p(0.15) {
-        declarer_guerre(p, k, false, rapport);
-    }
-    let r = &p.royaumes[k];
-    if r.statut == "guerre" {
-        if p.tour > r.debut_guerre + 12 && p.tour >= r.prochaine_offre && (r.relation > -25.0 || p.puissance(id) < 0.5 * p.puissance(0)) && p.hasard.p(0.25) {
-            p.royaumes[k].prochaine_offre = p.tour + 6;
-            proposer(p, k, "paix", format!("{}, las de la guerre, vous propose la paix.", p.royaumes[k].nom), Panier::new(), Panier::new());
-        }
-    } else if p.tour > 12 && p.tour >= r.prochaine_offre {
-        let caractere = r.caractere.clone();
-        let relation = r.relation;
-        let statut = r.statut.clone();
-        let nom = r.nom.clone();
-        let mut offre = false;
-        if caractere == "marchand" && p.hasard.p(0.25) {
-            let donne = p.royaumes[k].surplus[p.hasard.indice(3)].clone();
-            let veut = p.royaumes[k].demande[p.hasard.indice(3)].clone();
-            let rg = regles();
-            let texte = format!("{nom} propose 30 {} {} contre 18 {} {}.", rg.res_icone(&donne), rg.res_nom(&donne), rg.res_icone(&veut), rg.res_nom(&veut));
-            proposer(p, k, "echange", texte, Panier::from([(donne, 30.0)]), Panier::from([(veut, 18.0)]));
-            offre = true;
-        } else if relation >= 65.0 && statut != "alliance" && p.hasard.p(0.2) {
-            proposer(p, k, "alliance", format!("{nom} vous propose une alliance durable."), Panier::new(), Panier::new());
-            offre = true;
-        } else if caractere == "guerrier" && relation < -15.0 && p.tour > 36 && p.puissance(id) > 1.4 * p.puissance(0) && p.hasard.p(0.2) {
-            proposer(p, k, "tribut", format!("{nom} exige un tribut de 150 🪙, sinon c'est la guerre."), Panier::new(), Panier::from([("or".to_string(), 150.0)]));
-            offre = true;
-        }
-        if offre {
-            p.royaumes[k].prochaine_offre = p.tour + p.hasard.entre(4, 9) as u32;
-        }
-    }
 }
 
-fn proposer(p: &mut Partie, k: usize, genre: &str, texte: String, donne: Panier, demande: Panier) {
-    let id = p.id();
-    p.propositions.push(Proposition { id, de: k, genre: genre.into(), texte, donne, demande });
+/// `id` est-il en guerre contre quelqu'un (le joueur ou un rival) ?
+fn en_guerre(p: &Partie, id: i32) -> bool {
+    !crate::ia_diplomatie::ennemis(p, id).is_empty()
 }
 
 fn construire(p: &mut Partie, id: i32, villes: &[usize]) {
@@ -151,7 +101,7 @@ fn construire(p: &mut Partie, id: i32, villes: &[usize]) {
 /// — la capitale, puis les villes frontalières ou côtières ; à égalité la moins fortifiée — passe au niveau suivant.
 fn fortifier(p: &mut Partie, k: usize, villes: &[usize]) {
     let id = k as i32;
-    if !p.hasard.p(if p.royaumes[k].statut == "guerre" { 0.25 } else { 0.06 }) {
+    if !p.hasard.p(if en_guerre(p, id) { 0.25 } else { 0.06 }) {
         return;
     }
     let exposee = |vi: usize| {
@@ -192,28 +142,8 @@ fn fonder(p: &mut Partie, id: i32, villes: &[usize], rapport: &mut Rapport) {
 }
 
 pub fn declarer_guerre(p: &mut Partie, k: usize, par_joueur: bool, rapport: &mut Rapport) {
-    let tour = p.tour;
-    let attente = p.hasard.entre(2, 4) as u32;
-    let r = &mut p.royaumes[k];
-    if r.statut == "guerre" {
-        return;
-    }
-    r.statut = "guerre".into();
-    r.debut_guerre = tour;
-    r.relation = (r.relation - 30.0).min(-30.0);
-    r.commerce = false;
-    r.prochaine_attaque = tour + attente;
-    let nom = r.nom.clone();
-    if par_joueur {
-        for (i, o) in p.royaumes.iter_mut().enumerate() {
-            if i != k && !o.joueur && o.vivant {
-                o.relation -= 8.0;
-            }
-        }
-        p.evt(rapport, format!("⚔️ Vous déclarez la guerre à {nom} !"), "guerre", None);
-    } else {
-        p.evt(rapport, format!("⚔️ {nom} vous déclare la guerre !"), "guerre", None);
-    }
+    let (a, b) = if par_joueur { (0, k) } else { (k, 0) };
+    crate::ia_diplomatie::declarer_guerre(p, a, b, rapport);
 }
 
 #[cfg(test)]

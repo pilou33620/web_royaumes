@@ -93,7 +93,9 @@ impl Partie {
         if let Some(h) = self.meteo.historique.clone() {
             self.evt(&mut rapport, h, "meteo", None);
         }
+        // la diplomatie du monde (rencontres, souverains, humeurs entre rivaux, coalitions), puis
         // les royaumes de l'ordinateur décident (constructions, recrutement, guerre, offres)
+        crate::ia_diplomatie::monde(self, &mut rapport);
         for k in 1..self.royaumes.len() {
             if self.royaumes[k].vivant {
                 ia::mois(self, k, &mut rapport);
@@ -424,7 +426,14 @@ impl Partie {
         self.recalculer_territoire();
         let nom = self.villes[vi].nom.clone();
         let case = self.villes[vi].case;
-        if nouveau == 0 {
+        // notée pour les coalitions et la rancune du vaincu, annoncée au joueur s'il connaît les deux royaumes ;
+        // une ville cédée par traité ne rapporte pas de butin
+        let cession = crate::ia_diplomatie::conquete(self, nouveau, ancien, vi, rapport);
+        if cession {
+            if nouveau == 0 || ancien == 0 {
+                self.noter(format!("{nom} passe à {} par traité", self.nom_royaume(nouveau)));
+            }
+        } else if nouveau == 0 {
             let r = &mut self.royaumes[ancien as usize];
             let butin = (r.or * 0.5).floor();
             r.or -= butin;
@@ -433,9 +442,6 @@ impl Partie {
         } else if ancien == 0 {
             let qui = self.nom_royaume(nouveau);
             self.evt(rapport, format!("💀 {nom} tombe aux mains de {qui} !"), "guerre", Some(case));
-        } else {
-            let qui = self.nom_royaume(nouveau);
-            self.noter(format!("{qui} s'empare de {nom}"));
         }
         let restantes: Vec<usize> = (0..self.villes.len()).filter(|&i| self.villes[i].proprio == ancien).collect();
         if restantes.is_empty() {
@@ -1004,6 +1010,7 @@ impl Partie {
                 texte: "Un colporteur propose 15 🔨 outils pour 120 🪙.".into(),
                 donne: Panier::from([("outils".to_string(), 15.0)]),
                 demande: Panier::from([("or".to_string(), 120.0)]),
+                ..Default::default()
             });
         }
     }

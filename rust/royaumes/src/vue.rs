@@ -5,7 +5,8 @@ use serde_json::{json, Value};
 use crate::carte::{Carte, Terrain};
 use crate::commandes::{cout_recrue, prix};
 use crate::meteo::{self, Meteo};
-use crate::partie::{nom_caractere, Partie};
+use crate::ia_diplomatie;
+use crate::partie::Partie;
 use crate::regles::regles;
 use crate::tour::QUETES;
 
@@ -171,10 +172,12 @@ pub fn etat(p: &Partie) -> Value {
             };
             json!({
                 "id": r.id, "nom": r.nom, "couleur": r.couleur, "joueur": r.joueur,
-                "caractere": nom_caractere(&r.caractere), "vivant": r.vivant, "statut": r.statut,
+                "caractere": p.diplomatie.souverains.get(r.id).map_or("", |s| ia_diplomatie::nom_caractere(&s.caractere)), "vivant": r.vivant, "statut": r.statut,
                 "relation": r.relation, "commerce": r.commerce, "puissance": p.puissance(r.id as i32),
                 "surplus": r.surplus, "demande": r.demande, "tresor": r.or.floor(), "prix": prix_,
                 "techs": r.techs.len(), "techs_liste": r.techs,
+                // souverain, trêve, guerres et alliances avec les royaumes connus, coalition, mémoire
+                "diplo": ia_diplomatie::vue_royaume(p, r.id),
             })
         }).collect::<Vec<_>>(),
         "villes": villes,
@@ -292,6 +295,7 @@ pub fn etat(p: &Partie) -> Value {
         },
         "routes": p.routes.iter().map(|r| json!([r[0], r[1], p.niveau_routes(r[2] as i32)])).collect::<Vec<_>>(),
         "propositions": p.propositions,
+        "coalitions": ia_diplomatie::vue_coalitions(p),
         "journal": p.journal.iter().take(40).collect::<Vec<_>>(),
         "rapport": rapport,
         "fin": p.fin,
