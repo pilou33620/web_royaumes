@@ -5,7 +5,8 @@ use serde_json::{json, Value};
 use crate::carte::{Carte, Terrain};
 use crate::commandes::{cout_recrue, prix};
 use crate::meteo::{self, Meteo};
-use crate::partie::{nom_caractere, Partie};
+use crate::ia::diplomatie;
+use crate::partie::Partie;
 use crate::regles::regles;
 use crate::tour::QUETES;
 
@@ -171,12 +172,14 @@ pub fn etat(p: &Partie) -> Value {
             };
             json!({
                 "id": r.id, "nom": r.nom, "couleur": r.couleur, "joueur": r.joueur,
-                "caractere": nom_caractere(&r.caractere), "vivant": r.vivant, "statut": r.statut,
+                "caractere": p.diplomatie.souverains.get(r.id).map_or("", |s| diplomatie::nom_caractere(&s.caractere)), "vivant": r.vivant, "statut": r.statut,
                 "relation": r.relation, "commerce": r.commerce, "puissance": p.puissance(r.id as i32),
                 // ce que l'on sait d'un rival : son trésor (pour commercer) et sa population à la dizaine près, pas ses réserves
                 "surplus": r.surplus, "demande": r.demande, "tresor": r.stock.get("or").copied().unwrap_or(0.0).floor(), "prix": prix_,
                 "population": if r.joueur { r.pop } else { (r.pop as f64 / 10.0).round() as i64 * 10 },
                 "techs": r.techs.len(), "techs_liste": r.techs,
+                // souverain, trêve, guerres et alliances avec les royaumes connus, coalition, mémoire
+                "diplo": diplomatie::vue_royaume(p, r.id),
             })
         }).collect::<Vec<_>>(),
         "villes": villes,
@@ -294,6 +297,7 @@ pub fn etat(p: &Partie) -> Value {
         },
         "routes": p.routes.iter().map(|r| json!([r[0], r[1], p.niveau_routes(r[2] as i32)])).collect::<Vec<_>>(),
         "propositions": p.propositions,
+        "coalitions": diplomatie::vue_coalitions(p),
         "journal": p.journal.iter().take(40).collect::<Vec<_>>(),
         "rapport": rapport,
         "fin": p.fin,

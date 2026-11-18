@@ -1,6 +1,7 @@
 //! Les rivaux laissés seuls dix ans, sur plusieurs formes de carte et aux trois difficultés : ils vivent la même
-//! économie que le joueur, sans tricher, et doivent survivre et prospérer (rang, techs, armée, pas de famine en
-//! boucle, réserves jamais négatives), d'autant mieux que la difficulté est haute.
+//! économie que le joueur, sans tricher, et doivent prospérer (rang, techs, armée, pas de famine en boucle, réserves
+//! jamais négatives), d'autant mieux que la difficulté est haute. Ils se font aussi la guerre (ia/diplomatie.rs) :
+//! un rival conquis par un autre sort des moyennes, et les conquêtes doivent rester rares en dix ans.
 //! `cargo test --release --test rivaux -- --nocapture` affiche le tableau de prospérité et le temps d'un mois.
 
 use std::time::Instant;
@@ -24,11 +25,13 @@ struct Prosperite {
     techs_min: usize,
     armee_min: u32,
     rivaux: usize,
+    /// les rivaux anéantis par un autre
+    conquis: usize,
 }
 
 impl Default for Prosperite {
     fn default() -> Self {
-        Prosperite { pop: 0.0, rang: 0.0, techs: 0.0, armee: 0.0, villes: 0.0, batiments: 0.0, famine_max: 0, hameaux: 0, techs_min: usize::MAX, armee_min: u32::MAX, rivaux: 0 }
+        Prosperite { pop: 0.0, rang: 0.0, techs: 0.0, armee: 0.0, villes: 0.0, batiments: 0.0, famine_max: 0, hameaux: 0, techs_min: usize::MAX, armee_min: u32::MAX, rivaux: 0, conquis: 0 }
     }
 }
 
@@ -45,6 +48,7 @@ impl Prosperite {
         self.techs_min = self.techs_min.min(x.techs_min);
         self.armee_min = self.armee_min.min(x.armee_min);
         self.rivaux += x.rivaux;
+        self.conquis += x.conquis;
     }
 }
 
@@ -71,7 +75,11 @@ fn dix_ans(forme: &str, difficulte: f64, graine: u64) -> Prosperite {
     let mut x = Prosperite::default();
     for k in 1..n {
         let id = k as i32;
-        assert!(p.royaumes[k].vivant, "{forme} {difficulte} : {} a disparu", p.royaumes[k].nom);
+        if !p.royaumes[k].vivant {
+            println!("  {forme} {difficulte} (graine {graine}) : {} a été conquis", p.royaumes[k].nom);
+            x.conquis += 1;
+            continue;
+        }
         let (rang, techs, armee) = (p.niveau_capitale(id), p.royaumes[k].techs.len(), p.stats(id).soldats as u32);
         x.ajouter(&Prosperite {
             pop: p.royaumes[k].pop as f64,
@@ -85,6 +93,7 @@ fn dix_ans(forme: &str, difficulte: f64, graine: u64) -> Prosperite {
             techs_min: techs,
             armee_min: armee,
             rivaux: 1,
+            conquis: 0,
         });
     }
     x
@@ -93,7 +102,7 @@ fn dix_ans(forme: &str, difficulte: f64, graine: u64) -> Prosperite {
 #[test]
 fn les_rivaux_prosperent_seuls_et_selon_la_difficulte() {
     let mut tableau = Vec::new();
-    println!("| Difficulté | Population | Rang | Techs | Armée | Villes | Bâtiments | Famine max (mois) | Restés Hameau |");
+    println!("| Difficulté | Population | Rang | Techs | Armée | Villes | Bâtiments | Famine max (mois) | Restés Hameau | Conquis |");
     for (nom, difficulte) in [("Facile", 0.75), ("Normale", 1.0), ("Difficile", 1.35)] {
         let mut t = Prosperite::default();
         for (i, forme) in FORMES.iter().enumerate() {
@@ -108,8 +117,8 @@ fn les_rivaux_prosperent_seuls_et_selon_la_difficulte() {
         }
         let r = t.rivaux as f64;
         println!(
-            "| {nom} | {:.0} | {:.2} | {:.1} (min {}) | {:.1} (min {}) | {:.2} | {:.0} | {} | {}/{} |",
-            t.pop / r, t.rang / r, t.techs / r, t.techs_min, t.armee / r, t.armee_min, t.villes / r, t.batiments / r, t.famine_max, t.hameaux, t.rivaux
+            "| {nom} | {:.0} | {:.2} | {:.1} (min {}) | {:.1} (min {}) | {:.2} | {:.0} | {} | {}/{} | {} |",
+            t.pop / r, t.rang / r, t.techs / r, t.techs_min, t.armee / r, t.armee_min, t.villes / r, t.batiments / r, t.famine_max, t.hameaux, t.rivaux, t.conquis
         );
         tableau.push((nom, t));
     }
@@ -117,6 +126,7 @@ fn les_rivaux_prosperent_seuls_et_selon_la_difficulte() {
         // au plus difficile, tous atteignent le Village ; plus bas, les erreurs voulues en laissent rarement un à la traîne
         let tolere = if *nom == "Difficile" { 0 } else { t.rivaux / 20 };
         assert!(t.hameaux <= tolere, "{nom} : {} rivaux sur {} restés au rang de Hameau", t.hameaux, t.rivaux);
+        assert!(t.conquis * 8 <= t.rivaux + t.conquis, "{nom} : {} rivaux sur {} conquis en dix ans", t.conquis, t.rivaux + t.conquis);
         assert!(t.famine_max < 24, "{nom} : un rival a eu faim {} mois sur 120", t.famine_max);
         assert!(t.techs_min >= 2, "{nom} : un rival n'a découvert que {} technologie(s)", t.techs_min);
         assert!(t.armee_min >= 4, "{nom} : un rival n'a que {} soldats", t.armee_min);

@@ -118,7 +118,8 @@ rust/royaumes/        le moteur et le serveur (Rust)
   src/tour.rs         la fin du mois (économie, marches, batailles, événements, victoire)
   src/cite.rs         la vie des villes : jour de marché, écoles, chauffage, éclairage public
   src/ia/             les royaumes de l'ordinateur : mod.rs (le mois, la difficulté), economie.rs (besoins et
-                      décisions économiques), militaire.rs (armée, marine, espions, forts), diplomatie.rs
+                      décisions économiques), militaire.rs (défense, campagnes, sièges, marine, espions, forts),
+                      diplomatie.rs (relations entre tous les royaumes, souverains, coalitions, guerres et paix)
   src/commandes.rs    les ordres du joueur (vérifiés par le moteur)
   src/marine.rs, espions.rs, sieges.rs, forts.rs, choix.rs   flottes, espionnage, sièges et fortifications,
                       retranchements et forts, événements à choix

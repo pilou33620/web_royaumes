@@ -377,9 +377,11 @@ pub fn utilite(p: &Partie, k: usize, b: &Bilan, cle: &str, mult: f64) -> f64 {
     let a = |cle: &str| p.batiments.iter().any(|x| x.proprio == k as i32 && x.cle == cle);
     match cle {
         "caserne" if !a("caserne") => u += 25.0 * b.b_defense,
+        // le filon est là, sans mine : c'est elle qui ouvre la chaîne des outils (Bourg, port, armes)
+        "mine_fer" if b.creuser => u += 25.0,
         "comptoir" if !a("comptoir") && !a("port") => u += 18.0,
         // le port : la pêche, le commerce des flûtes et la marine
-        "port" if !a("port") => u += 40.0 + 20.0 * b.b_or + 10.0 * b.b_defense,
+        "port" if !a("port") => u += 90.0 + 20.0 * b.b_or + 10.0 * b.b_defense,
         "marche" if !a("marche") => u += 6.0 * point,
         "ecole" if !a("ecole") => u += 8.0 + if p.siecle_lumieres() { 4.0 * point } else { 0.0 },
         "taverne" if !a("taverne") => u += 3.0,
@@ -641,8 +643,27 @@ pub fn eclairage(p: &mut Partie, k: usize) {
     }
 }
 
+/// Le colporteur passe (tour.rs, comme chez le joueur) : le rival prend ses outils s'il en manque et peut les payer
+/// sans entamer sa caisse. Sans filon de fer, c'est avec le commerce la seule source d'outils (mine, port, Bourg).
+pub fn colporteur(p: &mut Partie, k: usize) {
+    let (r, n, or) = crate::tour::COLPORTEUR;
+    let rang = p.niveau_capitale(k as i32) as f64;
+    let prix = Panier::from([("or".to_string(), or)]);
+    if p.royaumes[k].stock.get(r).copied().unwrap_or(0.0) < 10.0 + 10.0 * rang && peut_depenser(p, k, &prix, 80.0) {
+        p.payer(k as i32, &prix);
+        p.crediter(k as i32, &Panier::from([(r.to_string(), n)]));
+    }
+}
+
+/// Ce qu'un rival qui n'a pas `r` en surplus garde avant d'en vendre un lot : un fonds de roulement (la chaîne
+/// du fer, les armes) en plus de ce que `reserve` met de côté.
+fn garde_vendeur(p: &Partie, j: usize, r: &str) -> f64 {
+    20.0 + 2.0 * reserve(p, j, r)
+}
+
 /// Le marché : avec un comptoir ou un port, il achète aux autres rivaux, au prix du vendeur, des lots de ce qui
-/// lui manque le plus (deux par mois au plus), s'il garde assez d'or.
+/// lui manque le plus (deux par mois au plus), s'il garde assez d'or : à qui l'a en surplus d'abord, sinon à qui
+/// en a de reste (les outils et le fer d'un royaume qui a sa mine, pour qui n'a pas de filon).
 fn commerce(p: &mut Partie, k: usize, b: &Bilan) {
     let id = k as i32;
     let s = p.stats(id);
@@ -655,8 +676,9 @@ fn commerce(p: &mut Partie, k: usize, b: &Bilan) {
             break;
         }
         let vendeur = (1..p.royaumes.len())
-            .filter(|&j| j != k && p.royaumes[j].vivant && p.royaumes[j].surplus.contains(&r))
-            .map(|j| (j, tarif(&p.royaumes[j], &r, true, 0.0)))
+            .filter(|&j| j != k && p.royaumes[j].vivant && !super::diplomatie::en_guerre(p, k as i32, j as i32))
+            .filter(|&j| p.royaumes[j].surplus.contains(&r) || p.royaumes[j].stock.get(&r).copied().unwrap_or(0.0) >= 10.0 + garde_vendeur(p, j, &r))
+            .map(|j| (j, tarif(&p.royaumes[j], &r, true, super::diplomatie::relation(p, k, j))))
             .min_by(|a, c| a.1.total_cmp(&c.1));
         let Some((j, px)) = vendeur else { continue };
         if p.royaumes[k].stock["or"] - px < 80.0 + b.epargne.get("or").copied().unwrap_or(0.0) {
@@ -709,6 +731,8 @@ fn colonie(p: &mut Partie, k: usize, b: &Bilan) {
             }
         }
     }
+    // sans filon de fer chez soi (ni mine), la colonie va le chercher : outils, Bourg, port et flotte en dépendent
+    let sans_fer = !b.creuser && !p.batiments.iter().any(|x| x.proprio == id && x.cle == "mine_fer");
     let bonne = |c: usize| -> i32 {
         p.carte
             .rayon(c, 2)
@@ -718,7 +742,8 @@ fn colonie(p: &mut Partie, k: usize, b: &Bilan) {
                 if kx.proprio != -1 {
                     -1
                 } else {
-                    (kx.t == Terrain::Plaine) as i32 + kx.foret as i32 + kx.fertile as i32 + kx.poissons as i32 + kx.gisement.is_some() as i32
+                    let fer = kx.gisement.as_deref() == Some("fer") && sans_fer;
+                    (kx.t == Terrain::Plaine) as i32 + kx.foret as i32 + kx.fertile as i32 + kx.poissons as i32 + kx.gisement.is_some() as i32 + 8 * fer as i32
                 }
             })
             .sum()
@@ -789,9 +814,11 @@ fn construire(p: &mut Partie, k: usize, b: &Bilan, q: &Qualite) {
     };
     // sans bois qui rentre, on garde de quoi bâtir un bûcheron
     let sans_bois = b.prod.get("bois").copied().unwrap_or(0.0) <= 0.0;
-    // ce que réclame le rang suivant et qu'on ne produit pas encore (la pierre des premiers mois sans carrière) : on n'y touche pas
+    // ce que réclame le rang suivant et qu'on ne produit pas encore (la pierre des premiers mois sans carrière) : on n'y touche pas,
+    // au Hameau, ou quand la population y suffit presque (garder les outils d'un rang lointain bloquerait la mine, le port, l'arsenal)
     let garde: Panier = rg
         .niveau(b.rang + 1)
+        .filter(|_| b.rang == 1 || b.rang_proche)
         .map(|n| n.cout.iter().filter(|(r, _)| *r != "or" && b.prod.get(*r).copied().unwrap_or(0.0) <= 0.0).map(|(r, q)| (r.clone(), q.min(st.get(r).copied().unwrap_or(0.0)))).collect())
         .unwrap_or_default();
     let mut essais = 0;
@@ -814,11 +841,15 @@ fn construire(p: &mut Partie, k: usize, b: &Bilan, q: &Qualite) {
         // (la chaîne du fer ne compte pas : la mine, la fonderie et la forge font les outils qui manquent)
         let fer = d.prod.keys().any(|x| x == "fer" || x == "minerai");
         let entame = d.cout.iter().any(|(r, v)| {
-            let g = garde.get(r).copied().unwrap_or(0.0).max(if r == "outils" && b.creuser { 4.0 } else { 0.0 });
+            let g = garde.get(r).copied().unwrap_or(0.0);
             st.get(r).copied().unwrap_or(0.0) - v < g && !d.prod.contains_key(r) && !(fer && r == "outils")
         });
         // (sauf les logements qui manquent encore pour atteindre la population du rang)
         if entame && !(d.logement > 0 && rg.niveau(b.rang + 1).is_some_and(|n| b.pop < n.pop as f64)) {
+            continue;
+        }
+        // les outils de la mine, eux, ne vont à rien d'autre (pas même aux maisons de pierre)
+        if b.creuser && !fer && d.cout.get("outils").is_some_and(|v| st.get("outils").copied().unwrap_or(0.0) - v < 4.0) {
             continue;
         }
         let Some((c, mult)) = emplacement(p, id, cle, q) else { continue };

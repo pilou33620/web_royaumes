@@ -10,6 +10,9 @@ use crate::meteo::{self, Effets, Meteo};
 use crate::partie::{Combat, Evenement, Fin, Mouvement, Partie, Rapport, BRIGANDS};
 use crate::regles::{regles, Panier};
 
+/// L'offre du colporteur : (ressource, quantité, prix en or).
+pub const COLPORTEUR: (&str, f64, f64) = ("outils", 15.0, 120.0);
+
 pub struct Quete {
     pub texte: &'static str,
     pub prime: f64,
@@ -93,7 +96,9 @@ impl Partie {
         if let Some(h) = self.meteo.historique.clone() {
             self.evt(&mut rapport, h, "meteo", None);
         }
+        // la diplomatie du monde (rencontres, souverains, humeurs entre rivaux, coalitions), puis
         // les royaumes de l'ordinateur décident (constructions, recrutement, guerre, offres)
+        crate::ia::diplomatie::monde(self, &mut rapport);
         for k in 1..self.royaumes.len() {
             if self.royaumes[k].vivant {
                 ia::mois(self, k, &mut rapport);
@@ -431,8 +436,11 @@ impl Partie {
         self.recalculer_territoire();
         let nom = self.villes[vi].nom.clone();
         let case = self.villes[vi].case;
+        // notée pour les coalitions et la rancune du vaincu, annoncée au joueur s'il connaît les deux royaumes ;
+        // une ville cédée par traité ne rapporte pas de butin
+        let cession = crate::ia::diplomatie::conquete(self, nouveau, ancien, vi, rapport);
         // le vainqueur emporte la moitié du trésor d'un rival vaincu (celui du joueur reste au joueur)
-        let butin = if ancien > 0 && ancien != BRIGANDS && nouveau != BRIGANDS {
+        let butin = if !cession && ancien > 0 && ancien != BRIGANDS && nouveau >= 0 && nouveau != BRIGANDS {
             let or = self.royaumes[ancien as usize].stock.entry("or".into()).or_insert(0.0);
             let butin = (*or * 0.5).floor();
             *or -= butin;
@@ -441,14 +449,15 @@ impl Partie {
         } else {
             0.0
         };
-        if nouveau == 0 {
+        if cession {
+            if nouveau == 0 || ancien == 0 {
+                self.noter(format!("{nom} passe à {} par traité", self.nom_royaume(nouveau)));
+            }
+        } else if nouveau == 0 {
             self.evt(rapport, format!("🏰 {nom} est conquise ! Butin : {butin} 🪙"), "bon", Some(case));
         } else if ancien == 0 {
             let qui = self.nom_royaume(nouveau);
             self.evt(rapport, format!("💀 {nom} tombe aux mains de {qui} !"), "guerre", Some(case));
-        } else {
-            let qui = self.nom_royaume(nouveau);
-            self.noter(format!("{qui} s'empare de {nom}"));
         }
         let restantes: Vec<usize> = (0..self.villes.len()).filter(|&i| self.villes[i].proprio == ancien).collect();
         if restantes.is_empty() {
@@ -556,7 +565,10 @@ impl Partie {
         if id == 0 {
             self.royaumes.iter().filter(|r| ouverte(r)).count() as f64
         } else {
-            ouverte(&self.royaumes[id as usize]) as u8 as f64
+            // la route avec le joueur, et celles ouvertes avec les autres rivaux (ia/diplomatie.rs)
+            let k = id as usize;
+            let rivaux = self.diplomatie.liens.iter().filter(|l| (l.a == k || l.b == k) && l.commerce && l.statut != "guerre" && self.royaumes[l.a + l.b - k].vivant).count();
+            ouverte(&self.royaumes[k]) as u8 as f64 + rivaux as f64
         }
     }
 
@@ -1014,8 +1026,9 @@ impl Partie {
     }
 
     // ------------------------------------------------------------------ événements
-    /// Les hasards du mois chez le royaume `k` : incendie, épidémie, moisson, réfugiés, gisement (le colporteur ne
-    /// passe que chez le joueur). Seuls ceux du joueur vont à son rapport.
+    /// Les hasards du mois chez le royaume `k` : incendie, épidémie, moisson, réfugiés, gisement, colporteur (le
+    /// joueur reçoit son offre ; un rival la prend s'il en a besoin, `ia::economie::colporteur`). Seuls ceux du joueur
+    /// vont à son rapport.
     fn evenements(&mut self, k: usize, eff: &Effets, rapport: &mut Rapport) {
         let id = k as i32;
         let s = self.stats(id);
@@ -1063,15 +1076,18 @@ impl Partie {
             if let Some((c, g)) = self.decouvrir_gisement(id).filter(|_| joueur) {
                 self.evt(rapport, format!("⛏️ Un gisement {g} est découvert !"), "or", Some(c));
             }
-        } else if x < 0.11 && joueur {
+        } else if x < 0.11 && !joueur {
+            crate::ia::economie::colporteur(self, k);
+        } else if x < 0.11 {
             let id = self.id();
             self.propositions.push(crate::partie::Proposition {
                 id,
                 de: 0,
                 genre: "marchand".into(),
                 texte: "Un colporteur propose 15 🔨 outils pour 120 🪙.".into(),
-                donne: Panier::from([("outils".to_string(), 15.0)]),
-                demande: Panier::from([("or".to_string(), 120.0)]),
+                donne: Panier::from([(COLPORTEUR.0.to_string(), COLPORTEUR.1)]),
+                demande: Panier::from([("or".to_string(), COLPORTEUR.2)]),
+                ..Default::default()
             });
         }
     }

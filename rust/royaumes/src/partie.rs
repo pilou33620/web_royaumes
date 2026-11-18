@@ -8,14 +8,17 @@ use serde::{Deserialize, Serialize};
 
 use crate::carte::{Carte, Options, Terrain, BOIS_ARBRE};
 use crate::hasard::Hasard;
+use crate::ia::diplomatie::{self, Diplomatie};
 use crate::meteo::{self, Meteo};
 use crate::regles::{regles, Panier};
 
 /// 2 : les remparts et citadelles sont devenus des niveaux de fortification des villes
 /// 3 : forts bâtis par les armées, retranchements (champs nouveaux, lus par défaut)
 /// 4 : éclairage public des villes (`Ville::eclairage`, éteint par défaut)
-/// 5 : les rivaux vivent la même économie que le joueur (stocks, population, ouvriers) : `migrer_economie_rivaux`
-pub const VERSION_SAUVEGARDE: u32 = 5;
+/// 5 : (deux branches parallèles) les rivaux vivent la même économie que le joueur (stocks, population, ouvriers) :
+///     `migrer_economie_rivaux` ; ou diplomatie entre tous les royaumes (`Partie::diplomatie`)
+/// 6 : les deux à la fois ; une sauvegarde 5 reçoit ce qui lui manque
+pub const VERSION_SAUVEGARDE: u32 = 6;
 /// La partie commence en avril 1700 (le printemps : on sème avant l'hiver).
 pub const TOUR_DEPART: u32 = 3;
 /// Les brigands : un « royaume » à part, ennemi de tous.
@@ -39,15 +42,6 @@ pub const ROYAUMES: [DefRoyaume; 6] = [
 
 /// Les réserves de chaque royaume au départ.
 pub const STOCK_DEPART: [(&str, f64); 7] = [("or", 300.0), ("bois", 80.0), ("planches", 30.0), ("pierre", 40.0), ("outils", 10.0), ("pain", 30.0), ("poisson", 20.0)];
-
-pub fn nom_caractere(c: &str) -> &'static str {
-    match c {
-        "guerrier" => "Belliqueux",
-        "marchand" => "Marchand",
-        "batisseur" => "Bâtisseur",
-        _ => "",
-    }
-}
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -103,6 +97,8 @@ pub struct Royaume {
     pub commerce_mer: f64,
     /// (ordinateur) la case où un détachement part bâtir une redoute
     pub projet_fort: Option<usize>,
+    /// (ordinateur) la campagne en cours et la mémoire de l'IA militaire
+    pub militaire: crate::ia::militaire::EtatMilitaire,
 }
 
 impl Royaume {
@@ -268,11 +264,17 @@ pub struct Choix {
 pub struct Proposition {
     pub id: u32,
     pub de: usize,
-    /// echange, alliance, paix, tribut, marchand
+    /// echange, alliance, paix, tribut, marchand, aide (entrer en guerre contre `cible`)
     pub genre: String,
     pub texte: String,
     pub donne: Panier,
     pub demande: Panier,
+    /// la ville cédée avec la paix (à celui qui ne la possède pas)
+    pub ville: Option<u32>,
+    /// le royaume contre lequel un allié demande de l'aide
+    pub cible: Option<usize>,
+    /// 0 : première offre ; 1, 2 : contre-propositions
+    pub manche: u32,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -384,6 +386,9 @@ pub struct Partie {
     pub choix: Vec<Choix>,
     #[serde(default)]
     pub forts: Vec<Fort>,
+    /// relations et traités entre rivaux, souverains, mémoire, coalitions (ia/diplomatie.rs)
+    #[serde(default)]
+    pub diplomatie: Diplomatie,
 }
 
 impl Partie {
@@ -564,6 +569,7 @@ impl Partie {
             blocus: Vec::new(),
             choix: Vec::new(),
             forts: Vec::new(),
+            diplomatie: Diplomatie::default(),
         };
         p.meteo = Meteo::tirer(&Meteo { temperature: 9.0, ..Meteo::default() }, TOUR_DEPART, &mut p.hasard);
         for (k, &s) in departs.iter().enumerate() {
@@ -593,6 +599,7 @@ impl Partie {
             p.decouvrir(k as i32, c, regles().vision.depart);
         }
         p.explorer();
+        diplomatie::initialiser(&mut p, true);
         p.noter(format!("{} : vous fondez {}.", meteo::date_texte(TOUR_DEPART), p.villes[0].nom));
         p
     }
@@ -623,9 +630,12 @@ impl Partie {
             self.recalculer_territoire();
             self.recalculer_routes();
         }
-        if self.version < 5 {
+        // avant la version 5 (ou une version 5 de la branche diplomatie) : le trésor résumé des rivaux devient une économie
+        if self.version < 5 || (self.version == 5 && self.royaumes.iter().any(|r| !r.joueur && (r.tresor_v4 > 0.0 || !r.stock.contains_key("or")))) {
             self.migrer_economie_rivaux();
         }
+        // avant la version 5 (ou une version 5 de la branche économie) : des souverains tirés des anciens caractères
+        diplomatie::initialiser(self, false);
         self.version = VERSION_SAUVEGARDE;
     }
 
@@ -734,20 +744,9 @@ impl Partie {
         self.villes.iter().enumerate().filter(|(_, v)| v.proprio == id).min_by_key(|(_, v)| self.carte.dist(v.case, case)).map(|(i, _)| i)
     }
 
+    /// Les brigands sont ennemis de tous ; deux royaumes (le joueur ou des rivaux) le sont en guerre.
     pub fn est_ennemi(&self, a: i32, b: i32) -> bool {
-        if a == b {
-            return false;
-        }
-        if a == BRIGANDS || b == BRIGANDS {
-            return true;
-        }
-        if a == 0 {
-            return self.royaumes[b as usize].statut == "guerre";
-        }
-        if b == 0 {
-            return self.royaumes[a as usize].statut == "guerre";
-        }
-        false
+        a != b && (a == BRIGANDS || b == BRIGANDS || diplomatie::en_guerre(self, a, b))
     }
 
     // ------------------------------------------------------------------ brouillard de guerre
@@ -1478,6 +1477,33 @@ mod essais {
         // relire une sauvegarde à jour ne change rien
         let r = Partie::relire(&serde_json::to_string(&q).unwrap()).unwrap();
         assert_eq!((r.batiments.len(), r.villes[0].fortif), (q.batiments.len(), q.villes[0].fortif));
+    }
+
+    #[test]
+    fn sauvegardes_5_des_deux_branches() {
+        let mut p = Partie::nouvelle(Options { graine: 12, ..Options::default() });
+        for _ in 0..6 {
+            p.fin_du_mois();
+        }
+        let v = serde_json::to_value(&p).unwrap();
+        // la version 5 de l'économie : réserves des rivaux, mais pas de diplomatie
+        let mut eco = v.clone();
+        eco["version"] = serde_json::json!(5);
+        eco.as_object_mut().unwrap().remove("diplomatie");
+        let q = Partie::relire(&eco.to_string()).unwrap();
+        assert_eq!(q.version, VERSION_SAUVEGARDE);
+        assert_eq!(q.diplomatie.souverains.len(), q.royaumes.len(), "des souverains");
+        assert!(p.royaumes[1].stock.iter().all(|(r, v)| (q.royaumes[1].stock[r] - v).abs() < 1e-6), "les réserves des rivaux restent telles quelles");
+        // la version 5 de la diplomatie : souverains et liens, mais les rivaux n'ont qu'un trésor
+        let mut dip = v;
+        dip["version"] = serde_json::json!(5);
+        for r in dip["royaumes"].as_array_mut().unwrap().iter_mut().skip(1) {
+            r["stock"] = serde_json::json!({});
+            r["or"] = serde_json::json!(555.0);
+        }
+        let q = Partie::relire(&dip.to_string()).unwrap();
+        assert_eq!(q.diplomatie.souverains[1].nom(), p.diplomatie.souverains[1].nom(), "la diplomatie reste telle quelle");
+        assert!(q.royaumes.iter().skip(1).all(|r| r.stock["or"] == 555.0 && r.stock["bois"] > 0.0), "le trésor devient une économie");
     }
 
     #[test]

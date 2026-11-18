@@ -140,7 +140,12 @@ impl Partie {
                 (texte, format!("🕵️ Un espion de {qui} a volé des plans à {}.", v.nom))
             }
             _ => {
-                let cand: Vec<u32> = self.batiments.iter().filter(|b| b.proprio == cible && b.ville == Some(v.id) && b.fini() && b.cle != "hotel").map(|b| b.id).collect();
+                let mut cand: Vec<u32> = self.batiments.iter().filter(|b| b.proprio == cible && b.ville == Some(v.id) && b.fini() && b.cle != "hotel").map(|b| b.id).collect();
+                // l'ordinateur sabote d'abord ce qui arme la place : arsenal, caserne, haras
+                let armes: Vec<u32> = cand.iter().copied().filter(|&b| self.bat(b).is_some_and(|x| matches!(x.cle.as_str(), "arsenal" | "caserne" | "haras"))).collect();
+                if id > 0 && !armes.is_empty() {
+                    cand = armes;
+                }
                 let Some(&bid) = self.hasard.choix(&cand) else { return };
                 let b = self.bat(bid).cloned().unwrap();
                 let nom = regles().bat(&b.cle).map(|d| d.nom.clone()).unwrap_or_default();
