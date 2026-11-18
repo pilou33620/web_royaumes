@@ -1,17 +1,17 @@
 // Royaumes des Rives : démarrage, écran d'accueil (réglage de la carte avec aperçu 3D), boucle des tours.
 import { api } from './api.js';
-import { renderer, cam, viser, surTap, surClicDroit, posCase, chaqueImage, scene, voisins } from '../graphismes/royaumes/scene.js';
-import * as plateau from '../graphismes/royaumes/plateau.js';
-import { initMonde, synchroniser, jouerMois, selectionnerArmee } from '../graphismes/royaumes/monde.js';
-import { majVie } from '../graphismes/royaumes/vie.js';
-import { majQuartiers } from '../graphismes/royaumes/quartiers.js';
-import { selectionnerFort } from '../graphismes/royaumes/forts.js';
-import { majBrouillard, jouerMoisBrouillard } from '../graphismes/royaumes/brouillard.js';
-import { majMarine, jouerMoisMarine } from '../graphismes/royaumes/marine.js';
-import { majEspions, jouerMoisEspions } from '../graphismes/royaumes/espions.js';
-import { appliquerMeteo } from '../graphismes/royaumes/meteo.js';
-import { majRoutes, effacerRoutes, niveauRoutes } from '../graphismes/royaumes/routes.js';
-import { toutEffacer, effet } from '../graphismes/royaumes/etiquettes.js';
+import { renderer, cam, viser, surTap, surClicDroit, posCase, chaqueImage, scene, voisins } from '../graphismes/rendu/scene.js';
+import * as plateau from '../graphismes/rendu/plateau.js';
+import { initMonde, synchroniser, jouerMois, selectionnerArmee } from '../graphismes/rendu/monde.js';
+import { majVie } from '../graphismes/rendu/vie.js';
+import { majQuartiers } from '../graphismes/rendu/quartiers.js';
+import { selectionnerFort } from '../graphismes/rendu/forts.js';
+import { majBrouillard, jouerMoisBrouillard } from '../graphismes/rendu/brouillard.js';
+import { majMarine, jouerMoisMarine } from '../graphismes/rendu/marine.js';
+import { majEspions, jouerMoisEspions } from '../graphismes/rendu/espions.js';
+import { appliquerMeteo } from '../graphismes/rendu/meteo.js';
+import { majRoutes, effacerRoutes, niveauRoutes } from '../graphismes/rendu/routes.js';
+import { toutEffacer, effet } from '../graphismes/rendu/etiquettes.js';
 import * as ui from './ui.js';
 
 const $ = s => document.querySelector(s);

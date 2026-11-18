@@ -8,7 +8,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 DEST=web/graphismes
-PARTIES="three royaumes"   # parties de la bibliothèque : three, royaumes, power, pont (voir graphismes/README.md)
+PARTIES="rendu"   # parties de la bibliothèque : rendu (tous les rendus ; prend three avec lui), three (voir graphismes/README.md)
 DEPOT=https://github.com/pilou33620/web_engine.git
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 git clone -q "$DEPOT" "$TMP/web_engine"
@@ -21,8 +21,10 @@ if [ "${1:-}" = "--verifier" ]; then
 else
   git -C "$TMP/web_engine" checkout -q "${1:-main}"
   "$TMP/web_engine/outils/installer.sh" "$PWD/$DEST" $PARTIES
-  # rien de neuf pour les parties de ce jeu : on garde la version déjà notée (pas de mise à jour à proposer)
-  if git ls-files --error-unmatch "$DEST/VERSION.json" >/dev/null 2>&1 && [ -z "$(git status --porcelain -- "$DEST" | grep -v "$DEST/VERSION.json")" ]; then
-    git checkout -q -- "$DEST/VERSION.json"; echo "aucune des parties de ce jeu ($PARTIES) n'a changé : rien à mettre à jour"
+  # rien de neuf dans les parties de ce jeu (seuls la version, le journal ou la documentation changent) :
+  # on garde ce qui est en place, et il n'y a pas de mise à jour à proposer
+  INFOS="$DEST/VERSION.json $DEST/CHANGELOG.md $DEST/README.md $DEST/package.json"
+  if git ls-files --error-unmatch "$DEST/VERSION.json" >/dev/null 2>&1 && [ -z "$(git status --porcelain -- "$DEST" | grep -vE " $DEST/(VERSION\.json|CHANGELOG\.md|README\.md|package\.json)\$")" ]; then
+    git checkout -q -- $INFOS; echo "aucune des parties de ce jeu ($PARTIES) n'a changé : rien à mettre à jour"
   fi
 fi
