@@ -3,9 +3,9 @@
 // Joue aussi le mois sous les yeux du joueur : marches des armées, batailles, assauts et redditions.
 import { THREE, scene, posCase, chaqueImage, lerp, hache } from './scene.js';
 import { maillageBatiment, maillageChantier, maillageArmee, palierDe } from './modeles.js';
-import { dessus, solEn } from './plateau.js';
+import { dessus, solEn, hauteurEn } from './plateau.js';
 import { toon, lot, put, fige } from './toon.js';
-import { etiquette, balayer, banniere, effet, deplacer } from './etiquettes.js';
+import { etiquette, balayer, banniere, effet, deplacer, masquer } from './etiquettes.js';
 import { bouffee } from './vie.js';
 import { majRemparts } from './remparts.js';
 import { preparerSieges, majSieges, jouerSieges, campArmee } from './sieges.js';
@@ -190,6 +190,7 @@ export function jouerMois(rapport, apres, duree = 2800) {
   const etapes = Math.max(1, ...rapport.mouvements.map(m => m.trajet.length - 1), ...rapport.combats.map(c => c.etape || 1));
   const t0 = performance.now();
   for (const m of rapport.mouvements) {
+    if (m.flotte) continue; // les flottes : marine.js (gardées dans le compte des étapes)
     let v = armees.get(m.armee);
     if (!v) {
       const a = apres.armees.find(x => x.id === m.armee) || { id: m.armee, proprio: m.proprio, case: m.trajet[0], unites: { milice: 6 }, chemin: [] };
@@ -233,6 +234,9 @@ chaqueImage((dt, t) => {
     const bob = v.anim ? Math.abs(Math.sin(v.pas || 0)) * 0.04 : 0;
     v.mesh.position.set(v.x, solEn(v.x, v.z) + 0.02 + bob, v.z);
     deplacer('a' + id, v.x, 0.95, v.z);
+    // une armée qui débarque attend sur la case d'eau de sa flotte : marine.js montre ses soldats sur le pont et dans les chaloupes
+    const eau = hauteurEn(v.x, v.z) < -0.1;
+    if (v.mesh.visible === eau) { v.mesh.visible = !eau; masquer('a' + id, eau); }
   }
   for (const a of parts.ailes) if (!a.arret) a.obj.rotation.z += dt * (1.2 + vent.v * 3);
   for (const b of braises) if (Math.random() < dt * 0.7) bouffee(b.x + (Math.random() - 0.5) * 0.3, b.y, b.z + (Math.random() - 0.5) * 0.3, 'noire', 0.55); // braises des ruines

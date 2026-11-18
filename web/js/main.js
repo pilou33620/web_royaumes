@@ -5,6 +5,9 @@ import * as plateau from './rendu/plateau.js';
 import { initMonde, synchroniser, jouerMois, selectionnerArmee } from './rendu/monde.js';
 import { majVie } from './rendu/vie.js';
 import { selectionnerFort } from './rendu/forts.js';
+import { majBrouillard, jouerMoisBrouillard } from './rendu/brouillard.js';
+import { majMarine, jouerMoisMarine } from './rendu/marine.js';
+import { majEspions, jouerMoisEspions } from './rendu/espions.js';
 import { appliquerMeteo } from './rendu/meteo.js';
 import { majRoutes, effacerRoutes, niveauRoutes } from './rendu/routes.js';
 import { toutEffacer, effet } from './rendu/etiquettes.js';
@@ -37,6 +40,7 @@ async function apercu() {
   plateau.construire(c);
   effacerRoutes();
   toutEffacer();
+  majBrouillard(null); majMarine(null); majEspions(null);
   const ex = { cases: { proprio: new Array(c.l * c.h).fill(-1), arbres: c.arbres, foret: c.foret, bois: [] }, batiments: [], royaumes: [], saison: 2, meteo: { neige_sol: 0 } };
   plateau.majEtat(ex);
   plateau.majSaison(2, 0);
@@ -67,11 +71,11 @@ function appliquer(etat, rapport) {
   plateau.majEtat(etat);
   plateau.majSaison(etat.saison, etat.meteo.neige_sol);
   synchroniser(etat);
+  majBrouillard(etat); majMarine(etat); majEspions(etat, rapport);
   niveauRoutes(etat.joueur?.routes?.niveau || 1);
   majRoutes(etat.routes);
   majVie(etat, rapport);
   appliquerMeteo(etat.meteo, etat.saison);
-  // (rendu des nouveautés : brouillard, marine, espions, remparts, sièges, forts — à brancher ici)
   ui.majHUD();
 }
 async function lancer() {
@@ -116,6 +120,7 @@ async function finTour() {
   try {
     const r = await api.finTour();
     if (!r || !r.ok) { ui.annonce('❌ ' + (r?.msg || 'Erreur du serveur'), 'guerre'); return; }
+    jouerMoisBrouillard(r.rapport); jouerMoisMarine(r.rapport, r.etat); jouerMoisEspions(r.rapport, r.etat);
     await jouerMois(r.rapport, r.etat);
     if (r.etat.version_carte !== J.versionCarte) await chargerCarte();
     appliquer(r.etat, r.rapport);
