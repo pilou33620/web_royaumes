@@ -1,6 +1,6 @@
 // Royaumes des Rives : démarrage, écran d'accueil (réglage de la carte avec aperçu 3D), boucle des tours.
 import { api } from './api.js';
-import { renderer, cam, viser, surTap, posCase, chaqueImage, scene, voisins } from './rendu/scene.js';
+import { renderer, cam, viser, surTap, surClicDroit, posCase, chaqueImage, scene, voisins } from './rendu/scene.js';
 import * as plateau from './rendu/plateau.js';
 import { initMonde, synchroniser, jouerMois, selectionnerArmee } from './rendu/monde.js';
 import { majVie } from './rendu/vie.js';
@@ -232,7 +232,7 @@ function annulerMode() {
 function choisirArmee(id) {
   const a = J.etat.armees.find(x => x.id === id);
   if (!a) return;
-  selectionnerArmee(id);
+  selectionnerArmee(id); J.armeeSel = id;
   plateau.selection(a.case, 0xffd34d);
   plateau.trace(a.chemin);
   ui.ouvrirFeuille('⚔️ Armée', () => ui.vueArmee(id));
@@ -240,7 +240,7 @@ function choisirArmee(id) {
 function choisirFlotte(id) {
   const f = J.etat.flottes.find(x => x.id === id);
   if (!f) return;
-  selectionnerArmee(null);
+  selectionnerArmee(null); J.armeeSel = null;
   plateau.selection(f.case, 0xffd34d);
   plateau.trace(f.chemin);
   ui.ouvrirFeuille('⛵ Flotte', () => ui.vueFlotte(id));
@@ -248,7 +248,7 @@ function choisirFlotte(id) {
 function choisirEspion(id) {
   const x = J.etat.espions.find(k => k.id === id);
   if (!x) return;
-  selectionnerArmee(null);
+  selectionnerArmee(null); J.armeeSel = null;
   plateau.selection(x.case, 0xffd34d);
   plateau.trace(x.chemin);
   ui.ouvrirFeuille('🕵️ Espion', () => ui.vueEspion(id));
@@ -256,7 +256,9 @@ function choisirEspion(id) {
 function viserCase(i) { const p = posCase(i); viser(p.x, p.z); }
 function inspecter(i) {
   annulerMode();
-  selectionnerArmee(null);
+  // notre armée sur la case est sélectionnée : un clic droit ailleurs l'y envoie
+  J.armeeSel = J.etat.armees.find(a => a.case === i && a.proprio === 0)?.id ?? null;
+  selectionnerArmee(J.armeeSel);
   plateau.trace([]);
   plateau.selection(i);
   viserCase(i);
@@ -264,6 +266,29 @@ function inspecter(i) {
   ui.ouvrirFeuille(ui.titreCase(i), () => ui.vueCase(i));
 }
 
+// l'ordre de marche d'une armée vers la case i (mode « destination » ou clic droit)
+async function marcher(armee, i) {
+  if (EAU(i)) return { ok: false, msg: 'Une armée ne marche pas sur l\'eau : embarquez-la sur des flûtes (⛵ dans la fiche de l\'armée, à côté d\'une flotte)' };
+  const c = { action: 'deplacer', armee, case: i };
+  let r = await cmd(c);
+  if (!r.ok && r.confirmer) {
+    const oui = await ui.modale('⚔️ Déclarer la guerre ?', `<p>${r.confirmer}</p>`, [{ l: 'Attaquer', c: 'rouge', v: true }, { l: 'Annuler', c: 'b2', v: false }]);
+    if (!oui) return { ok: false, msg: 'Ordre annulé' };
+    r = await cmd({ ...c, confirme: true });
+  }
+  return r;
+}
+// clic droit : l'armée sélectionnée (ou celle du mode « destination ») marche vers la case
+surClicDroit(async i => {
+  if (!J.etat || J.occupe) return;
+  const id = J.mode?.genre === 'deplacer' ? J.mode.armee : J.armeeSel;
+  if (id == null || !J.etat.armees.some(a => a.id === id && a.proprio === 0)) return;
+  const r = await marcher(id, i);
+  if (!r.ok) return ui.annonce('❌ ' + r.msg, 'guerre');
+  ui.annonce(r.msg, 'bon'); if (J.mode) annulerMode();
+  plateau.trace(r.chemin || [i]); plateau.selection(i, 0xffd34d);
+  J.armeeSel = id; selectionnerArmee(id); // l'armée reste sélectionnée : on peut changer d'avis d'un autre clic droit
+});
 surTap(async i => {
   if (!J.etat || J.occupe) return;
   if (J.mode?.genre === 'construire') {
@@ -280,17 +305,7 @@ surTap(async i => {
     else ui.annonce('❌ ' + r.msg, 'guerre');
     return r;
   };
-  if (J.mode?.genre === 'deplacer') {
-    if (EAU(i)) return ui.annonce('🌊 Une armée ne marche pas sur l\'eau : embarquez-la sur des flûtes (⛵ dans la fiche de l\'armée, à côté d\'une flotte)', 'guerre');
-    const c = { action: 'deplacer', armee: J.mode.armee, case: i };
-    let r = await cmd(c);
-    if (!r.ok && r.confirmer) {
-      const oui = await ui.modale('⚔️ Déclarer la guerre ?', `<p>${r.confirmer}</p>`, [{ l: 'Attaquer', c: 'rouge', v: true }, { l: 'Annuler', c: 'b2', v: false }]);
-      if (!oui) { annulerMode(); return; }
-      r = await cmd({ ...c, confirme: true });
-    }
-    return fini(r);
-  }
+  if (J.mode?.genre === 'deplacer') return fini(await marcher(J.mode.armee, i));
   if (J.mode?.genre === 'flotte') {
     if (!EAU(i)) return ui.annonce('❌ Une flotte navigue sur l\'eau : touchez une case de mer', 'guerre');
     return fini(await cmd({ action: 'deplacer_flotte', flotte: J.mode.flotte, case: i }));
@@ -303,7 +318,9 @@ surTap(async i => {
     if (EAU(i)) return ui.annonce('❌ Un espion voyage à pied : touchez une case de terre', 'guerre');
     return fini(await cmd({ action: 'deplacer_espion', espion: J.mode.espion, case: i }));
   }
-  selectionnerArmee(null);
+  // notre armée sur la case est sélectionnée : un clic droit ailleurs l'y envoie
+  J.armeeSel = J.etat.armees.find(a => a.case === i && a.proprio === 0)?.id ?? null;
+  selectionnerArmee(J.armeeSel);
   plateau.trace([]);
   plateau.selection(i);
   // une seule de vos unités, seule sur la case : sa fiche directement ; sinon la fiche de la case liste tout

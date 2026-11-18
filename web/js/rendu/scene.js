@@ -79,8 +79,10 @@ export function solA(px, py) {
 }
 export function viser(x, z, d) { cam.x = x; cam.z = z; if (d) cam.cible = d; cam.auto = false; }
 
-const ecouteurs = { tap: [] };
+const ecouteurs = { tap: [], droit: [] };
 export function surTap(f) { ecouteurs.tap.push(f); }
+/** Clic droit bref (sans faire tourner la caméra) sur une case. */
+export function surClicDroit(f) { ecouteurs.droit.push(f); }
 
 (function gestes() {
   const pts = new Map();
@@ -121,9 +123,9 @@ export function surTap(f) { ecouteurs.tap.push(f); }
     const n = pts.size;
     pts.delete(e.pointerId);
     pince = null;
-    if (n === 1 && bouge < 12 && performance.now() - t0 < 650 && e.button !== 2) {
+    if (n === 1 && bouge < 12 && performance.now() - t0 < 650) {
       const p = solA(e.clientX, e.clientY);
-      if (p) { const i = caseA(p.x, p.z); if (i >= 0) ecouteurs.tap.forEach(f => f(i, e)); }
+      if (p) { const i = caseA(p.x, p.z); if (i >= 0) (e.button === 2 ? ecouteurs.droit : ecouteurs.tap).forEach(f => f(i, e)); }
     }
   };
   canvas.addEventListener('pointerup', fin);
