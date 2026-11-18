@@ -4,6 +4,7 @@ import { renderer, cam, viser, surTap, posCase, chaqueImage, scene, voisins } fr
 import * as plateau from './rendu/plateau.js';
 import { initMonde, synchroniser, jouerMois, selectionnerArmee } from './rendu/monde.js';
 import { majVie } from './rendu/vie.js';
+import { selectionnerFort } from './rendu/forts.js';
 import { appliquerMeteo } from './rendu/meteo.js';
 import { majRoutes, effacerRoutes, niveauRoutes } from './rendu/routes.js';
 import { toutEffacer, effet } from './rendu/etiquettes.js';
@@ -254,6 +255,7 @@ function inspecter(i) {
   plateau.trace([]);
   plateau.selection(i);
   viserCase(i);
+  selectionnerFort(J.etat.forts?.find(f => f.case === i && f.proprio === 0)?.id); // anneau de vision de notre fort
   ui.ouvrirFeuille(ui.titreCase(i), () => ui.vueCase(i));
 }
 
@@ -363,7 +365,7 @@ async function demarrer() {
     return;
   }
   initMonde(J.R);
-  ui.installerUI(J, { cmd, finTour, modeConstruire, modeDeplacer, modeFlotte, modeDebarquer, modeEspion, annulerMode, choisirArmee, choisirFlotte, choisirEspion, inspecter, viserCase, menu, centrer: id => { const a = J.etat.armees.find(x => x.id === id); if (a) { const p = posCase(a.case); viser(p.x, p.z); } }, surFermeture: () => { if (!J.mode) plateau.selection(null); } });
+  ui.installerUI(J, { cmd, finTour, modeConstruire, modeDeplacer, modeFlotte, modeDebarquer, modeEspion, annulerMode, choisirArmee, choisirFlotte, choisirEspion, inspecter, viserCase, menu, centrer: id => { const a = J.etat.armees.find(x => x.id === id); if (a) { const p = posCase(a.case); viser(p.x, p.z); } }, surFermeture: () => { selectionnerFort(null); if (!J.mode) plateau.selection(null); } });
   try { const o = JSON.parse(localStorage.getItem('royaumes-options') || 'null'); if (o) for (const k of CHAMPS) if (o[k] !== undefined && k !== 'graine') $('#o_' + k).value = typeof o[k] === 'boolean' ? (o[k] ? '1' : '0') : o[k]; } catch { /* rien */ }
   $('#o_graine').value = Math.floor(Math.random() * 99999);
   document.querySelectorAll('#accueil-panneau input, #accueil-panneau select').forEach(el => el.addEventListener('input', () => {
