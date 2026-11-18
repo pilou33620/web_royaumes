@@ -149,7 +149,7 @@ const BATR = {
     put(L, cyl(0.7, 0.7, 0.6, 10), PIERRE, 1.8, 0.3, 2.6, 0, 0.12); put(L, cyl(0.55, 0.55, 0.1, 10), EAU, 1.8, 0.62, 2.6, 0, 0);
     mat(L, ex, -2.4, 1.8, 6);
     if (NIVEAU >= 2) puits(L, -3.3, -1.1, pick(E.toits));
-    if (NIVEAU >= 3) murs(L, 8.4, 1.3, PIERRE, 6, EPOQUE !== 'ancien', E.toits[2] ?? E.toits[0]);
+    // plus de mur autour de la mairie : les remparts suivent maintenant les fortifications de la ville (remparts.js)
     if (NIVEAU >= 4) { put(L, cyl(0.8, 0.9, 5, 10), PIERRE, 5.6, 2.5, -3.2); put(L, cone(1.1, 1.6, 10), pick(E.toits), 5.6, 5.8, -3.2); }
     if (NIVEAU >= 5 && EPOQUE !== 'industrie') for (const [x, z] of [[-3.2, 2.4], [3.4, 1.2]]) reverbere(L, x, z);
   },
@@ -563,16 +563,28 @@ function enCache(cle, fn) {
   return r;
 }
 
-/** Le bâtiment posé au centre de sa case : { mesh: THREE.Group à l'échelle 0,1, anim: [{ type, pos (coordonnées locales), noire?, couleur? }] }. */
-export function maillageBatiment({ cle, couleur = '#2f5fa8', epoque = 'ancien', saison = 2, neige = 0, niveau = 1 }) {
+// un bâtiment incendié (faubourg pillé, sabotage) : toutes ses pièces hautes virent au charbon (le sol de la case reste)
+function noircir(L) {
+  for (const g of L.g) {
+    g.computeBoundingBox(); if (g.boundingBox.max.y < 0.3) continue;
+    const c = g.attributes.color; for (let i = 0; i < c.count; i++) { const l = c.getX(i) * 0.3 + c.getY(i) * 0.59 + c.getZ(i) * 0.11; c.setXYZ(i, 0.07 + l * 0.12, 0.06 + l * 0.1, 0.055 + l * 0.09); }
+  }
+}
+/** Le bâtiment posé au centre de sa case : { mesh: THREE.Group à l'échelle 0,1, anim: [{ type, pos (coordonnées locales), noire?, couleur? }] }.
+ *  ruine : la version incendiée, plus basse et noircie, sans drapeau ni fumée. */
+export function maillageBatiment({ cle, couleur = '#2f5fa8', epoque = 'ancien', saison = 2, neige = 0, niveau = 1, ruine = false }) {
   const n = neige > 0.3, ep = EPOQUES[epoque] ? epoque : 'ancien';
-  const k = `${cle}|${couleur}|${ep}|${saison}|${n ? 1 : 0}|${cle === 'hotel' ? niveau || 1 : 0}`;
+  const k = `${cle}|${couleur}|${ep}|${saison}|${n ? 1 : 0}|${cle === 'hotel' ? niveau || 1 : 0}${ruine ? '|ruine' : ''}`;
   const r = enCache(k, (L, ex) => {
     SAISON = saison; NEIGE = n; EPOQUE = ep; ROYAUME = couleur; CLE = cle; NIVEAU = Math.max(1, Math.min(5, niveau || 1));
-    (BATR[cle] || BATR.maison)(L, ex, EPOQUES[ep]);
+    const E = EPOQUES[ep];
+    (BATR[cle] || BATR.maison)(L, ex, ruine ? { ...E, h: E.h * 0.62, volets: false, colomb: false } : E);
+    if (ruine) { noircir(L); ex.fum.length = 0; ex.drap.length = 0; ex.ailes.length = 0; }
   });
   return { mesh: groupe(r), anim: r.anim.map(a => ({ ...a, pos: [...a.pos] })) };
 }
+/** Une variante quelconque assemblée une fois (fn(L) en unités de web_power) : THREE.Group neuf sur les géométries partagées, à l'échelle 0,1. */
+export function maillageCache(cle, fn) { return groupe(enCache('#' + cle, (L, ex) => fn(L, ex))); }
 
 // ------------------------------------------------------------------ chantier : échafaudage de bois façon web_power
 const CHANTIER = assembler('chantier', L => {
@@ -611,7 +623,7 @@ function tete(L, P, x, y, z, couleurRoy) {
   else if (P.tete === 'kepi') { put(L, cyl(0.24, 0.28, 0.32, 8), couleurRoy, x, y + 0.12, z, 0, 0.05); put(L, boite(0.4, 0.04, 0.2), NOIR, x, y, z + 0.2, 0, 0); }
   else put(L, cone(0.55, 0.3, 3), NOIR, x, y + 0.1, z, Math.PI, 0.05); // tricorne
 }
-function fantassin(L, P, x, z, roy, genre = 'ligne') {
+export function fantassin(L, P, x, z, roy, genre = 'ligne') {
   const habit = genre === 'chasseur' ? 0x2f4a32 : roy, pant = P.pantalon || BLANC;
   for (const dx of [-0.16, 0.16]) put(L, boite(0.24, 0.9, 0.3), pant, x + dx, 0.45, z, 0, 0.05);
   const long = P.habit === 'long' || P.habit === 'capote';
@@ -641,7 +653,7 @@ function cavalier(L, P, x, z, roy, genre) {
   else tete(L, P, x, 3, z - 0.1, roy);
   if (genre !== 'lancier') put(L, boite(0.06, 0.06, 1.1), ACIER, x + 0.4, 2.3, z + 0.35, 0, 0);
 }
-function canon(L, P, x, z) {
+export function canon(L, P, x, z) {
   const gri = P.art === 'gribeauval';
   const fut = cyl(gri ? 0.2 : 0.24, gri ? 0.3 : 0.36, gri ? 2 : 2.9, 10); fut.rotateX(Math.PI / 2 - 0.12); put(L, fut, BRONZE, x, 1, z + (gri ? 0.3 : 0.5), 0, 0.06);
   const affut = gri ? 0x6b7a4a : 0x8a3a2a;

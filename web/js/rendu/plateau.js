@@ -28,7 +28,7 @@ scene.add(groupe);
 
 let C = null, H = [], familles = [], eau = null, glace = null, liseres = null, surb = null, anneau = null, points = null;
 let saison = 2, neige = 0, gel = 0;
-let E = { arbres: [], foret: [], bati: new Set(), routes: new Set() }; // état du mois : ce qui change le décor
+let E = { arbres: [], foret: [], bati: new Set(), routes: new Set(), forts: new Set() }; // état du mois : ce qui change le décor (un fort dégage sa case d'arbres et de buttes)
 let rivPts = new Map(); // case → points des rivières qui la traversent (pour y écarter arbres et rochers)
 
 export const hauteur = i => H[i] ?? 0;
@@ -85,7 +85,7 @@ export function construire(carteServeur) {
   familles = [];
   const N = C.l * C.h;
   H = new Array(N).fill(0);
-  E = { arbres: C.arbres.slice(), foret: C.foret.slice(), bati: new Set(), routes: new Set() };
+  E = { arbres: C.arbres.slice(), foret: C.foret.slice(), bati: new Set(), routes: new Set(), forts: new Set() };
   // la mer : un plan translucide sur toute la carte, qui recouvre aussi les lacs
   const marge = 4, lx = Math.sqrt(3) * (C.l + 0.5) + 2 * marge, lz = 1.5 * (C.h - 1) + 2 + 2 * marge;
   eau = new THREE.Mesh(new THREE.PlaneGeometry(lx, lz), matMer);
@@ -159,14 +159,14 @@ const W = 0.46, D = 0.24, JEU = 0.04; // parcellaire de la maquette
 function decor(L, i, g0, y, x, z, c, r) {
   const t = C.terrain[i];
   // arbres : la forêt (autant que la case en porte) ou quelques arbres épars
-  const nb = t >= 4 && t <= 5 ? (E.arbres[i] | 0) : 0;
+  const nb = t >= 4 && t <= 5 && !E.forts.has(i) ? (E.arbres[i] | 0) : 0;
   for (let k = 0; k < nb; k++) {
     const q = auHasard(i, x, z, k, 21);
     if (!q) continue;
     const s = arrondi((0.8 + hache(i, k, 23) * 0.45) * S0);
     arbre(L, q[0], y, q[1], s, i, k, hache(i, k, 24) < (t === 5 ? 0.75 : 0.55));
   }
-  if (g0 === 'colline') for (let k = 0; k < 2; k++) {
+  if (g0 === 'colline' && !E.forts.has(i)) for (let k = 0; k < 2; k++) {
     const q = auHasard(i, x, z, k, 31);
     if (!q) continue;
     p(L, dome(arrondi((3 + hache(i, k, 33) * 1.4) * S0)), nv(0x97ad52, 0.6), q[0], y, q[1], 0, 0.012);
@@ -288,10 +288,10 @@ const memes = (a, b) => a.size === b.size && [...a].every(v => b.has(v));
 export function majEtat(etat) {
   if (!C) return;
   const cs = etat.cases, bati = new Set(etat.batiments.map(b => b.case));
-  const routes = new Set((etat.routes || []).flatMap(r => [r[0], r[1]]));
+  const routes = new Set((etat.routes || []).flatMap(r => [r[0], r[1]])), forts = new Set((etat.forts || []).map(f => f.case));
   const nq = Math.round((etat.meteo?.neige_sol || 0) * 10) / 10;
-  const change = !pareil(cs.arbres, E.arbres) || !pareil(cs.foret, E.foret) || !memes(bati, E.bati) || !memes(routes, E.routes) || etat.saison !== saison || nq !== neige;
-  E = { arbres: cs.arbres.slice(), foret: cs.foret.slice(), bati, routes };
+  const change = !pareil(cs.arbres, E.arbres) || !pareil(cs.foret, E.foret) || !memes(bati, E.bati) || !memes(routes, E.routes) || !memes(forts, E.forts) || etat.saison !== saison || nq !== neige;
+  E = { arbres: cs.arbres.slice(), foret: cs.foret.slice(), bati, routes, forts };
   saison = etat.saison; neige = nq;
   if (change) rebatir();
   territoires(etat);
