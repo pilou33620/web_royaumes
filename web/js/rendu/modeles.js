@@ -617,7 +617,7 @@ export const PALIERS = [
 export const TECHS_PALIER = [null, 'silex', 'gribeauval', 'levee_masse', 'percussion', 'chemin_fer'];
 export function palierDe(techs = []) { let p = 0; TECHS_PALIER.forEach((t, i) => { if (t && techs.includes(t)) p = i; }); return p; }
 
-function tete(L, P, x, y, z, couleurRoy) {
+export function tete(L, P, x, y, z, couleurRoy) {
   if (P.tete === 'bicorne') put(L, boite(0.95, 0.35, 0.3), NOIR, x, y + 0.1, z, 0, 0.05);
   else if (P.tete === 'shako') { put(L, cyl(0.3, 0.26, 0.5, 8), NOIR, x, y + 0.2, z, 0, 0.05); put(L, boite(0.1, 0.2, 0.1), couleurRoy, x, y + 0.52, z + 0.18, 0, 0); }
   else if (P.tete === 'kepi') { put(L, cyl(0.24, 0.28, 0.32, 8), couleurRoy, x, y + 0.12, z, 0, 0.05); put(L, boite(0.4, 0.04, 0.2), NOIR, x, y, z + 0.2, 0, 0); }
