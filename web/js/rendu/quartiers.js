@@ -704,7 +704,12 @@ function foule() {
 }
 const PROMENADE_SOIR = () => SOIR() && SAISON === 2 && foule() > 0.5;
 const MARCHE_OUVERT = () => (JOUR() || (SOIR() && H.p < 8)) && !ORAGEUX();
-const JOUR_MARCHE = () => !!climat.marche;
+// le jour de marché vient du moteur (villes[].jour_marche : pas de marché sous siège, blocus ou disette) ; à défaut, le cycle
+const JOUR_MARCHE = kM => {
+  if (climat.marcheForce != null) return climat.marcheForce;
+  const v = kM && ETAT?.villes?.find(x => x.id === kM.b?.ville);
+  return v && 'jour_marche' in v ? !!v.jour_marche : !!climat.marche;
+};
 
 function construireRues(A, centre, kt) {
   const ep = EPOQUE;
@@ -808,9 +813,9 @@ function construireMarche(A, kM) {
   const g = piecesMarche(SAISON);
   for (const x of [g.bache, g.carreau]) { x.matrixAutoUpdate = false; x.matrix.copy(kM.M); x.visible = false; ROOT.add(x); }
   MARCHES.push(g);
-  ajoute(RIEN, () => { const o = MARCHE_OUVERT(); g.bache.visible = !o; g.carreau.visible = o && JOUR_MARCHE() && SEC(); }, null);
+  ajoute(RIEN, () => { const o = MARCHE_OUVERT(); g.bache.visible = !o; g.carreau.visible = o && JOUR_MARCHE(kM) && SEC(); }, null);
   const ANG = [...ETALS.map(([x, z]) => Math.atan2(z, x)), -Math.PI / 2], clients = [];
-  const nbClients = () => !MARCHE_OUVERT() ? 0 : Math.round((JOUR_MARCHE() ? 8 : 3) * (PLUIE() ? 0.5 : 1) * (SAISON === 0 || METEO === 'neige' ? 0.75 : 1) * (METEO === 'canicule' ? 0.5 : 1));
+  const nbClients = () => !MARCHE_OUVERT() ? 0 : Math.round((JOUR_MARCHE(kM) ? 8 : 3) * (PLUIE() ? 0.5 : 1) * (SAISON === 0 || METEO === 'neige' ? 0.75 : 1) * (METEO === 'canicule' ? 0.5 : 1));
   const nomsClients = [mod('clienteP0', () => [...FEMME(0x8a4a7a, 0xf2e6c8), ...PANIER()]), mod('clienteP1', () => [...FEMME(0x5a7a4a), ...PANIER()]), mod(`dameP_${ep}`, () => [...DAME(ep, 0), ...PANIER(0.1, 0.72, 0.95)]), mod('clientP', () => [...PAYSAN(0x6a8aa4), ...PANIER(0.12, 0.46, 1.1)])];
   for (let i = 0; i < 8; i++) {
     const c = { ang: i * 0.8, r: 2.0 + (i % 3) * 0.18, cible: i % 5, pause: i * 0.4, sens: 1 };
@@ -833,7 +838,7 @@ function construireMarche(A, kM) {
     }, MARCHE_OUVERT);
   });
   // le jour de marché : le carreau (marchandes assises au sol), des poules échappées, plus de clients
-  const jm = () => JOUR_MARCHE() && MARCHE_OUVERT() && SEC();
+  const jm = () => JOUR_MARCHE(kM) && MARCHE_OUVERT() && SEC();
   [['assis1', 0, 6.45, 0, -1], ['assis3', -6.85, 2.9, 1, 0], ['assis1', 6.85, 3.0, -1, 0]].forEach(([nom, x, z, dx, dz], i) => ajoute(A(nom), (t, dt, o) => { const p = pres(kM, x, z); o.position.set(p.x, yM, p.z); o.rotation.set(0, capB(kM, dx, dz), Math.sin(t * 1.2 + i) * 0.05); }, jm));
   [[mod(`dame_${ep}_1`, () => DAME(ep, 1)), 0.3, 4.75, 0, 1], ['passant0', -5.05, 2.6, -1, 0.1]].forEach(([nom, x, z, dx, dz], i) => ajoute(A(nom), (t, dt, o) => { const p = pres(kM, x + Math.sin(t * 0.3 + i) * 0.4, z); o.position.set(p.x, yM, p.z); o.rotation.set(0, capB(kM, dx, dz) + Math.sin(t * 0.5 + i) * 0.4, -0.06); }, () => jm() && foule() > 0.4));
   for (let i = 0; i < 5; i++) ajoute(A(mod(`poule${i % 2}`, () => POULE(i % 2 ? 0xb8602a : 0xf2eee4)), ECH * 0.9), (t, dt, o) => {

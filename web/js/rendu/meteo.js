@@ -174,6 +174,7 @@ function majLumiere(t) {
   climat.heure = j >= a && j >= n ? 'jour' : n > a ? 'nuit' : 'aube';
   // la phase fine et l'heure dans la phase (vie des quartiers) ; le jour de marché revient un jour du cycle sur deux
   climat.phase = phase; climat.p = p;
+  climat.marcheForce = marcheForce;
   climat.marche = marcheForce ?? (Math.floor((typeof force === 'number' ? force : t + 20) / CYCLE) % 2 === 0);
   const L = { ...LUMIERE, aube: phase === 'crepuscule' ? LUMIERE.crep : LUMIERE.aube }, s = TEMPS.sombre;
   lumiere.soleil = (L.jour.sI * j + L.aube.sI * a + L.nuit.sI * n) * s;
