@@ -1,5 +1,6 @@
 {
-  "version": "1.1.0",
-  "commit": "999cdf1af1aa450463b785a076fde2f30b19fe18",
+  "version": "1.2.0",
+  "commit": "94a61073edef0fb412f7c1e205d5fe467ec62142",
+  "parties": "royaumes three",
   "depot": "https://github.com/pilou33620/web_engine"
 }
