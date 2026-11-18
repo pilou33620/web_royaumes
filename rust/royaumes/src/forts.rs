@@ -34,9 +34,18 @@ impl Partie {
         self.armees.iter().any(|a| a.proprio == proprio && a.case == case)
     }
 
-    /// Le nom d'un fort dans les récits : « le fort de » la ville la plus proche.
+    /// Le nom d'un fort dans les récits : sa direction depuis la ville la plus proche.
     pub fn nom_fort(&self, case: usize) -> String {
-        self.villes.iter().min_by_key(|v| self.carte.dist(v.case, case)).map_or_else(|| "le fort".into(), |v| format!("le fort de {}", v.nom))
+        // la direction depuis la ville la plus proche distingue deux forts voisins (« le fort au nord-est de Lumen »)
+        self.villes.iter().min_by_key(|v| self.carte.dist(v.case, case)).map_or_else(
+            || "le fort".into(),
+            |v| {
+                let ((x0, z0), (x1, z1)) = (self.carte.cases[v.case].pos(), self.carte.cases[case].pos());
+                let a = (x1 - x0).atan2(z0 - z1).to_degrees().rem_euclid(360.0); // 0° : nord (z décroissant), 90° : est
+                let dir = ["au nord", "au nord-est", "à l'est", "au sud-est", "au sud", "au sud-ouest", "à l'ouest", "au nord-ouest"][((a + 22.5) / 45.0) as usize % 8];
+                format!("le fort {dir} de {}", v.nom)
+            },
+        )
     }
 
     /// Ce qui protège une armée attaquée sur sa case : son retranchement achevé, ou le fort de son royaume
@@ -335,7 +344,7 @@ mod essais {
         assert_eq!(ordre(&mut p, json!({"action": "construire_fort", "armee": id})), Err("Il y a déjà un fort ici".into()));
         assert!(p.peut_construire("cabane", c, 0).is_err(), "le fort occupe la case");
         // un second fort trop près
-        assert!(p.carte.voisins(c).into_iter().any(|x| p.site_de_fort(0, x).is_err_and(|e| e.starts_with("Trop près du fort de"))));
+        assert!(p.carte.voisins(c).into_iter().any(|x| p.site_de_fort(0, x).is_err_and(|e| e.starts_with("Trop près du fort "))));
         assert_eq!(ordre(&mut p, json!({"action": "ameliorer_fort", "fort": fid})), Err("Le fort est déjà en travaux (2 mois)".into()));
         assert_eq!(ordre(&mut p, json!({"action": "ameliorer_fort", "fort": 999_999})), Err("fort inconnu".into()));
         p.fin_du_mois();
@@ -443,7 +452,7 @@ mod essais {
         let r = q.fin_du_mois();
         let si = q.siege_de(fid).expect("le fort est assiégé");
         assert!(q.sieges[si].fort && q.sieges[si].murs < q.sieges[si].murs_max);
-        assert!(r.evenements.iter().any(|e| e.texte.contains("Siège du fort de")), "{:?}", r.evenements);
+        assert!(r.evenements.iter().any(|e| e.texte.contains("Siège du fort ")), "{:?}", r.evenements);
         assert_eq!(q.forts[q.fort(fid).unwrap()].proprio, 0);
         let e = crate::vue::etat(&q);
         assert!(e["forts"][0]["assiege"] == true && e["sieges"][0]["fort"] == true && e["sieges"][0]["faubourgs"].as_array().unwrap().is_empty());

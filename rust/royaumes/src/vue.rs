@@ -172,7 +172,8 @@ pub fn etat(p: &Partie) -> Value {
             "ville": b.ville, "produit": b.produit, "arret": if b.arret > p.tour { json!(b.arret) } else { Value::Null },
         })).collect::<Vec<_>>(),
         "armees": p.armees.iter().filter(|a| a.proprio == 0 || vu(a.case)).map(|a| json!({
-            "id": a.id, "proprio": a.proprio, "case": a.case, "unites": a.unites, "chemin": if a.proprio == 0 { json!(a.chemin) } else { json!([]) },
+            "id": a.id, "proprio": a.proprio, "case": a.case, "unites": a.unites, // les autres : seulement la partie de leur marche qui est en vue (menaces en approche)
+            "chemin": if a.proprio == 0 { json!(a.chemin) } else { json!(a.chemin.iter().take_while(|&&c| vu(c)).collect::<Vec<_>>()) },
             "effectif": a.effectif(), "att": p.attaque(a, false, 1.0), "def": p.defense(a),
             "mois": if a.chemin.is_empty() { 0 } else { p.mois_trajet(a, &a.chemin) },
             "assiege": p.assiege(a.proprio, a.case),

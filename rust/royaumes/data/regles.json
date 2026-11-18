@@ -172,7 +172,7 @@
       {"niveau": 3, "nom": "Fort à batteries", "icone": "💣", "rang": 3, "tech": "gribeauval", "cout": {"pierre": 150, "outils": 20, "or": 300}, "murs": 45, "defense": 1.75, "vision": 3, "entretien": 7, "duree": 6, "desc": "Casemates et batteries d'artillerie : la route ou la côte est verrouillée."}
     ]
   },
-  "siege": {"tranchees": 6, "artillerie": 1.0, "vauban_attaque": 1.5, "vauban_defense": 1.25, "gribeauval": 1.3, "fortif_ia": 0.5, "pillage_or": 30, "pillage_part": 0.3, "pillage_mois": 4, "vivres_base": 2, "vivres_grenier": 2, "usure_garnison": 0.05, "usure_assiegeant": 0.03, "faim": 0.15, "reddition_faim": 2},
+  "siege": {"tranchees": 6, "artillerie": 0.5, "vauban_attaque": 1.5, "vauban_defense": 1.25, "gribeauval": 1.3, "fortif_ia": 0.5, "pillage_or": 30, "pillage_part": 0.3, "pillage_mois": 4, "vivres_base": 2, "vivres_grenier": 2, "usure_garnison": 0.05, "usure_assiegeant": 0.03, "faim": 0.15, "reddition_faim": 2},
   "evenements_choix": [
     {"cle": "inventeur", "titre": "Un inventeur", "icone": "⚙️", "epoques": ["lumieres", "empire", "industrie"], "texte": "Un inventeur se présente à la cour de {ville} avec les plans d'une machine extraordinaire. Il ne lui manque que l'argent.", "options": [
       {"texte": "Financer ses travaux", "cout": {"or": 150}, "effets": {"savoir": 120}, "risque": 0.25, "echec": {"savoir": 20}, "echec_texte": "La machine explose au premier essai… on en tire tout de même quelques leçons."},

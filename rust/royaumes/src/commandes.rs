@@ -54,7 +54,7 @@ pub fn executer(p: &mut Partie, c: &Value) -> Result<Value, String> {
     // lecture seule : les cases où l'on peut poser un bâtiment (surbrillance du mode construction)
     if c.get("action").and_then(Value::as_str) == Some("cases_valides") {
         let cle = txt(c, "cle")?;
-        let v: Vec<usize> = (0..p.carte.cases.len()).filter(|&i| p.peut_construire(cle, i, 0).is_ok()).collect();
+        let v: Vec<usize> = (0..p.carte.cases.len()).filter(|&i| p.connait(0, i) && p.peut_construire(cle, i, 0).is_ok()).collect();
         return Ok(json!({"ok": true, "cases": v}));
     }
     if p.fin.is_some() && !p.sans_victoire {
@@ -80,6 +80,9 @@ pub fn executer(p: &mut Partie, c: &Value) -> Result<Value, String> {
                 if !p.a_tech(0, t) {
                     return Err(format!("Il faut la technologie « {} »", rg.tech(t).map(|x| x.nom.as_str()).unwrap_or(t)));
                 }
+            }
+            if !p.connait(0, i) {
+                return Err("Terre inconnue : explorez-la d'abord".into());
             }
             p.peut_construire(cle, i, 0)?;
             if !p.peut_payer(&d.cout, 1.0) {
