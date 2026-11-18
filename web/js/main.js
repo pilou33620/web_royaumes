@@ -142,13 +142,18 @@ async function finTour() {
 
 async function propositions() {
   if (J.etat.fin && !J.etat.sans_victoire) return;
-  for (const p of (J.etat.propositions || []).slice()) {
+  // un refus peut amener une contre-proposition : on la présente à son tour
+  const vues = new Set();
+  let p;
+  while ((p = (J.etat.propositions || []).find(x => !vues.has(x.id)))) {
+    vues.add(p.id);
     const qui = p.de > 0 ? J.etat.royaumes.find(r => r.id === p.de) : null;
-    const titre = { echange: '⚖️ Proposition commerciale', alliance: '🤝 Proposition d\'alliance', paix: '🕊️ Proposition de paix', tribut: '💰 Ultimatum', marchand: '🧳 Un colporteur' }[p.genre] || 'Proposition';
+    const titre = p.manche ? '↩️ Contre-proposition' : { echange: '⚖️ Proposition commerciale', alliance: '🤝 Proposition d\'alliance', paix: '🕊️ Proposition de paix', tribut: '💰 Ultimatum', marchand: '🧳 Un colporteur', aide: '🆘 Un allié appelle à l\'aide' }[p.genre] || 'Proposition';
     const oui = await ui.modale(titre, `<p>${qui ? `<span class="pastille" style="--c:${qui.couleur}"></span>` : ''}${p.texte.replace(/[<>]/g, '')}</p>`, [
-      { l: p.genre === 'tribut' ? 'Payer' : 'Accepter', c: 'vert', v: true },
+      { l: p.genre === 'tribut' ? 'Payer' : p.genre === 'aide' ? '⚔️ Entrer en guerre' : 'Accepter', c: 'vert', v: true },
       { l: p.genre === 'tribut' ? 'Refuser' : 'Décliner', c: p.genre === 'tribut' ? 'rouge' : 'b2', v: false },
     ]);
+    if (!(J.etat.propositions || []).some(x => x.id === p.id)) continue; // déjà réglée depuis le panneau Diplomatie
     const r = await cmd({ action: 'repondre', proposition: p.id, accepte: oui });
     if (r.msg) ui.annonce(r.msg, r.ok ? 'bon' : 'guerre');
   }
