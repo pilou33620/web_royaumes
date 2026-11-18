@@ -25,6 +25,11 @@ fn robot(p: &mut Partie) {
     let vid = p.villes[p.capitale(0).unwrap()].id;
     let _ = executer(p, &json!({"action": "ameliorer", "ville": vid}));
     let econome = p.niveau_capitale(0) == 1 && j.pop >= 40;
+    // pendant l'économie, la scierie ne dévore pas le bois que demande l'Hôtel de ville quand les planches s'entassent
+    let garder_bois = econome && j.stock["bois"] < 60.0 && j.stock["planches"] >= 80.0;
+    for b in p.batiments.iter().filter(|b| b.proprio == 0 && b.cle == "scierie" && b.pause != garder_bois).map(|b| b.id).collect::<Vec<_>>() {
+        let _ = executer(p, &json!({"action": "pause", "batiment": b}));
+    }
     if econome {
         if nb(p, "bucheron") < 3 {
             construire(p, "bucheron");
@@ -116,7 +121,21 @@ fn robot(p: &mut Partie) {
 
 #[test]
 fn dix_ans_de_campagne() {
-    let mut p = Partie::nouvelle(Options { graine: 1789, ..Options::default() });
+    campagne(Options { graine: 1789, ..Options::default() });
+}
+
+#[test]
+fn dix_ans_dans_l_archipel() {
+    campagne(Options { graine: 1789, forme: "archipel".into(), ..Options::default() });
+}
+
+#[test]
+fn dix_ans_autour_de_la_mer_interieure() {
+    campagne(Options { graine: 1789, forme: "mer_interieure".into(), ..Options::default() });
+}
+
+fn campagne(o: Options) {
+    let mut p = Partie::nouvelle(o);
     let mut famines = 0;
     let (mut choix, mut espion, mut commerce_mer) = (0, false, 0.0);
     for mois in 0..120 {

@@ -20,13 +20,14 @@ window.__jeu = J; // pour les bancs d'essai
 chaqueImage(plateau.animer);
 
 // ------------------------------------------------------------------ accueil
-const CHAMPS = ['taille', 'graine', 'oceans', 'forets', 'lacs', 'rivieres', 'montagnes', 'mines', 'rivaux', 'attitude', 'difficulte', 'brigands', 'capitale'];
+const CHAMPS = ['forme', 'taille', 'graine', 'oceans', 'forets', 'lacs', 'rivieres', 'montagnes', 'mines', 'rivaux', 'attitude', 'difficulte', 'brigands', 'capitale'];
 function lireOptions() {
   const v = id => $('#o_' + id).value;
   const o = {
-    taille: v('taille'), graine: parseInt(v('graine')) || 1, oceans: +v('oceans'), forets: +v('forets'), lacs: +v('lacs'), rivieres: +v('rivieres'),
+    forme: v('forme'), taille: v('taille'), graine: parseInt(v('graine')) || 1, oceans: +v('oceans'), forets: +v('forets'), lacs: +v('lacs'), rivieres: +v('rivieres'),
     montagnes: +v('montagnes'), mines: +v('mines'), rivaux: +v('rivaux'), attitude: v('attitude'), difficulte: +v('difficulte'), brigands: v('brigands') === '1', capitale: v('capitale').trim() || 'Valdor',
   };
+  $('#d_forme').textContent = $('#o_forme').selectedOptions[0]?.dataset.d || '';
   $('#v_oceans').textContent = o.oceans + ' %'; $('#v_forets').textContent = o.forets + ' %'; $('#v_lacs').textContent = o.lacs; $('#v_rivieres').textContent = o.rivieres;
   $('#v_montagnes').textContent = o.montagnes + ' %'; $('#v_mines').textContent = ['', 'Pauvre', 'Normale', 'Riche'][o.mines]; $('#v_rivaux').textContent = o.rivaux;
   try { localStorage.setItem('royaumes-options', JSON.stringify(o)); } catch { /* stockage indisponible */ }
@@ -45,6 +46,7 @@ async function apercu() {
   plateau.majEtat(ex);
   plateau.majSaison(2, 0);
   cadrer(c);
+  cam.cible = Math.min(95, Math.max(cam.l, cam.h)); // l'aperçu montre toute la carte : la forme se reconnaît d'un coup d'œil
   cam.auto = true;
 }
 function cadrer(c) {
