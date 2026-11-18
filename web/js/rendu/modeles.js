@@ -676,9 +676,15 @@ function fourgon(L, x, z) {
   for (const [dx, dz] of [[-0.8, -0.8], [0.8, -0.8], [-0.8, 0.8], [0.8, 0.8]]) { const r = cyl(0.42, 0.42, 0.12, 12); r.rotateZ(Math.PI / 2); put(L, r, 0x4a3420, x + dx, 0.42, z + dz, 0, 0.05); }
   cheval(L, x, z + 2.7);
 }
-function armee(L, P, roy) {
-  // la ligne, devant : piquiers au centre au départ, grenadiers au bout ensuite
+/** La ligne (piquiers au centre au départ, grenadiers au bout ensuite), le drapeau et son porteur : le cœur de l'armée et de la garde. */
+function ligne(L, P, roy) {
   for (let i = 0; i < 6; i++) fantassin(L, P, -3.4 + i * 1.15, 2.4, roy, P.piques && (i === 2 || i === 3) ? 'piquier' : P.grenadiers && i === 5 ? 'grenadier' : 'ligne');
+  put(L, boite(0.14, 4.6, 0.14), 0x4a3420, -0.2, 2.3, 0.4, 0, 0.05);
+  put(L, boite(0.05, 1.1, 1.6), roy, -0.2, 3.95, 1.25, 0, 0.04); put(L, boite(0.06, 0.25, 1.6), BLANC, -0.2, 3.95, 1.25, 0, 0); put(L, boite(0.06, 1.1, 0.25), BLANC, -0.2, 3.95, 1.25, 0, 0);
+  fantassin(L, P, 0.2, 0.4, roy);
+}
+function armee(L, P, roy) {
+  ligne(L, P, roy); // devant
   if (P.chasseurs) { fantassin(L, P, -2.6, 4.6, roy, 'chasseur'); fantassin(L, P, 1.4, 5.0, roy, 'chasseur'); } // tirailleurs en avant
   // la cavalerie, derrière
   const cav = [P.cav, P.hussard ? 'hussard' : P.lanciers ? 'lancier' : P.cav, P.cav];
@@ -686,10 +692,7 @@ function armee(L, P, roy) {
   // l'artillerie, sur le flanc
   canon(L, P, 5.4, 1.8); canon(L, P, 7.2, 1.2);
   fantassin(L, P, 4.4, 0.4, roy); fantassin(L, P, 6.4, 0, roy);
-  // le drapeau et l'officier
-  put(L, boite(0.14, 4.6, 0.14), 0x4a3420, -0.2, 2.3, 0.4, 0, 0.05);
-  put(L, boite(0.05, 1.1, 1.6), roy, -0.2, 3.95, 1.25, 0, 0.04); put(L, boite(0.06, 0.25, 1.6), BLANC, -0.2, 3.95, 1.25, 0, 0); put(L, boite(0.06, 1.1, 0.25), BLANC, -0.2, 3.95, 1.25, 0, 0);
-  fantassin(L, P, 0.2, 0.4, roy);
+  // l'officier
   cavalier(L, P, -1.6, 0, roy, P.cav === 'cuirassier' ? 'officier' : P.cav);
   if (P.fourgon) fourgon(L, -5.8, -3); // sur le flanc gauche, à l'écart des attelages
 }
@@ -697,4 +700,10 @@ function armee(L, P, roy) {
 export function maillageArmee(couleur, palier = 0) {
   const p = Math.max(0, Math.min(5, palier | 0));
   return groupe(enCache(`armee|${couleur}|${p}`, L => armee(L, PALIERS[p], couleur)));
+}
+/** La garde d'une petite place (la garnison d'une enceinte trop étroite pour l'armée entière) : la ligne et le drapeau, sans cavalerie
+ *  ni canons ni fourgon (même repère que l'armée : la vie y fait tirer la même salve). */
+export function maillageGarde(couleur, palier = 0) {
+  const p = Math.max(0, Math.min(5, palier | 0));
+  return groupe(enCache(`garde|${couleur}|${p}`, L => ligne(L, PALIERS[p], couleur)));
 }

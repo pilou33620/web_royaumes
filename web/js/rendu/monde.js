@@ -2,7 +2,7 @@
 // et, par remparts.js, sieges.js et forts.js : remparts des villes, sièges, forts d'armée et retranchements.
 // Joue aussi le mois sous les yeux du joueur : marches des armées, batailles, assauts et redditions.
 import { THREE, scene, posCase, voisins, chaqueImage, lerp, hache } from './scene.js';
-import { maillageBatiment, maillageChantier, maillageArmee, palierDe } from './modeles.js';
+import { maillageBatiment, maillageChantier, maillageArmee, maillageGarde, palierDe } from './modeles.js';
 import { dessus, solEn, hauteurEn, carte, degager } from './plateau.js';
 import { toon, lot, put, fige } from './toon.js';
 import { etiquette, balayer, banniere, effet, deplacer, masquer } from './etiquettes.js';
@@ -152,22 +152,23 @@ function balayerArmees(ids) {
 }
 
 function majArmee(a, fantome) {
-  const cle = `${couleurs[a.proprio]}|${paliers[a.proprio] || 0}`;
+  // sur une case bâtie, l'armée se range au bord de la case, un peu plus petite, pour ne pas recouvrir le bâtiment ;
+  // devant un fort, sur son glacis ; une armée qui assiège se tient à son camp, au bout des tranchées, face à la place
+  // dans une ville fortifiée, la garnison se tient dans l'enceinte, là où les bâtiments et les murs lui laissent la place (placerGarnisons) ;
+  // une armée qui part en marche (fantome) reprend l'icône entière
+  const camp = a.assiege ? campArmee(a.case) : null, garde = !fantome && !camp && garnisons.get(a.case), fort = !camp && !garde && casesForts.has(a.case), bati = !camp && !garde && !fort && casesBaties.has(a.case);
+  const cle = `${couleurs[a.proprio]}|${paliers[a.proprio] || 0}|${garde?.compacte ? 1 : 0}`;
   let v = armees.get(a.id);
   const { x, z } = posCase(a.case);
   if (!v || v.cle !== cle) {
     if (v) groupe.remove(v.mesh);
-    const mesh = maillageArmee(couleurs[a.proprio], paliers[a.proprio] || 0);
+    const mesh = (garde?.compacte ? maillageGarde : maillageArmee)(couleurs[a.proprio], paliers[a.proprio] || 0);
     const old = v;
     mesh.rotation.y = old ? old.mesh.rotation.y : 0.5;
     v = { mesh, x: old ? old.x : x, z: old ? old.z : z, cle, anim: old?.anim || null, proprio: a.proprio };
     groupe.add(mesh);
     armees.set(a.id, v);
   }
-  // sur une case bâtie, l'armée se range au bord de la case, un peu plus petite, pour ne pas recouvrir le bâtiment ;
-  // devant un fort, sur son glacis ; une armée qui assiège se tient à son camp, au bout des tranchées, face à la place
-  // dans une ville fortifiée, la garnison se tient dans l'enceinte, là où les bâtiments et les murs lui laissent la place (placerGarnisons)
-  const camp = a.assiege ? campArmee(a.case) : null, garde = !camp && garnisons.get(a.case), fort = !camp && !garde && casesForts.has(a.case), bati = !camp && !garde && !fort && casesBaties.has(a.case);
   const pose = camp || garde;
   if (!v.anim) {
     v.x = pose ? pose.x : x; v.z = pose ? pose.z : z + (bati ? 0.52 : fort ? 0.58 : 0);
@@ -183,14 +184,18 @@ function majArmee(a, fantome) {
 // ------------------------------------------------------------------ la garnison d'une ville fortifiée
 // L'armée qui garde une ville fortifiée (assiégée ou non) se tient dans l'enceinte : sur une case intra-muros sans bâtiment, sinon
 // sur la place la plus large que laissent les pièces du bâtiment (leurs emprises au sol, modeles.js) en deçà des murs, réduite pour
-// y tenir. Si elle n'y tiendrait que minuscule et que la ville n'est pas assiégée, elle se range devant les murs, sur une case libre.
-const MURS = 6.5, S_GARDE = 0.075, S_MIN = 0.04, VIDE = []; // MURS : rayon inscrit (unités de web_power, depuis le centre de la case) où commencent les murs
+// y tenir. Quand l'armée entière n'y tiendrait que trop petite (enceinte de la seule mairie), c'est la garde qu'on y montre : la ligne
+// et le drapeau, à la taille des autres armées. Si même la garde n'y tient pas et que la ville n'est pas assiégée, l'armée se range
+// devant les murs, sur une case libre.
+// MURS : rayon inscrit (unités de web_power, depuis le centre de la case) où commencent les murs ; S_PLEINE : en deçà, la garde plutôt que l'armée entière
+const MURS = 6.5, S_GARDE = 0.075, S_PLEINE = 0.065, S_MIN = 0.04, VIDE = [];
 const rIn = (x, z) => Math.max(Math.abs(x), Math.abs(0.5 * x + 0.866 * z), Math.abs(0.5 * x - 0.866 * z)); // rayon inscrit de l'hexagone (sommet vers +z) qui passe par (x, z)
 /** Le rectangle (centre x, z ; demi-côtés hx, hz ; tourné de φ : c = cos φ, sn = sin φ) touche-t-il la boîte b = [x0, x1, z0, z1] ? (axes séparateurs) */
 function touche(x, z, hx, hz, c, sn, b) {
   const ex = (b[1] - b[0]) / 2, ez = (b[3] - b[2]) / 2, dx = (b[0] + b[1]) / 2 - x, dz = (b[2] + b[3]) / 2 - z, ac = Math.abs(c), as = Math.abs(sn);
   return Math.abs(dx) <= ex + hx * ac + hz * as && Math.abs(dz) <= ez + hx * as + hz * ac && Math.abs(dx * c - dz * sn) <= hx + ex * ac + ez * as && Math.abs(dx * sn + dz * c) <= hz + ex * as + ez * ac;
 }
+const XS = Array.from({ length: 25 }, (_, i) => (i % 2 ? 1 : -1) * Math.ceil(i / 2) * 0.5); // 0, 0,5, −0,5, 1, −1…
 const places = new WeakMap(); // emprises d'un bâtiment → (emprise de l'armée → place)
 /** La plus large place où l'armée (boîte bA, unités du modèle) tient sur la case d'un bâtiment : { x, z (centre de l'emprise, repère local, unités de web_power), phi, s (échelle) } ou null. */
 function placeLibre(boites, bA) {
@@ -204,11 +209,13 @@ function placeLibre(boites, bA) {
     return !boites.some(b => touche(x, z, hx, hz, c, sn, b));
   };
   let best = null;
-  for (let x = -6; x <= 6 && !(best?.s >= S_GARDE); x += 0.5) for (let z = -6; z <= 6; z += 0.5) {
+  // du sud vers le nord (la caméra regarde vers le nord : l'armée devant les bâtiments plutôt que derrière), du milieu vers les côtés
+  for (let z = 6; z >= -6 && !(best?.s >= S_GARDE); z -= 0.5) for (const x of XS) {
     if (rIn(x, z) > MURS - 1) continue;
     for (let a = 0; a < 12; a++) { // face au sud d'abord (vers la caméra) ; une autre pose ne l'emporte que si l'armée y tient plus grande
       const phi = a * Math.PI / 6, c = Math.cos(phi), sn = Math.sin(phi);
-      let lo = best ? best.s * 1.02 : 0.01, hi = S_GARDE; if (lo >= hi || !tient(x, z, c, sn, lo)) continue;
+      // plus au nord (derrière les bâtiments, vu de la caméra), il faut y tenir nettement plus grand, tant que la place trouvée est assez large
+      let lo = best ? best.s * (1.02 + (best.s >= S_PLEINE ? 0.03 * (best.z - z) : 0)) : 0.01, hi = S_GARDE; if (lo >= hi || !tient(x, z, c, sn, lo)) continue;
       if (tient(x, z, c, sn, hi)) lo = hi; else for (let i = 0; i < 6; i++) { const mi = (lo + hi) / 2; if (tient(x, z, c, sn, mi)) lo = mi; else hi = mi; }
       best = { x, z, phi, s: lo };
     }
@@ -222,28 +229,32 @@ function placerGarnisons(etat) {
   for (const v of etat.villes) {
     if (!v.fortif) continue;
     const a = etat.armees.find(x => x.case === v.case && !x.assiege); if (!a) continue;
-    const ga = maillageArmee(couleurs[a.proprio], paliers[a.proprio] || 0).children[0].geometry;
-    if (!ga.boundingBox) ga.computeBoundingBox();
-    const bA = ga.boundingBox, camp = v.assiegee ? campArmee(v.case) : null, intra = v.enceinte?.length ? v.enceinte : [v.case];
-    let best = null;
-    for (const c of intra) {
-      const b = etat.batiments.find(x => x.case === c), ex = b && batis.get(b.id);
-      if (b && (!ex || b.reste > 0)) continue; // un chantier : pas de place
-      const pl = placeLibre(ex ? ex.boites : VIDE, bA); if (!pl) continue;
-      const k = posCase(c), th = ex ? ex.mesh.rotation.y : 0, ct = Math.cos(th), st = Math.sin(th);
-      const cx = k.x + (pl.x * ct + pl.z * st) * 0.1, cz = k.z + (-pl.x * st + pl.z * ct) * 0.1;
-      const score = pl.s + (camp ? Math.hypot(cx - camp.x, cz - camp.z) * 0.002 : 0); // assiégée : plutôt loin du camp
-      if (!best || score > best.score) best = { score, cx, cz, ry: th + pl.phi, s: pl.s, case: c, degage: !b };
-    }
+    const emprise = m => { const g = m(couleurs[a.proprio], paliers[a.proprio] || 0).children[0].geometry; if (!g.boundingBox) g.computeBoundingBox(); return g.boundingBox; };
+    const camp = v.assiegee ? campArmee(v.case) : null, intra = v.enceinte?.length ? v.enceinte : [v.case];
+    const chercher = bA => {
+      let best = null;
+      for (const c of intra) {
+        const b = etat.batiments.find(x => x.case === c), ex = b && batis.get(b.id);
+        if (b && (!ex || b.reste > 0)) continue; // un chantier : pas de place
+        const pl = placeLibre(ex ? ex.boites : VIDE, bA); if (!pl) continue;
+        const k = posCase(c), th = ex ? ex.mesh.rotation.y : 0, ct = Math.cos(th), st = Math.sin(th);
+        const cx = k.x + (pl.x * ct + pl.z * st) * 0.1, cz = k.z + (-pl.x * st + pl.z * ct) * 0.1;
+        const score = pl.s + (camp ? Math.hypot(cx - camp.x, cz - camp.z) * 0.002 : 0); // assiégée : plutôt loin du camp
+        if (!best || score > best.score) best = { score, cx, cz, ry: th + pl.phi, s: pl.s, case: c, degage: !b, bA };
+      }
+      return best;
+    };
+    let best = chercher(emprise(maillageArmee));
+    if (!(best?.s >= S_PLEINE)) { const g = chercher(emprise(maillageGarde)); if (g && !(g.s <= best?.s)) best = { ...g, compacte: true }; } // l'enceinte d'une seule case : la garde, à sa taille
     if ((!best || best.s < S_MIN) && !v.assiegee) { // devant les murs, sur une case voisine libre (la plus au sud : face à la caméra)
       const dans = new Set(intra), ouv = casesOuvrages(), k0 = posCase(v.case);
       const c = intra.flatMap(i => voisins(i)).filter(i => !dans.has(i) && C.terrain[i] >= 3 && C.terrain[i] !== 6 && !casesBaties.has(i) && !casesForts.has(i) && !ouv.has(i)).sort((p, q) => posCase(q).z - posCase(p).z)[0];
-      if (c !== undefined) { const k = posCase(c); best = { cx: k.x, cz: k.z, ry: Math.atan2(k0.x - k.x, k0.z - k.z), s: S_GARDE, case: c, degage: true }; }
+      if (c !== undefined) { const k = posCase(c); best = { cx: k.x, cz: k.z, ry: Math.atan2(k0.x - k.x, k0.z - k.z), s: S_GARDE, case: c, degage: true, bA: emprise(maillageArmee) }; }
     }
     if (!best) continue;
     // l'origine du modèle : le centre de son emprise ramené sur la place choisie
-    const bx = (bA.min.x + bA.max.x) / 2 * best.s, bz = (bA.min.z + bA.max.z) / 2 * best.s, c = Math.cos(best.ry), sn = Math.sin(best.ry);
-    garnisons.set(v.case, { x: best.cx - (bx * c + bz * sn), z: best.cz - (-bx * sn + bz * c), ry: best.ry, s: best.s, case: best.case, degage: best.degage });
+    const bA = best.bA, bx = (bA.min.x + bA.max.x) / 2 * best.s, bz = (bA.min.z + bA.max.z) / 2 * best.s, c = Math.cos(best.ry), sn = Math.sin(best.ry);
+    garnisons.set(v.case, { x: best.cx - (bx * c + bz * sn), z: best.cz - (-bx * sn + bz * c), ry: best.ry, s: best.s, case: best.case, degage: best.degage, compacte: !!best.compacte });
   }
 }
 function etiquetteArmee(id, v) {
@@ -263,7 +274,7 @@ export function jouerMois(rapport, apres, duree = 2800) {
   for (const m of rapport.mouvements) {
     if (m.flotte) continue; // les flottes : marine.js (gardées dans le compte des étapes)
     let v = armees.get(m.armee);
-    if (!v) {
+    if (!v || v.cle.endsWith('|1')) { // une armée qui n'était pas là, ou la garde d'une petite place qui sort : l'armée entière
       const a = apres.armees.find(x => x.id === m.armee) || { id: m.armee, proprio: m.proprio, case: m.trajet[0], unites: { milice: 6 }, chemin: [] };
       v = majArmee({ ...a, case: m.trajet[0] }, true);
     }

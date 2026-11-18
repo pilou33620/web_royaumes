@@ -104,7 +104,7 @@ function passages(etat, autour) {
 // ---------------------------------------------------------------- une enceinte complète
 // passages : [{ pts, larg }] (routes ~0,17, rivières ~0,5). Rend { murs, sol, pointes, H, Q, breche, infoBreche } :
 // murs = ce qui s'élève pendant les travaux, sol = fossé et glacis, pointes = sommets saillants (défenseurs, canons),
-// Q = tracé de la face extérieure. breche [x, z] (siège) : la courtine la plus proche de ce point est coupée en trois, le morceau du milieu à part.
+// Q = tracé de la face extérieure. breche [x, z] (siège) : la courtine qui fait face à ce point, au plus près, est coupée en trois, le morceau du milieu à part.
 export function enceinte(parent, groupe, niveau, passages, EPOQUE, breche = null) {
   const indus = EPOQUE === 'industrie', st = STYLE_REMP[EPOQUE] || STYLE_REMP.ancien;
   const H = { 1: 0.08, 2: 0.13, 3: 0.13, 4: 0.15 }[niveau] * (niveau >= 3 ? st.h : 1), w = { 1: 0.024, 2: 0.055, 3: 0.085, 4: 0.095 }[niveau];
@@ -140,8 +140,17 @@ export function enceinte(parent, groupe, niveau, passages, EPOQUE, breche = null
     if (a < b0) pieces.push([j, a, b0]);
   }
   const y1 = j => yIn(j) + H;
-  let ib = -1, LB = null, infoBreche = null;
-  if (breche && niveau >= 2) { let dm = Infinity; pieces.forEach(([j, a, b], i) => { if (b - a < 0.3) return; const c = O(j, (a + b) / 2), d = Math.hypot(c[0] - breche[0], c[1] - breche[1]); if (d < dm) { dm = d; ib = i; } }); }
+  // la brèche : sur la courtine qui regarde le bout des tranchées (le point breche), au plus près de lui (sb : son milieu sur la face)
+  let ib = -1, sb = 0, LB = null, infoBreche = null;
+  if (breche && niveau >= 2) {
+    let dm = Infinity;
+    pieces.forEach(([j, a, b], i) => {
+      if (b - a < 0.3) return;
+      const s = Math.max(a, Math.min(b, (breche[0] - Q[j][0]) * U[j].ux + (breche[1] - Q[j][1]) * U[j].uz)), c = O(j, s), dx = breche[0] - c[0], dz = breche[1] - c[1];
+      const d = Math.hypot(dx, dz) + (dx * N[j][0] + dz * N[j][1] < 0 ? 10 : 0); // une courtine qui tourne le dos au camp : en dernier recours
+      if (d < dm) { dm = d; ib = i; sb = s; }
+    });
+  }
   const morceau = (L, j, a, b) => {
     const o0 = O(j, a), o1 = O(j, b), i0 = I(j, a), i1 = I(j, b), nx = N[j][0], nz = N[j][1];
     if (niveau === 1) { // palissade : bande de pieux, pointes ou poteaux plats, et ce qui la porte selon l'époque
@@ -165,8 +174,9 @@ export function enceinte(parent, groupe, niveau, passages, EPOQUE, breche = null
   };
   pieces.forEach(([j, a, b], i) => {
     if (i !== ib) return morceau(L, j, a, b);
-    const c = (b - a) * 0.3; LB = lot(); morceau(L, j, a, a + c); morceau(LB, j, a + c, b - c); morceau(L, j, b - c, b);
-    infoBreche = { O: O(j, (a + b) / 2), n: N[j], y: yIn(j), H };
+    const c = (b - a) * 0.2, m = Math.max(a + c + 0.08, Math.min(b - c - 0.08, sb)); // 0,08 : à l'écart de la tour d'angle
+    LB = lot(); morceau(L, j, a, m - c); morceau(LB, j, m - c, m + c); morceau(L, j, m + c, b);
+    infoBreche = { O: O(j, m), n: N[j], y: yIn(j), H };
   });
   // ---- tours rondes (niveau 2)
   if (niveau === 2) Q.forEach((q, v) => {
