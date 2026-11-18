@@ -1,6 +1,7 @@
 //! Les royaumes de l'ordinateur : une économie résumée (un trésor), des constructions visibles
 //! sur la carte, des villes qui grandissent, une armée, des humeurs et des propositions.
 
+use std::cmp::Reverse;
 use std::collections::{BTreeMap, VecDeque};
 
 use crate::partie::{Partie, Proposition, Rapport};
@@ -21,6 +22,7 @@ pub fn mois(p: &mut Partie, k: usize, rapport: &mut Rapport) {
             p.armees.retain(|a| a.proprio != id);
             p.flottes.retain(|a| a.proprio != id);
             p.espions.retain(|a| a.proprio != id);
+            p.forts.retain(|a| a.proprio != id);
         }
         return;
     }
@@ -77,6 +79,7 @@ pub fn mois(p: &mut Partie, k: usize, rapport: &mut Rapport) {
     p.royaumes[k].commerce_mer = cm;
     marine(p, k, cap_case);
     espionnage(p, k, cap_case);
+    forts(p, k, &mes_villes, cap_case);
     // exploration : de temps en temps (souvent en guerre si l'on ne sait où frapper), un éclaireur
     // quitte la garnison vers la terre inconnue la plus proche
     let perdu = p.royaumes[k].statut == "guerre" && cible_connue(p, id, cap_case).is_none();
@@ -252,6 +255,7 @@ fn fonder(p: &mut Partie, id: i32, villes: &[usize], rapport: &mut Rapport) {
             k.t == crate::carte::Terrain::Plaine
                 && k.proprio == -1
                 && k.bat.is_none()
+                && p.fort_a(c).is_none()
                 && p.villes.iter().all(|v| p.carte.dist(v.case, c) >= 5)
                 && villes.iter().any(|&vi| p.carte.dist(p.villes[vi].case, c) <= 9)
         })
@@ -263,6 +267,112 @@ fn fonder(p: &mut Partie, id: i32, villes: &[usize], rapport: &mut Rapport) {
     p.recalculer_territoire();
     let qui = p.royaumes[k].nom.clone();
     p.evt(rapport, format!("{qui} fonde la ville de {nom}"), "info", Some(c));
+}
+
+/// Une case de ses terres exposée : 2 près d'une frontière (des terres d'un autre royaume à 2 cases), 1 sur la côte, 0 sinon.
+fn exposition(p: &Partie, id: i32, c: usize) -> u32 {
+    if p.carte.cases[c].proprio != id {
+        0
+    } else if p.carte.rayon(c, 2).iter().any(|&x| p.carte.cases[x].proprio >= 0 && p.carte.cases[x].proprio != id) {
+        2
+    } else {
+        p.carte.voisins(c).iter().any(|&x| p.carte.cases[x].mer()) as u32
+    }
+}
+
+/// Un tiers de la garnison `g` part sur `chemin` (au moins 2 soldats, la garnison en gardant 4) ; rend vrai s'il part.
+fn detacher(p: &mut Partie, g: usize, chemin: Vec<usize>) -> bool {
+    if p.armees[g].effectif() < 6 {
+        return false;
+    }
+    let u: BTreeMap<String, u32> = p.armees[g].unites.iter().map(|(cle, n)| (cle.clone(), n / 3)).filter(|x| x.1 > 0).collect();
+    if u.values().sum::<u32>() < 2 {
+        return false;
+    }
+    for (cle, n) in &u {
+        *p.armees[g].unites.get_mut(cle).unwrap() -= n;
+    }
+    let (id, case) = (p.armees[g].proprio, p.armees[g].case);
+    let a = p.creer_armee(id, case, u);
+    let i = p.armee(a).unwrap();
+    p.armees[i].chemin = chemin;
+    true
+}
+
+/// Retranchements et forts de l'ordinateur : ses armées se retranchent devant une ville assiégée, sur une case
+/// frontalière ou sur leur fort ; de temps en temps un détachement part bâtir une redoute sur une case frontalière
+/// ou côtière ; un fort tenu s'améliore quand le trésor le permet ; en guerre, un fort ennemi laissé vide est une proie.
+fn forts(p: &mut Partie, k: usize, villes: &[usize], cap_case: usize) {
+    let id = k as i32;
+    let rg = regles();
+    let (part, diff) = (rg.siege.fortif_ia, p.options.difficulte);
+    let duree = |d: u32| ((d as f64) / diff).ceil().max(1.0) as u32;
+    p.royaumes[k].or = (p.royaumes[k].or - p.entretien_forts(id)).max(0.0);
+    for i in 0..p.armees.len() {
+        let a = &p.armees[i];
+        if a.proprio == id && a.effectif() > 1 && p.peut_retrancher(a).is_ok() && (p.assiege(id, a.case) || p.tient_un_poste(a) || exposition(p, id, a.case) == 2) {
+            p.armees[i].retranche = Some(rg.retranchement.duree.max(1));
+        }
+    }
+    // le détachement arrivé sur le chantier prévu bâtit la redoute (s'il a péri en route, le projet tombe)
+    if let Some(c) = p.royaumes[k].projet_fort {
+        if let Some(ai) = p.armees.iter().position(|a| a.proprio == id && a.case == c && a.chemin.is_empty()) {
+            p.royaumes[k].projet_fort = None;
+            if let Ok(d) = p.peut_construire_fort(&p.armees[ai]) {
+                let cout = rg.valeur(&d.cout) * part;
+                if p.royaumes[k].or >= cout {
+                    p.royaumes[k].or -= cout;
+                    p.poser_fort(id, c, duree(d.duree));
+                }
+            }
+        } else if !p.armees.iter().any(|a| a.proprio == id && a.chemin.last() == Some(&c)) {
+            p.royaumes[k].projet_fort = None;
+        }
+    }
+    // un fort tenu s'améliore
+    for fi in 0..p.forts.len() {
+        if p.forts[fi].proprio != id {
+            continue;
+        }
+        let Ok(d) = p.peut_ameliorer_fort(fi) else { continue };
+        let cout = rg.valeur(&d.cout) * part;
+        if p.royaumes[k].or >= cout + 150.0 && p.hasard.p(0.2) {
+            p.royaumes[k].or -= cout;
+            p.forts[fi].travaux = duree(d.duree);
+        }
+    }
+    let Some(g) = p.armees.iter().position(|a| a.proprio == id && a.case == cap_case && a.chemin.is_empty()) else { return };
+    // en guerre, un fort ennemi sans garnison, connu et à portée, est une proie
+    if p.royaumes[k].statut == "guerre" {
+        let proie = p.forts.iter()
+            .filter(|f| p.est_ennemi(id, f.proprio) && !p.garnison(f.proprio, f.case) && p.connait(id, f.case) && p.carte.dist(f.case, cap_case) <= 12)
+            .filter(|f| !p.armees.iter().any(|a| a.proprio == id && a.chemin.last() == Some(&f.case)))
+            .min_by_key(|f| p.carte.dist(f.case, cap_case))
+            .map(|f| f.case);
+        if let Some(ch) = proie.and_then(|c| p.chemin(cap_case, c)) {
+            detacher(p, g, ch);
+            return;
+        }
+    }
+    // de temps en temps, un détachement part bâtir une redoute sur une case frontalière ou côtière
+    let Some(d) = rg.fort(1) else { return };
+    let nb = p.forts.iter().filter(|f| f.proprio == id).count();
+    if p.royaumes[k].projet_fort.is_some() || nb >= villes.len() || p.royaumes[k].or < rg.valeur(&d.cout) * part + 200.0 || p.armees[g].effectif() < 8 {
+        return;
+    }
+    if !p.hasard.p(if p.royaumes[k].statut == "guerre" { 0.1 } else { 0.03 }) {
+        return;
+    }
+    let site = villes
+        .iter()
+        .flat_map(|&vi| p.carte.rayon(p.villes[vi].case, 5))
+        .filter(|&c| exposition(p, id, c) > 0 && p.site_de_fort(id, c).is_ok())
+        .max_by_key(|&c| (exposition(p, id, c), Reverse(p.carte.dist(c, cap_case)), Reverse(c)));
+    if let Some((c, ch)) = site.and_then(|c| p.chemin(cap_case, c).map(|ch| (c, ch))) {
+        if detacher(p, g, ch) {
+            p.royaumes[k].projet_fort = Some(c);
+        }
+    }
 }
 
 pub fn declarer_guerre(p: &mut Partie, k: usize, par_joueur: bool, rapport: &mut Rapport) {
@@ -513,6 +623,57 @@ mod essais {
         p.villes[cap].travaux_fortif = 1;
         p.fin_du_mois();
         assert!(p.villes[cap].fortif >= 1);
+    }
+
+    #[test]
+    fn les_rivaux_batissent_des_forts_s_y_retranchent_et_prennent_les_forts_vides() {
+        for g in [42u64, 7, 1, 99, 5, 11, 31, 2024] {
+            let mut p = Partie::nouvelle(Options { graine: g, ..Options::default() });
+            let villes: Vec<usize> = (0..p.villes.len()).filter(|&i| p.villes[i].proprio == 1).collect();
+            let cap = p.villes[p.capitale(1).unwrap()].case;
+            p.royaumes[1].or = 5000.0;
+            let gi = p.armees.iter().position(|a| a.proprio == 1 && a.case == cap).unwrap();
+            p.armees[gi].unites.insert("milice".into(), 20);
+            for _ in 0..300 {
+                forts(&mut p, 1, &villes, cap);
+                if p.royaumes[1].projet_fort.is_some() {
+                    break;
+                }
+            }
+            let Some(c) = p.royaumes[1].projet_fort else { continue };
+            assert!(exposition(&p, 1, c) > 0, "une case frontalière ou côtière");
+            let a = p.armees.iter().position(|a| a.proprio == 1 && a.chemin.last() == Some(&c)).expect("un détachement part");
+            // le détachement arrive : il bâtit la redoute et s'y retranche
+            (p.armees[a].case, p.armees[a].chemin) = (c, Vec::new());
+            forts(&mut p, 1, &villes, cap);
+            let fi = p.fort_a(c).expect("la redoute est en chantier");
+            assert_eq!((p.forts[fi].proprio, p.forts[fi].niveau), (1, 0));
+            assert!(p.royaumes[1].or < 5000.0 && p.royaumes[1].projet_fort.is_none());
+            for _ in 0..4 {
+                p.fin_du_mois();
+            }
+            let fi = p.fort_a(c).unwrap();
+            assert!(p.forts[fi].niveau >= 1, "la redoute s'achève");
+            assert!(p.armees.iter().any(|a| a.proprio == 1 && a.case == c && a.retranche.is_some()), "la garde reste à son poste");
+            // en guerre : un fort du joueur laissé vide, connu, est une proie
+            p.royaumes[1].statut = "guerre".into();
+            let proie = p.carte.rayon(cap, 8).into_iter().find(|&x| p.carte.dist(x, cap) >= 3 && p.site_de_fort(0, x).is_ok() && p.chemin(cap, x).is_some()).unwrap();
+            p.poser_fort(0, proie, 1);
+            p.decouvrir(1, proie, 0);
+            let gi = p.armees.iter().position(|a| a.proprio == 1 && a.case == cap && a.chemin.is_empty()).unwrap();
+            p.armees[gi].unites.insert("milice".into(), 20);
+            forts(&mut p, 1, &villes, cap);
+            assert!(p.armees.iter().any(|a| a.proprio == 1 && a.chemin.last() == Some(&proie)), "un détachement marche sur le fort vide");
+            // les assiégeants se retranchent devant la ville
+            p.villes[0].fortif = 2;
+            let cv = p.villes[0].case;
+            let sid = p.creer_armee(1, cv, BTreeMap::from([("grenadier".to_string(), 10)]));
+            p.commencer_siege(sid, 0, &mut Rapport::default());
+            forts(&mut p, 1, &villes, cap);
+            assert!(p.armees[p.armee(sid).unwrap()].retranche.is_some(), "les assiégeants se retranchent");
+            return;
+        }
+        panic!("aucune carte où un rival bâtit un fort");
     }
 
     #[test]

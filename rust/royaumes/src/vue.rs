@@ -149,6 +149,7 @@ pub fn etat(p: &Partie) -> Value {
             "remise_recrues": if j.a("levee_masse") { 0.75 } else { 1.0 },
             "commerce_mer": j.commerce_mer,
             "entretien_flotte": s.entretien_flotte,
+            "entretien_forts": p.entretien_forts(0),
         },
         "explore": explore,
         "visible": visible,
@@ -175,7 +176,31 @@ pub fn etat(p: &Partie) -> Value {
             "effectif": a.effectif(), "att": p.attaque(a, false, 1.0), "def": p.defense(a),
             "mois": if a.chemin.is_empty() { 0 } else { p.mois_trajet(a, &a.chemin) },
             "assiege": p.assiege(a.proprio, a.case),
+            // null, "en_cours" (un mois de travaux) ou "pret" (défense ×retranchement.defense)
+            "retranche": match a.retranche { None => Value::Null, Some(0) => json!("pret"), Some(_) => json!("en_cours") },
+            // pour le joueur : pourquoi l'ordre est refusé (null : permis ; le coût du fort est vérifié à part)
+            "retrancher_verrou": if a.proprio == 0 { json!(p.peut_retrancher(a).err()) } else { Value::Null },
+            "fort_verrou": if a.proprio == 0 { json!(p.peut_construire_fort(a).err()) } else { Value::Null },
         })).collect::<Vec<_>>(),
+        // les forts : comme les armées, ceux des autres ne se voient que s'ils sont en vue
+        "forts": p.forts.iter().enumerate().filter(|(_, f)| f.proprio == 0 || vu(f.case)).map(|(fi, f)| {
+            let d = rg.fort(f.niveau);
+            let garnison = p.garnison(f.proprio, f.case);
+            let suivant = rg.fort(f.niveau + 1).filter(|_| f.proprio == 0).map(|n| {
+                let verrou = p.peut_ameliorer_fort(fi).err();
+                json!({"niveau": n.niveau, "nom": n.nom, "icone": n.icone, "cout": n.cout, "duree": n.duree, "murs": n.murs, "defense": n.defense,
+                       "vision": n.vision, "entretien": n.entretien, "possible": verrou.is_none() && p.peut_payer(&n.cout, 1.0), "verrou": verrou})
+            });
+            json!({
+                "id": f.id, "proprio": f.proprio, "case": f.case, "niveau": f.niveau,
+                "nom": d.map_or_else(|| rg.fort(1).map_or(String::new(), |x| format!("{} (chantier)", x.nom)), |d| d.nom.clone()),
+                "icone": d.map(|d| d.icone.clone()), "lieu": p.nom_fort(f.case),
+                "murs": d.map_or(0.0, |d| d.murs), "defense": d.map_or(1.0, |d| d.defense), "entretien": d.map_or(0.0, |d| d.entretien),
+                "travaux": if f.travaux > 0 { json!(f.travaux) } else { Value::Null },
+                "suspendu": f.travaux > 0 && (!garnison || p.siege_de(f.id).is_some()),
+                "garnison": garnison, "assiege": p.siege_de(f.id).is_some(), "suivant": suivant,
+            })
+        }).collect::<Vec<_>>(),
         "flottes": p.flottes.iter().filter(|f| f.proprio == 0 || vu(f.case)).map(|f| {
             let a_moi = f.proprio == 0;
             json!({
@@ -210,8 +235,9 @@ pub fn etat(p: &Partie) -> Value {
                 "missions": missions,
             })
         }).collect::<Vec<_>>(),
-        "sieges": p.sieges.iter().filter(|s| s.assiegeant == 0 || p.villes.iter().any(|v| v.id == s.ville && v.proprio == 0) || vu(s.case)).map(|s| {
-            let v = p.villes.iter().find(|v| v.id == s.ville);
+        "sieges": p.sieges.iter().filter(|s| s.assiegeant == 0 || p.place(s).is_some_and(|x| x.0 == 0) || vu(s.case)).map(|s| {
+            let place = p.place(s);
+            let proprio = place.as_ref().map(|x| x.0);
             let (at, de) = p.forces_assaut(s, tir);
             // les faubourgs (bâtiments hors de l'enceinte, à l'arrêt) et le dernier pillé
             let faubourgs: Vec<Value> = p.batiments.iter().filter(|b| b.ville == Some(s.ville) && p.faubourg_assiege(b)).map(|b| json!({
@@ -219,12 +245,12 @@ pub fn etat(p: &Partie) -> Value {
             })).collect();
             let pillage = s.pillage.as_ref().map(|(c, cle)| json!({"case": c, "batiment": cle, "nom": rg.bat(cle).map(|d| d.nom.clone())}));
             json!({
-                "ville": s.ville, "nom": v.map(|v| v.nom.clone()), "case": s.case, "proprio": v.map(|v| v.proprio),
+                "ville": s.ville, "fort": s.fort, "nom": place.map(|x| x.1), "case": s.case, "proprio": proprio,
                 "assiegeant": s.assiegeant, "mois": s.mois, "murs": s.murs, "murs_max": s.murs_max,
                 "murs_pct": if s.murs_max > 0.0 { (s.murs / s.murs_max * 100.0).round() } else { 0.0 },
                 "vivres": s.vivres, "faim": s.faim, "assaut": s.assaut,
                 "armees": p.armees.iter().filter(|a| a.proprio == s.assiegeant && a.case == s.case).map(|a| a.id).collect::<Vec<_>>(),
-                "garnison": p.armees.iter().filter(|a| Some(a.proprio) == v.map(|v| v.proprio) && a.case == s.case).map(|a| a.effectif()).sum::<u32>(),
+                "garnison": p.armees.iter().filter(|a| Some(a.proprio) == proprio && a.case == s.case).map(|a| a.effectif()).sum::<u32>(),
                 "force_assaut": at.round(), "defense_assaut": de.round(),
                 "chance_assaut": (at / (at + de) * 100.0).round(),
                 "faubourgs": faubourgs, "pillage": pillage,

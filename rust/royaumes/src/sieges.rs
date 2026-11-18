@@ -3,7 +3,9 @@
 //! ne l'emporte ou qu'une armée de secours ne chasse les assiégeants. Hors de l'enceinte, les
 //! faubourgs ne produisent plus et l'assiégeant les pille.
 //! Les fortifications sont une amélioration de la ville : Palissade, Murailles, Bastions, Citadelle.
+//! Un fort tenu (`forts`) s'assiège de même, avec ses murs et sans faubourgs.
 
+use crate::forts::{de_lieu, majuscule};
 use crate::meteo::Effets;
 use crate::partie::{Batiment, Combat, Partie, Rapport, Siege};
 use crate::regles::{regles, DefFortif, Panier};
@@ -102,6 +104,44 @@ impl Partie {
         self.sieges.iter().position(|s| s.ville == ville)
     }
 
+    /// La place assiégée : son propriétaire et son nom (une ville, ou « le fort de… »).
+    pub fn place(&self, s: &Siege) -> Option<(i32, String)> {
+        if s.fort {
+            self.fort(s.ville).map(|fi| (self.forts[fi].proprio, self.nom_fort(s.case)))
+        } else {
+            self.villes.iter().find(|v| v.id == s.ville).map(|v| (v.proprio, v.nom.clone()))
+        }
+    }
+
+    /// La place tombe aux mains des assiégeants.
+    fn prendre_place(&mut self, s: &Siege, rapport: &mut Rapport) {
+        if s.fort {
+            if let Some(fi) = self.fort(s.ville) {
+                self.prendre_fort(fi, s.assiegeant, rapport);
+            }
+        } else if let Some(vi) = self.villes.iter().position(|v| v.id == s.ville) {
+            self.prise(vi, s.assiegeant, rapport);
+        }
+    }
+
+    /// L'armée `id` arrive devant le fort tenu `fi` : le siège commence (ou elle s'y joint).
+    pub fn commencer_siege_fort(&mut self, id: u32, fi: usize, rapport: &mut Rapport) {
+        let Some(i) = self.armee(id) else { return };
+        self.armees[i].chemin.clear();
+        let pr = self.armees[i].proprio;
+        let f = self.forts[fi].clone();
+        if self.siege_de(f.id).is_some() {
+            return;
+        }
+        let murs = regles().fort(f.niveau).map_or(0.0, |d| d.murs);
+        let vivres = regles().siege.vivres_base + f.niveau as f64;
+        self.sieges.push(Siege { ville: f.id, case: f.case, assiegeant: pr, murs, murs_max: murs, vivres, fort: true, ..Default::default() });
+        if pr == 0 || f.proprio == 0 {
+            let (qui, nom) = (self.nom_royaume(pr), self.nom_fort(f.case));
+            self.evt(rapport, format!("🏰 Siège {} : {qui} investit la place (murs {murs}, {vivres} mois de vivres)", de_lieu(&nom)), if pr == 0 { "info" } else { "guerre" }, Some(f.case));
+        }
+    }
+
     /// Une armée qui assiège : elle ne rentre pas à la maison.
     pub fn assiege(&self, proprio: i32, case: usize) -> bool {
         self.sieges.iter().any(|s| s.assiegeant == proprio && s.case == case)
@@ -129,13 +169,18 @@ impl Partie {
 
     /// Forces d'un assaut : les assiégeants contre la garnison et la ville, selon l'état des murs et la faim.
     pub fn forces_assaut(&self, s: &Siege, tir: f64) -> (f64, f64) {
-        let Some(vi) = self.villes.iter().position(|v| v.id == s.ville) else { return (1.0, 1.0) };
-        let pr = self.villes[vi].proprio;
+        let Some((pr, _)) = self.place(s) else { return (1.0, 1.0) };
         let at: f64 = self.armees.iter().filter(|a| a.proprio == s.assiegeant && a.case == s.case).map(|a| self.attaque(a, true, tir)).sum();
-        let garnison: f64 = self.armees.iter().filter(|a| a.proprio == pr && a.case == s.case).map(|a| self.defense(a)).sum();
+        // la garnison d'un fort se bat derrière ses murs (sa défense ×celle du fort)
+        let garnison: f64 = self.armees.iter().filter(|a| a.proprio == pr && a.case == s.case).map(|a| self.defense(a) * self.protection(a)).sum();
+        let place = if s.fort {
+            self.fort(s.ville).and_then(|fi| regles().fort(self.forts[fi].niveau)).map_or(0.0, |d| d.murs)
+        } else {
+            self.villes.iter().position(|v| v.id == s.ville).map_or(0.0, |vi| self.defense_ville(vi))
+        };
         let murs = if s.murs_max > 0.0 { s.murs / s.murs_max } else { 0.0 };
         let faim = (1.0 - s.faim as f64 * regles().siege.faim).max(0.3);
-        let de = (garnison + self.defense_ville(vi)) * (0.4 + 0.6 * murs) * faim;
+        let de = (garnison + place) * (0.4 + 0.6 * murs) * faim;
         (at.max(1.0), de.max(1.0))
     }
 
@@ -146,17 +191,16 @@ impl Partie {
         for vid in villes {
             let Some(si) = self.siege_de(vid) else { continue };
             let s = self.sieges[si].clone();
-            let Some(vi) = self.villes.iter().position(|v| v.id == vid) else {
+            let Some((proprio, nom)) = self.place(&s) else {
                 self.sieges.remove(si);
                 continue;
             };
-            let v = self.villes[vi].clone();
-            let implique = v.proprio == 0 || s.assiegeant == 0;
+            let implique = proprio == 0 || s.assiegeant == 0;
             let assiegeants: Vec<u32> = self.armees.iter().filter(|a| a.proprio == s.assiegeant && a.case == s.case).map(|a| a.id).collect();
-            if assiegeants.is_empty() || !self.est_ennemi(s.assiegeant, v.proprio) {
+            if assiegeants.is_empty() || !self.est_ennemi(s.assiegeant, proprio) {
                 self.sieges.remove(si);
                 if implique {
-                    self.evt(rapport, format!("🏳️ Le siège de {} est levé.", v.nom), if v.proprio == 0 { "bon" } else { "info" }, Some(v.case));
+                    self.evt(rapport, format!("🏳️ Le siège {} est levé.", de_lieu(&nom)), if proprio == 0 { "bon" } else { "info" }, Some(s.case));
                 }
                 continue;
             }
@@ -169,13 +213,15 @@ impl Partie {
             let Some(si) = self.siege_de(vid) else { continue };
             // des assiégeants bien trop faibles (un éclaireur, une troupe décimée) sont dispersés par une sortie
             let (at, de) = self.forces_assaut(&self.sieges[si], eff.tir);
-            if de > 3.0 * at {
+            // des assiégeants retranchés résistent mieux à une sortie
+            let tenue = assiegeants.iter().filter_map(|&a| self.armee(a)).map(|i| self.protection(&self.armees[i])).fold(1.0, f64::max);
+            if de > 3.0 * at * tenue {
                 for a in &assiegeants {
                     self.detruire_armee(*a);
                 }
                 self.sieges.remove(si);
                 if implique {
-                    self.evt(rapport, format!("🛡️ La garnison de {} fait une sortie et disperse les assiégeants !", v.nom), if v.proprio == 0 { "bon" } else { "guerre" }, Some(v.case));
+                    self.evt(rapport, format!("🛡️ La garnison {} fait une sortie et disperse les assiégeants !", de_lieu(&nom)), if proprio == 0 { "bon" } else { "guerre" }, Some(s.case));
                 }
                 continue;
             }
@@ -183,7 +229,7 @@ impl Partie {
             let artillerie: f64 = self.armees.iter().filter(|a| a.proprio == s.assiegeant && a.case == s.case).flat_map(|a| a.unites.iter()).filter_map(|(u, &n)| regles().unite(u).map(|d| d.siege * n as f64)).sum();
             let mut usure = rs.tranchees * if self.a_tech(s.assiegeant, "vauban") { rs.vauban_attaque } else { 1.0 }
                 + artillerie * rs.artillerie * if self.a_tech(s.assiegeant, "gribeauval") { rs.gribeauval } else { 1.0 };
-            if self.a_tech(v.proprio, "vauban") {
+            if self.a_tech(proprio, "vauban") {
                 usure /= rs.vauban_defense;
             }
             let s = &mut self.sieges[si];
@@ -196,52 +242,57 @@ impl Partie {
             }
             let s = s.clone();
             // la garnison fond (et plus vite affamée), les assiégeants souffrent du camp
-            let garnison: Vec<u32> = self.armees.iter().filter(|a| a.proprio == v.proprio && a.case == s.case).map(|a| a.id).collect();
+            let garnison: Vec<u32> = self.armees.iter().filter(|a| a.proprio == proprio && a.case == s.case).map(|a| a.id).collect();
             for g in &garnison {
                 self.pertes(*g, rs.usure_garnison + if s.faim > 0 { rs.faim } else { 0.0 });
             }
             for a in &assiegeants {
                 self.pertes(*a, rs.usure_assiegeant);
             }
-            if s.faim > 0 && v.proprio == 0 {
+            if s.faim > 0 && proprio == 0 && !s.fort {
                 let j = &mut self.royaumes[0];
                 j.bonheur = (j.bonheur - 3.0).max(0.0);
                 j.pop = (j.pop - (j.pop as f64 * 0.02).ceil() as i64).max(1);
             }
-            let reste_garnison: u32 = self.armees.iter().filter(|a| a.proprio == v.proprio && a.case == s.case).map(|a| a.effectif()).sum();
-            if s.faim >= rs.reddition_faim || (s.murs <= 0.0 && (s.faim > 0 || reste_garnison == 0)) {
+            let reste_garnison: u32 = self.armees.iter().filter(|a| a.proprio == proprio && a.case == s.case).map(|a| a.effectif()).sum();
+            // un fort sans garnison ne tient pas
+            if s.faim >= rs.reddition_faim || (s.murs <= 0.0 && (s.faim > 0 || reste_garnison == 0)) || (s.fort && reste_garnison == 0) {
                 for g in garnison {
                     self.detruire_armee(g);
                 }
                 if implique {
-                    self.evt(rapport, format!("🏳️ {} capitule après {} mois de siège !", v.nom, s.mois), if s.assiegeant == 0 { "bon" } else { "guerre" }, Some(v.case));
+                    self.evt(rapport, format!("🏳️ {} capitule après {} mois de siège !", majuscule(&nom), s.mois), if s.assiegeant == 0 { "bon" } else { "guerre" }, Some(s.case));
                 }
                 if self.armees.iter().any(|a| a.proprio == s.assiegeant && a.case == s.case) {
-                    self.prise(vi, s.assiegeant, rapport);
+                    self.prendre_place(&s, rapport);
                 }
                 continue;
             }
             self.piller_faubourg(vid, rapport);
             if implique {
                 let pct = if s.murs_max > 0.0 { (s.murs / s.murs_max * 100.0).round() } else { 0.0 };
-                let faim = if s.faim > 0 { format!(", la ville a faim depuis {} mois", s.faim) } else { format!(", {} mois de vivres", s.vivres) };
-                self.evt(rapport, format!("🏰 Siège de {} ({} mois) : murs à {pct} %{faim}", v.nom, s.mois), "info", Some(v.case));
+                let qui = if s.fort { "la garnison" } else { "la ville" };
+                let faim = if s.faim > 0 { format!(", {qui} a faim depuis {} mois", s.faim) } else { format!(", {} mois de vivres", s.vivres) };
+                self.evt(rapport, format!("🏰 Siège {} ({} mois) : murs à {pct} %{faim}", de_lieu(&nom), s.mois), "info", Some(s.case));
             }
         }
     }
 
-    /// L'assaut sur la ville assiégée `vid` ; rend vrai si la ville est prise.
+    /// L'assaut sur la place assiégée `vid` (ville ou fort) ; rend vrai si elle est prise.
     fn assaut(&mut self, vid: u32, eff: &Effets, rapport: &mut Rapport) -> bool {
         let Some(si) = self.siege_de(vid) else { return false };
         let s = self.sieges[si].clone();
-        let Some(vi) = self.villes.iter().position(|v| v.id == vid) else { return false };
-        let v = self.villes[vi].clone();
+        let Some((proprio, nom)) = self.place(&s) else { return false };
         let (at, de) = self.forces_assaut(&s, eff.tir);
         let r = at / (at + de) * (0.85 + self.hasard.f() * 0.3);
         let assiegeants: Vec<u32> = self.armees.iter().filter(|a| a.proprio == s.assiegeant && a.case == s.case).map(|a| a.id).collect();
-        let garnison: Vec<u32> = self.armees.iter().filter(|a| a.proprio == v.proprio && a.case == s.case).map(|a| a.id).collect();
-        let (na, nd) = (self.nom_royaume(s.assiegeant), self.nom_royaume(v.proprio));
-        let implique = v.proprio == 0 || s.assiegeant == 0;
+        let garnison: Vec<u32> = self.armees.iter().filter(|a| a.proprio == proprio && a.case == s.case).map(|a| a.id).collect();
+        let (na, nd) = (self.nom_royaume(s.assiegeant), self.nom_royaume(proprio));
+        let implique = proprio == 0 || s.assiegeant == 0;
+        // l'assaut fait sortir les assiégeants de leurs retranchements
+        for a in self.armees.iter_mut().filter(|a| assiegeants.contains(&a.id)) {
+            a.retranche = None;
+        }
         if r > 0.5 {
             for a in &assiegeants {
                 self.pertes(*a, (de / at * 0.6).clamp(0.1, 0.85));
@@ -249,13 +300,13 @@ impl Partie {
             for g in garnison {
                 self.detruire_armee(g);
             }
-            let texte = format!("⚔️ Assaut victorieux de {na} sur {}", v.nom);
-            rapport.combats.push(Combat { case: v.case, attaquant: s.assiegeant, defenseur: v.proprio, vainqueur: s.assiegeant, texte: texte.clone(), etape: 0 });
+            let texte = format!("⚔️ Assaut victorieux de {na} sur {nom}");
+            rapport.combats.push(Combat { case: s.case, attaquant: s.assiegeant, defenseur: proprio, vainqueur: s.assiegeant, texte: texte.clone(), etape: 0 });
             if implique {
-                self.evt(rapport, texte, if s.assiegeant == 0 { "bon" } else { "guerre" }, Some(v.case));
+                self.evt(rapport, texte, if s.assiegeant == 0 { "bon" } else { "guerre" }, Some(s.case));
             }
             if self.armees.iter().any(|a| a.proprio == s.assiegeant && a.case == s.case) {
-                self.prise(vi, s.assiegeant, rapport);
+                self.prendre_place(&s, rapport);
                 return true;
             }
             false
@@ -266,10 +317,10 @@ impl Partie {
             for g in &garnison {
                 self.pertes(*g, (at / de * 0.3).clamp(0.05, 0.5));
             }
-            let texte = format!("🛡️ {nd} repousse l'assaut de {na} sur {}", v.nom);
-            rapport.combats.push(Combat { case: v.case, attaquant: s.assiegeant, defenseur: v.proprio, vainqueur: v.proprio, texte: texte.clone(), etape: 0 });
+            let texte = format!("🛡️ {nd} repousse l'assaut de {na} sur {nom}");
+            rapport.combats.push(Combat { case: s.case, attaquant: s.assiegeant, defenseur: proprio, vainqueur: proprio, texte: texte.clone(), etape: 0 });
             if implique {
-                self.evt(rapport, texte, if v.proprio == 0 { "bon" } else { "guerre" }, Some(v.case));
+                self.evt(rapport, texte, if proprio == 0 { "bon" } else { "guerre" }, Some(s.case));
             }
             false
         }

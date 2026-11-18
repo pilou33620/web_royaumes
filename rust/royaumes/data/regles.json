@@ -163,6 +163,15 @@
     {"niveau": 3, "nom": "Bastions à la Vauban", "icone": "⭐", "rang": 3, "tech": "vauban", "cout": {"pierre": 220, "planches": 40, "outils": 15, "or": 400}, "murs": 50, "defense": 1.5, "duree": 6, "enceinte": 1, "desc": "Enceinte bastionnée : elle englobe les cases voisines de la mairie."},
     {"niveau": 4, "nom": "Citadelle", "icone": "🏯", "rang": 4, "tech": "vauban", "cout": {"pierre": 350, "planches": 80, "outils": 40, "or": 900}, "murs": 80, "defense": 1.8, "duree": 10, "enceinte": 1, "territoire": 1, "desc": "Double enceinte et demi-lunes ; le territoire de la ville s'étend d'une case."}
   ],
+  "retranchement": {"duree": 1, "defense": 1.25, "desc": "Tranchées, abattis et gabions : une armée qui ne bouge plus se protège en un mois de travaux, jusqu'à ce qu'elle reparte."},
+  "forts": {
+    "distance": 3,
+    "niveaux": [
+      {"niveau": 1, "nom": "Redoute", "icone": "🛡️", "rang": 1, "cout": {"bois": 40, "or": 40}, "murs": 10, "defense": 1.3, "vision": 1, "entretien": 2, "duree": 2, "desc": "Terre et palissade : un ouvrage de campagne élevé par l'armée qui tient la case."},
+      {"niveau": 2, "nom": "Fort bastionné", "icone": "⭐", "rang": 2, "tech": "vauban", "cout": {"pierre": 80, "planches": 30, "or": 150}, "murs": 25, "defense": 1.5, "vision": 2, "entretien": 4, "duree": 4, "desc": "Fort de pierre au tracé bastionné : il commande les alentours."},
+      {"niveau": 3, "nom": "Fort à batteries", "icone": "💣", "rang": 3, "tech": "gribeauval", "cout": {"pierre": 150, "outils": 20, "or": 300}, "murs": 45, "defense": 1.75, "vision": 3, "entretien": 7, "duree": 6, "desc": "Casemates et batteries d'artillerie : la route ou la côte est verrouillée."}
+    ]
+  },
   "siege": {"tranchees": 6, "artillerie": 1.0, "vauban_attaque": 1.5, "vauban_defense": 1.25, "gribeauval": 1.3, "fortif_ia": 0.5, "pillage_or": 30, "pillage_part": 0.3, "pillage_mois": 4, "vivres_base": 2, "vivres_grenier": 2, "usure_garnison": 0.05, "usure_assiegeant": 0.03, "faim": 0.15, "reddition_faim": 2},
   "evenements_choix": [
     {"cle": "inventeur", "titre": "Un inventeur", "icone": "⚙️", "epoques": ["lumieres", "empire", "industrie"], "texte": "Un inventeur se présente à la cour de {ville} avec les plans d'une machine extraordinaire. Il ne lui manque que l'argent.", "options": [

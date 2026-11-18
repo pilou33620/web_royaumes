@@ -105,6 +105,7 @@ impl Partie {
         self.sieges_mois(&eff, &mut rapport);
         self.blocus_mois(&mut rapport);
         self.chantiers(&mut rapport);
+        self.forts_mois(&mut rapport);
         self.economie(&eff, &mut rapport);
         self.recherche(&mut rapport);
         self.evenements(&eff, &mut rapport);
@@ -191,6 +192,7 @@ impl Partie {
                 points.insert(id, pts - self.cout_case(suiv));
                 self.armees[i].chemin.remove(0);
                 self.armees[i].case = suiv;
+                self.armees[i].retranche = None;
                 let pr = self.armees[i].proprio;
                 self.decouvrir(pr, suiv, regles().vision.armee);
                 trajets.entry(id).or_default().push(suiv);
@@ -228,6 +230,12 @@ impl Partie {
                     for (u, n) in &a.unites {
                         *self.armees[j].unites.entry(u.clone()).or_insert(0) += n;
                     }
+                    // des renforts rejoignent une position retranchée : elle le reste
+                    let r = &mut self.armees[j].retranche;
+                    *r = match (*r, a.retranche) {
+                        (Some(x), Some(y)) => Some(x.min(y)),
+                        (x, y) => x.or(y),
+                    };
                     self.armees.remove(i);
                     continue;
                 }
@@ -237,7 +245,7 @@ impl Partie {
                         self.armees.remove(i);
                         continue;
                     }
-                } else if a.proprio != 0 {
+                } else if a.proprio != 0 && !self.tient_un_poste(&a) {
                     if let Some(vi) = self.ville_proche(a.case, a.proprio) {
                         let maison = self.villes[vi].case;
                         if maison != a.case && self.hasard.p(0.5) {
@@ -267,9 +275,23 @@ impl Partie {
                 return;
             }
         }
+        // un fort ennemi achevé et tenu (ou déjà assiégé) s'assiège comme une petite ville
+        if let Some(fi) = self.fort_a(case).filter(|&fi| self.est_ennemi(proprio, self.forts[fi].proprio)) {
+            let f = &self.forts[fi];
+            if proprio != BRIGANDS && f.niveau > 0 && (self.garnison(f.proprio, case) || self.siege_de(f.id).is_some()) {
+                self.commencer_siege_fort(id, fi, rapport);
+                return;
+            }
+        }
         let ennemis: Vec<u32> = self.armees.iter().filter(|o| o.id != id && o.case == case && self.est_ennemi(proprio, o.proprio)).map(|o| o.id).collect();
         if !ennemis.is_empty() {
             self.bataille(id, None, eff, rapport, etape);
+        }
+        // un fort ennemi sans garnison (ou un chantier dont la garde vient d'être battue) change de mains
+        if proprio != BRIGANDS && self.armee(id).is_some() {
+            if let Some(fi) = self.fort_a(case).filter(|&fi| self.est_ennemi(proprio, self.forts[fi].proprio) && !self.garnison(self.forts[fi].proprio, case)) {
+                self.prendre_fort(fi, proprio, rapport);
+            }
         }
     }
 
@@ -288,7 +310,8 @@ impl Partie {
         }
         let k = &self.carte.cases[case];
         let terrain = if k.t == Terrain::Colline || k.foret { 1.2 } else { 1.0 };
-        let mut de: f64 = defenseurs.iter().map(|d| self.defense(&self.armees[self.armee(*d).unwrap()])).sum::<f64>() * terrain;
+        // retranchements et forts protègent les défenseurs
+        let mut de: f64 = defenseurs.iter().map(|d| &self.armees[self.armee(*d).unwrap()]).map(|x| self.defense(x) * self.protection(x)).sum::<f64>() * terrain;
         if let Some(vi) = ville {
             de += self.defense_ville(vi);
         }
@@ -424,6 +447,9 @@ impl Partie {
                 self.armees.retain(|x| x.proprio != ancien);
                 self.flottes.retain(|x| x.proprio != ancien);
                 self.espions.retain(|x| x.proprio != ancien);
+                // ses forts sont abandonnés et rasés
+                self.forts.retain(|x| x.proprio != ancien);
+                self.recalculer_territoire();
                 let n = self.royaumes[a].nom.clone();
                 self.evt(rapport, format!("☠️ {n} a été anéanti !"), "or", None);
             }
@@ -790,7 +816,7 @@ impl Partie {
         let nb_routes = self.royaumes.iter().filter(|r| !r.joueur && r.vivant && r.commerce && r.statut != "guerre").count() as f64;
         let commerce = nb_routes * 25.0 * routes;
         let nb_bat = self.batiments.iter().filter(|b| b.proprio == 0 && b.fini()).count() as f64;
-        let entretien = s.soldats as f64 * 0.5 + nb_bat * 0.2 + s.entretien_flotte;
+        let entretien = s.soldats as f64 * 0.5 + nb_bat * 0.2 + s.entretien_flotte + self.entretien_forts(0);
         let commerce_mer = self.commerce_maritime(0);
         let j = &mut self.royaumes[0];
         j.commerce_mer = commerce_mer;

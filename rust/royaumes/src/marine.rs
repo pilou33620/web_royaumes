@@ -100,6 +100,7 @@ impl Partie {
         let mut a = self.armees.remove(ai);
         let f = &mut self.flottes[fi];
         a.chemin.clear();
+        a.retranche = None;
         a.case = f.case;
         f.armee = Some(a);
         f.commerce = false;
@@ -393,7 +394,7 @@ mod essais {
         let eau = p.flottes[0].case;
         let mut u = std::collections::BTreeMap::new();
         u.insert("milice".to_string(), 5);
-        p.flottes[0].armee = Some(Armee { id: 999, proprio: 0, case: eau, unites: u, chemin: Vec::new() });
+        p.flottes[0].armee = Some(Armee { id: 999, proprio: 0, case: eau, unites: u, ..Default::default() });
         // l'ennemi : deux frégates qui viennent sur la flotte du joueur
         p.royaumes[1].statut = "guerre".into();
         let depart = p.carte.voisins(eau).into_iter().find(|&c| !p.carte.cases[c].terre() && c != eau).unwrap();

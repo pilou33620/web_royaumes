@@ -154,7 +154,8 @@ fn dix_ans_de_campagne() {
         }
     }
     let fortifs: Vec<u32> = p.villes.iter().filter(|v| v.proprio > 0).map(|v| v.fortif).collect();
-    println!("événements à choix : {choix} · commerce maritime : {commerce_mer} 🪙 · fortifications des rivaux : {fortifs:?}");
+    let forts: Vec<u32> = p.forts.iter().filter(|f| f.proprio > 0).map(|f| f.niveau).collect();
+    println!("événements à choix : {choix} · commerce maritime : {commerce_mer} 🪙 · fortifications des rivaux : {fortifs:?} · leurs forts : {forts:?}");
     assert!(fortifs.iter().any(|&f| f > 0), "les rivaux fortifient leurs villes");
     assert!(choix >= 20, "un événement à choix tous les 3 ou 4 mois ({choix})");
     assert!(espion, "le robot a recruté un espion");
@@ -183,29 +184,32 @@ fn sauvegarde_relue() {
 
 #[test]
 fn ancienne_sauvegarde_relue() {
-    // une sauvegarde d'avant la marine, l'espionnage, les sièges et le brouillard
+    // une sauvegarde d'avant la marine, l'espionnage, les sièges, le brouillard et les forts
     let mut p = Partie::nouvelle(Options { graine: 4, ..Options::default() });
     for _ in 0..3 {
         p.fin_du_mois();
     }
     let mut v = serde_json::to_value(&p).unwrap();
     let o = v.as_object_mut().unwrap();
-    for k in ["flottes", "espions", "sieges", "blocus", "choix"] {
+    for k in ["flottes", "espions", "sieges", "blocus", "choix", "forts"] {
         o.remove(k);
     }
     for r in o["royaumes"].as_array_mut().unwrap() {
-        for k in ["explore", "revele", "prochain_choix", "dernier_choix", "commerce_mer"] {
+        for k in ["explore", "revele", "prochain_choix", "dernier_choix", "commerce_mer", "projet_fort"] {
             r.as_object_mut().unwrap().remove(k);
         }
     }
     for b in o["batiments"].as_array_mut().unwrap() {
         b.as_object_mut().unwrap().remove("arret");
     }
+    for a in o["armees"].as_array_mut().unwrap() {
+        a.as_object_mut().unwrap().remove("retranche");
+    }
     for m in o["rapport"]["mouvements"].as_array_mut().unwrap() {
         m.as_object_mut().unwrap().remove("flotte");
     }
     let mut q: Partie = serde_json::from_value(v).unwrap();
-    assert!(q.flottes.is_empty() && q.royaumes[0].explore.is_empty());
+    assert!(q.flottes.is_empty() && q.forts.is_empty() && q.royaumes[0].explore.is_empty());
     // l'interface voit au moins ce que le royaume voit, puis l'exploration reprend au premier mois
     let e = royaumes::vue::etat(&q);
     let cap = q.villes[0].case;

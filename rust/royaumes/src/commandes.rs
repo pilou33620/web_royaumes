@@ -190,6 +190,42 @@ pub fn executer(p: &mut Partie, c: &Value) -> Result<Value, String> {
             p.armees[ai].chemin = ch.clone();
             Ok(json!({"ok": true, "msg": format!("🚩 En route : {} cases, environ {} mois", ch.len(), mois), "chemin": ch, "mois": mois}))
         }
+        // ---------------------------------------------------------------- retranchements et forts
+        "retrancher" => {
+            let ai = armee(p, c)?;
+            p.peut_retrancher(&p.armees[ai])?;
+            let r = &rg.retranchement;
+            let n = r.duree.max(1);
+            p.armees[ai].retranche = Some(n);
+            let x = format!("{}", r.defense).replace('.', ",");
+            Ok(json!({"ok": true, "msg": format!("⛏️ L'armée se retranche : prête dans {n} mois (défense ×{x} tant qu'elle ne bouge pas)"), "mois": n}))
+        }
+        "construire_fort" => {
+            let ai = armee(p, c)?;
+            let d = p.peut_construire_fort(&p.armees[ai])?;
+            if !p.peut_payer(&d.cout, 1.0) {
+                return Err("Ressources insuffisantes".into());
+            }
+            p.payer(&d.cout, 1.0);
+            let n = d.duree.max(1);
+            let id = p.poser_fort(0, p.armees[ai].case, n);
+            Ok(json!({"ok": true, "msg": format!("{} {} : chantier ouvert ({n} mois, tant qu'une armée garde la case)", d.icone, d.nom), "fort": id, "mois": n}))
+        }
+        "ameliorer_fort" => {
+            let id = num(c, "fort")? as u32;
+            let fi = p.fort(id).ok_or("fort inconnu")?;
+            if p.forts[fi].proprio != 0 {
+                return Err("Ce fort ne vous appartient pas".into());
+            }
+            let d = p.peut_ameliorer_fort(fi)?;
+            if !p.peut_payer(&d.cout, 1.0) {
+                return Err("Ressources insuffisantes".into());
+            }
+            p.payer(&d.cout, 1.0);
+            let n = d.duree.max(1);
+            p.forts[fi].travaux = n;
+            Ok(json!({"ok": true, "msg": format!("{} {} : {} en travaux ({n} mois, tant qu'une armée garde la case)", d.icone, crate::forts::majuscule(&p.nom_fort(p.forts[fi].case)), d.nom), "mois": n}))
+        }
         "halte" => {
             let id = num(c, "armee")? as u32;
             let ai = p.armee(id).filter(|&i| p.armees[i].proprio == 0).ok_or("armée inconnue")?;
@@ -369,7 +405,8 @@ pub fn executer(p: &mut Partie, c: &Value) -> Result<Value, String> {
         }
         // ---------------------------------------------------------------- sièges
         "assaut" => {
-            let vid = num(c, "ville")? as u32;
+            // une ville, ou un fort (`fort` : son identifiant)
+            let vid = num(c, "ville").or_else(|_| num(c, "fort"))? as u32;
             let si = p.siege_de(vid).filter(|&i| p.sieges[i].assiegeant == 0).ok_or("Vous n'assiégez pas cette ville")?;
             p.sieges[si].assaut = true;
             let (at, de) = p.forces_assaut(&p.sieges[si], p.meteo.effets(p.tour).tir);

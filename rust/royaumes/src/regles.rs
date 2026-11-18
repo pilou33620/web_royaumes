@@ -179,6 +179,46 @@ pub struct DefFortif {
     pub desc: String,
 }
 
+/// L'ordre « Se retrancher » : mois de travaux, multiplicateur de la défense de l'armée retranchée.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DefRetranchement {
+    pub duree: u32,
+    pub defense: f64,
+    pub desc: String,
+}
+
+/// Un niveau de fort (1 Redoute, 2 Fort bastionné, 3 Fort à batteries), bâti par une armée hors des villes.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DefFort {
+    pub niveau: u32,
+    pub nom: String,
+    pub icone: String,
+    /// rang de la capitale requis
+    pub rang: u32,
+    pub tech: Option<String>,
+    pub cout: Panier,
+    pub murs: f64,
+    /// multiplicateur de la défense de la garnison
+    pub defense: f64,
+    /// rayon de vue en plus de celui d'une armée
+    pub vision: i32,
+    /// or par mois
+    pub entretien: f64,
+    /// mois de travaux (une armée du propriétaire doit rester sur la case)
+    pub duree: u32,
+    pub desc: String,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DefForts {
+    /// distance minimale entre deux forts d'un même royaume
+    pub distance: i32,
+    pub niveaux: Vec<DefFort>,
+}
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct DefOption {
@@ -264,6 +304,8 @@ pub struct Regles {
     pub marine: DefMarine,
     pub espionnage: DefEspionnage,
     pub fortifications: Vec<DefFortif>,
+    pub retranchement: DefRetranchement,
+    pub forts: DefForts,
     pub siege: DefSiege,
     pub evenements_choix: Vec<DefChoix>,
 }
@@ -300,6 +342,9 @@ impl Regles {
     }
     pub fn fortif(&self, n: u32) -> Option<&DefFortif> {
         self.fortifications.iter().find(|f| f.niveau == n)
+    }
+    pub fn fort(&self, n: u32) -> Option<&DefFort> {
+        self.forts.niveaux.iter().find(|f| f.niveau == n)
     }
     pub fn mission(&self, cle: &str) -> Option<&DefMission> {
         self.espionnage.missions.iter().find(|m| m.cle == cle)
@@ -365,6 +410,21 @@ mod essais {
             assert_eq!(f.niveau, i as u32 + 1);
             assert!(f.murs > 0.0 && f.defense > 1.0 && f.duree > 0 && r.niveau(f.rang).is_some(), "{}", f.nom);
             assert!(f.tech.as_ref().map_or(true, |t| r.tech(t).is_some()) && f.cout.keys().all(|k| res.contains(&k.as_str())), "{}", f.nom);
+        }
+        // forts : 3 niveaux de plus en plus solides, moins chers qu'une enceinte de ville mais entretenus
+        assert!(r.retranchement.duree >= 1 && r.retranchement.defense > 1.0);
+        assert_eq!(r.forts.niveaux.len(), 3);
+        assert!(r.forts.distance >= 2);
+        for (i, f) in r.forts.niveaux.iter().enumerate() {
+            assert_eq!(f.niveau, i as u32 + 1);
+            assert!(f.murs > 0.0 && f.defense > r.retranchement.defense && f.duree > 0 && f.vision > 0 && f.entretien > 0.0 && r.niveau(f.rang).is_some(), "{}", f.nom);
+            assert!(f.tech.as_ref().map_or(true, |t| r.tech(t).is_some()) && !f.cout.is_empty() && f.cout.keys().all(|k| res.contains(&k.as_str())), "{}", f.nom);
+            let ville = r.fortif(f.niveau).unwrap();
+            assert!(f.murs <= ville.murs && r.valeur(&f.cout) < r.valeur(&ville.cout), "{} : moins qu'une enceinte de ville", f.nom);
+            if i > 0 {
+                let p = &r.forts.niveaux[i - 1];
+                assert!(f.murs > p.murs && f.defense > p.defense && f.vision >= p.vision && f.entretien > p.entretien, "{}", f.nom);
+            }
         }
         assert!(r.bat("remparts").unwrap().cat == "aucune" && r.bat("citadelle").unwrap().cat == "aucune", "ils ne se construisent plus");
         assert_eq!(r.epoque(1700).cle, "ancien");

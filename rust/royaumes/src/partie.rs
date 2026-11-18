@@ -12,7 +12,8 @@ use crate::meteo::{self, Meteo};
 use crate::regles::{regles, Panier};
 
 /// 2 : les remparts et citadelles sont devenus des niveaux de fortification des villes
-pub const VERSION_SAUVEGARDE: u32 = 2;
+/// 3 : forts bâtis par les armées, retranchements (champs nouveaux, lus par défaut)
+pub const VERSION_SAUVEGARDE: u32 = 3;
 /// La partie commence en avril 1700 (le printemps : on sème avant l'hiver).
 pub const TOUR_DEPART: u32 = 3;
 /// Les brigands : un « royaume » à part, ennemi de tous.
@@ -94,6 +95,8 @@ pub struct Royaume {
     pub dernier_choix: String,
     /// or rapporté par le commerce maritime le mois dernier
     pub commerce_mer: f64,
+    /// (ordinateur) la case où un détachement part bâtir une redoute
+    pub projet_fort: Option<usize>,
 }
 
 impl Royaume {
@@ -156,6 +159,20 @@ pub struct Armee {
     pub unites: BTreeMap<String, u32>,
     /// cases à parcourir (sans la case actuelle)
     pub chemin: Vec<usize>,
+    /// retranchement : mois de travaux restants, `Some(0)` retranchée ; perdu dès qu'elle bouge
+    pub retranche: Option<u32>,
+}
+
+/// Un fort bâti par une armée hors des villes : 0 en chantier, 1 Redoute, 2 Fort bastionné, 3 Fort à batteries.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Fort {
+    pub id: u32,
+    pub proprio: i32,
+    pub case: usize,
+    pub niveau: u32,
+    /// mois de travaux restants avant le niveau suivant (0 : pas de travaux)
+    pub travaux: u32,
 }
 
 impl Armee {
@@ -212,6 +229,8 @@ pub struct Siege {
     pub assaut: bool,
     /// dernier faubourg pillé : (case, clé du bâtiment)
     pub pillage: Option<(usize, String)>,
+    /// le siège d'un fort : `ville` est alors l'identifiant du fort
+    pub fort: bool,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -354,6 +373,8 @@ pub struct Partie {
     pub blocus: Vec<Blocus>,
     #[serde(default)]
     pub choix: Vec<Choix>,
+    #[serde(default)]
+    pub forts: Vec<Fort>,
 }
 
 impl Partie {
@@ -506,6 +527,7 @@ impl Partie {
             sieges: Vec::new(),
             blocus: Vec::new(),
             choix: Vec::new(),
+            forts: Vec::new(),
         };
         p.meteo = Meteo::tirer(&Meteo { temperature: 9.0, ..Meteo::default() }, TOUR_DEPART, &mut p.hasard);
         for (k, &s) in departs.iter().enumerate() {
@@ -695,6 +717,7 @@ impl Partie {
         }
         sources.extend(self.flottes.iter().filter(|f| f.proprio == id).map(|f| (f.case, rv.flotte)));
         sources.extend(self.espions.iter().filter(|e| e.proprio == id).map(|e| (e.case, rv.espion)));
+        sources.extend(self.forts.iter().filter(|f| f.proprio == id).filter_map(|f| regles().fort(f.niveau).map(|d| (f.case, rv.armee + d.vision))));
         sources.extend(roy.revele.iter().filter(|r| r[2] >= self.tour && (r[0] as usize) < v.len()).map(|r| (r[0] as usize, r[1] as i32)));
         for (c, r) in sources {
             for x in self.carte.rayon(c, r) {
@@ -755,6 +778,11 @@ impl Partie {
                     continue;
                 }
             }
+            // un fort achevé tient sa case
+            if let Some(f) = self.forts.iter().find(|f| f.case == i && f.niveau > 0) {
+                self.carte.cases[i].proprio = f.proprio;
+                continue;
+            }
             let mut meilleur: Option<(i32, i32, u8)> = None;
             for &(c, p, r, pri) in &sources {
                 let d = self.carte.dist(i, c);
@@ -782,7 +810,7 @@ impl Partie {
         if k.t == Terrain::Montagne {
             return Err("Impossible sur une montagne".into());
         }
-        if k.bat.is_some() {
+        if k.bat.is_some() || self.fort_a(case).is_some() {
             return Err("Case déjà occupée".into());
         }
         if cle == "hotel" {
@@ -945,7 +973,7 @@ impl Partie {
     // ------------------------------------------------------------------ armées
     pub fn creer_armee(&mut self, proprio: i32, case: usize, unites: BTreeMap<String, u32>) -> u32 {
         let id = self.id();
-        self.armees.push(Armee { id, proprio, case, unites, chemin: Vec::new() });
+        self.armees.push(Armee { id, proprio, case, unites, ..Default::default() });
         id
     }
 
