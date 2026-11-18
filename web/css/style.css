@@ -141,3 +141,19 @@ body.mode #quete{visibility:hidden}
 }
 body.feuille #fin-tour{bottom:auto;top:calc(34vh - 58px);padding:6px 12px 5px}
 body.feuille #fin-tour .ft-2{display:none}
+
+/* carte d'événement à choix (maquette guerre.html : illustration, date, options aux effets affichés) */
+#modale-boite.choix{display:flex;flex-direction:column}
+#modale-boite.choix .illus{order:-1;margin:-4px -4px 10px;border-radius:12px;overflow:hidden;border:1px solid rgba(255,255,255,.18);background:linear-gradient(160deg,#2b5f8f,#0c2541);min-height:96px;display:flex;align-items:center;justify-content:center}
+#modale-boite.choix .illus img{display:block;width:100%;height:auto}
+#modale-boite.choix .illus span{font-size:58px;filter:drop-shadow(0 4px 6px rgba(0,0,0,.4))}
+#modale-boite.choix .mini{margin:-4px 0 6px}
+#modale-boite.choix .btns{flex-direction:column;align-items:stretch}
+#modale-boite.choix .btn{text-align:left;line-height:1.35}
+/* brouillard, sièges, bâtiments arrêtés */
+.brume{background:rgba(160,180,200,.12);border-radius:8px;padding:4px 8px;margin-bottom:8px}
+.boite.siege{border-color:#c8932f}
+.jauge.murs i{background:linear-gradient(90deg,#c0392b,#f5b53d)}
+.faub{display:inline-block;background:rgba(255,255,255,.07);border-radius:6px;padding:1px 5px;margin:2px 2px 0 0}
+.faub.pille{color:#ffb3a8}
+.mini-btn{background:rgba(255,255,255,.1);border:0;border-radius:6px;padding:0 5px;font-size:12px;vertical-align:1px}

@@ -336,6 +336,7 @@ function superpositions(N) {
   groupe.add(liseres);
   surb = new THREE.InstancedMesh(new THREE.CircleGeometry(0.97, 6).rotateX(-Math.PI / 2).rotateY(Math.PI / 6), matSurb, N);
   surb.count = 0;
+  surb.frustumCulled = false; // la sphère englobante des instances n'est jamais recalculée : sans cela, la surbrillance disparaît
   for (let i = 0; i < N; i++) surb.setColorAt(i, new THREE.Color(0xe6ff4a));
   groupe.add(surb);
   const ring = [];
@@ -350,6 +351,7 @@ function superpositions(N) {
   groupe.add(anneau);
   points = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.09, 0.09, 0.04, 10), matPoints, 500);
   points.count = 0;
+  points.frustumCulled = false; // idem : sinon la trace des marches disparaît
   groupe.add(points);
 }
 export function surbrillance(cases, couleur = 0xe6ff4a) {
