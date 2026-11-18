@@ -7,7 +7,7 @@
 :root {
   color-scheme: dark;
   --fond: #141813; --carte: #1b211a; --carte2: #253021; --bord: #0f130e; --txt: #f6f4ea; --doux: #b3bca5; --or: #ffc94d; --encre: #1b211a;
-  --meteo: #8fc4ff; --saison: #9fe07a; --heure: #ffb36b; --epoque: #e9a6ff;
+  --rue: #7fe0c8; --meteo: #8fc4ff; --saison: #9fe07a; --heure: #ffb36b; --epoque: #e9a6ff;
   --titre: Fredoka, "Trebuchet MS", system-ui, sans-serif; --corps: Nunito, "Segoe UI", system-ui, sans-serif;
   --ombre: 0 4px 0 rgba(0,0,0,.35);
 }
@@ -41,7 +41,7 @@ button:focus-visible { outline: 3px solid var(--or); outline-offset: 2px; }
 .direct li { animation: entre .35s ease-out; }
 @keyframes entre { from { opacity: 0; transform: translateY(4px); } }
 @media (prefers-reduced-motion: reduce) { .direct li { animation: none; } }
-.c-meteo { color: var(--meteo); } .c-saison { color: var(--saison); } .c-heure { color: var(--heure); } .c-epoque { color: var(--epoque); }
+.c-rue { color: var(--rue); } .c-meteo { color: var(--meteo); } .c-saison { color: var(--saison); } .c-heure { color: var(--heure); } .c-epoque { color: var(--epoque); }
 .deux { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px; align-items: start; }
 dl { margin: 0; display: grid; gap: 6px; }
 dt { font-weight: 900; color: var(--txt); }
@@ -53,27 +53,30 @@ dd { margin: 0 0 4px; color: var(--doux); }
 <main>
   <section class="intro">
     <h1>Royaumes des Rives : vie des quartiers</h1>
-    <p>Maquette 3D à valider : un petit bourg de logements (chaumières, maisons de quartier, maisons de pierre, immeubles ouvriers, hôtel particulier) autour de la mairie, avec la taverne et la boulangerie. Les maisons s'animent selon la météo, la saison et l'heure, dans les quatre époques. Les bâtiments sont ceux du jeu (modeles.js, inchangé). Rien n'est encore modifié dans le jeu.</p>
+    <p>Maquette 3D à valider : un petit bourg de logements (chaumières, maisons de quartier, maisons de pierre, immeubles ouvriers, hôtel particulier) autour de la mairie, avec la taverne, la boulangerie et, au premier plan, la halle du marché et la petite école. Les maisons s'animent selon la météo, la saison et l'heure, dans les quatre époques ; les rues se peuplent de promeneurs, de métiers ambulants, d'une patrouille et d'attelages ; le marché et l'école vivent à leur rythme. Les bâtiments sont ceux du jeu (modeles.js, inchangé). Rien n'est encore modifié dans le jeu.</p>
   </section>
   <div class="scene">
-    <canvas id="scene" aria-label="Un bourg de six cases de logements autour de la mairie, entre bois et prés"></canvas>
-    <div class="horloge" aria-live="off"><span id="h-texte">Jour</span><div class="barre"><div class="curseur" id="h-curseur"></div></div><small id="h-lune">Juillet</small></div>
+    <canvas id="scene" aria-label="Un bourg de six cases de logements autour de la mairie, avec la halle du marché et la petite école au premier plan, entre bois et prés"></canvas>
+    <div class="horloge" aria-live="off"><span id="h-texte">Jour</span><div class="barre"><div class="curseur" id="h-curseur"></div></div><small id="h-lune">Avril</small></div>
     <span class="aide">Glisser : tourner · molette ou pincer : zoomer</span>
   </div>
   <div class="barres">
     <div class="groupe" role="group" aria-label="Époque"><span>Époque</span>
       <button data-epoque="ancien" aria-pressed="true">1700</button><button data-epoque="lumieres" aria-pressed="false">Lumières</button><button data-epoque="empire" aria-pressed="false">Empire</button><button data-epoque="industrie" aria-pressed="false">Industrie</button></div>
     <div class="groupe" role="group" aria-label="Saison"><span>Saison</span>
-      <button data-saison="1" aria-pressed="false">Printemps</button><button data-saison="2" aria-pressed="true">Été</button><button data-saison="3" aria-pressed="false">Automne</button><button data-saison="0" aria-pressed="false">Hiver</button><button data-mois title="Passer au mois suivant : la lune change de phase">Mois suivant</button></div>
+      <button data-saison="1" aria-pressed="true">Printemps</button><button data-saison="2" aria-pressed="false">Été</button><button data-saison="3" aria-pressed="false">Automne</button><button data-saison="0" aria-pressed="false">Hiver</button><button data-mois title="Passer au mois suivant : la lune change de phase">Mois suivant</button></div>
     <div class="groupe" role="group" aria-label="Météo"><span>Météo</span>
       <button data-meteo="beau" aria-pressed="true">Beau</button><button data-meteo="nuageux" aria-pressed="false">Nuageux</button><button data-meteo="pluie" aria-pressed="false">Pluie</button><button data-meteo="orage" aria-pressed="false">Orage</button><button data-meteo="brouillard" aria-pressed="false">Brouillard</button><button data-meteo="tempete" aria-pressed="false">Tempête</button><button data-meteo="neige" aria-pressed="false">Neige</button><button data-meteo="canicule" aria-pressed="false">Canicule</button></div>
     <div class="groupe" role="group" aria-label="Heure"><span>Heure</span>
       <button data-heure="aube" aria-pressed="false">Aube</button><button data-heure="jour" aria-pressed="false">Jour</button><button data-heure="crepuscule" aria-pressed="false">Crépuscule</button><button data-heure="nuit" aria-pressed="false">Nuit</button><button data-heure="cycle" aria-pressed="true">Cycle accéléré</button></div>
+    <div class="groupe" role="group" aria-label="Marché"><span>Marché</span>
+      <button data-marche aria-pressed="false" title="Forcer le jour de marché ; sinon, en cycle accéléré, un jour sur deux est jour de marché">Jour de marché</button></div>
   </div>
 
   <section class="bloc" aria-live="polite">
     <h2>En ce moment dans le quartier</h2>
     <div class="direct">
+      <div><h3 class="c-rue">Rues, marché et école</h3><ul id="l-rue"></ul></div>
       <div><h3 class="c-meteo">Météo</h3><ul id="l-meteo"></ul></div>
       <div><h3 class="c-saison">Saison</h3><ul id="l-saison"></ul></div>
       <div><h3 class="c-heure">Heure</h3><ul id="l-heure"></ul></div>
@@ -81,18 +84,40 @@ dd { margin: 0 0 4px; color: var(--doux); }
     </div>
   </section>
 
+  <section class="bloc">
+    <h2 class="c-rue">Rues, marché et école</h2>
+    <div class="deux">
+      <dl>
+        <dt>Promeneurs</dt><dd>Ils suivent les rues de carrefour en carrefour et choisissent la suivante au hasard, chacun à son allure (flâneur, pressé, vieillard qui s'arrête souvent) ; ils gardent leur droite et s'arrêtent parfois pour se saluer d'une courbette. Il y a des couples bras dessus bras dessous, des mères avec leurs enfants, des enfants qui courent, un enfant qui pousse son cerceau, une marelle à la craie dans la ruelle, des chiens qui suivent leur maître et deux chiens qui se poursuivent dans le pré.</dd>
+        <dt>Métiers de la rue</dt><dd>Le porteur d'eau fait sa tournée le matin, palanche sur l'épaule. Le colporteur passe avec sa hotte. Le rémouleur s'arrête aux carrefours et affûte dans une gerbe d'étincelles. La marchande des quatre-saisons pousse sa charrette à bras, chargée selon la saison.</dd>
+        <dt>Crieur et patrouille</dt><dd>Devant la mairie, le crieur public agite sa clochette (le tambour de ville bat un roulement sous l'Empire et à l'ère industrielle), lit son annonce, et trois voisins s'attroupent. Deux soldats font leur ronde au pas, dans l'uniforme de l'époque.</dd>
+        <dt>Attelages</dt><dd>Un cavalier au trot à toutes les époques ; une calèche découverte sous l'Empire, un fiacre fermé (lanternes allumées le soir) et l'omnibus à cheval à l'ère industrielle. L'omnibus fait le tour de la place et de l'immeuble, et marque l'arrêt au coin du marché.</dd>
+        <dt>La foule suit le temps</dt><dd>Tout le monde dehors par beau temps ; un peu moins de monde par temps nuageux ; un tiers sous la pluie, sous un parapluie selon l'époque (un sac sur la tête en 1700) ; la moitié sous la neige ; peu de monde sous la canicule ; personne sous l'orage ni la tempête. L'été, tout le bourg sort pour la promenade du soir. La nuit, il ne reste que le veilleur et ceux qui rentrent de la taverne en zigzag, la lanterne à la main.</dd>
+      </dl>
+      <dl>
+        <dt>La halle du marché</dt><dd>Les quatre étals du jeu, une table de volailles et d'œufs sous la halle, et un étalage sur tréteaux devant chaque étal. Les marchands servent à côté de leur étal et se penchent vers le client ; les clients vont d'étal en étal, panier au bras. Les produits suivent la saison : salades, radis, asperges et fleurs au printemps ; cerises, abricots, melons et fraises l'été ; citrouilles, pommes, raisin et champignons l'automne ; choux, poireaux et pommes de terre l'hiver, avec les marrons chauds au brasero et, à partir de l'Empire, des sapins à vendre. Le soir et la nuit, la halle ferme et les étals sont bâchés.</dd>
+        <dt>Le jour de marché</dt><dd>Huit clients au lieu de trois, les marchandes assises au sol sur leur toile (le carreau), des cages de volailles et des poules qui picorent. En cycle accéléré, un jour sur deux est jour de marché ; le bouton « Jour de marché » le force.</dd>
+        <dt>L'allure de la halle</dt><dd>Halle en bois (charpente, liens, grand toit de tuiles) en 1700 ; en bois sur socles de pierre avec un lanternon aux Lumières ; halle de pierre à arcades et toit d'ardoise sous l'Empire ; halle métallique de type Baltard (colonnes de fonte, impostes vitrées, toit de zinc, lanterneau vitré, becs de gaz) à l'ère industrielle. Le modèle <code>marche</code> du jeu ne change pas avec l'époque : la halle est un décor ajouté par la maquette, à reporter dans modeles.js si elle convient.</dd>
+        <dt>La petite école</dt><dd>La cloche sonne dans le clocheton. Le matin, les écoliers arrivent en courant (avec une bûche pour le poêle l'hiver), et une mère accompagne le plus petit. Pendant la classe, on entend réciter par les fenêtres. À la récréation : marelle, ballon et corde à sauter dans la cour, le maître sur le perron. L'après-midi, la sortie : les enfants rentrent en courant, les mères attendent à la grille. Le soir et la nuit, l'école est vide.</dd>
+        <dt>L'école selon l'époque</dt><dd>École de paroisse en 1700 (croix sur le clocheton, le curé en soutane fait la classe) ; petite école des Lumières (cadran solaire, maître en tricorne) ; école communale sous l'Empire (plaque « École », drapeau, blouses bleues) ; école de la loi Guizot à l'ère industrielle (préau, cour fermée d'un muret à grille, plaque « École communale », blouses noires, casquettes et cartables).</dd>
+        <dt>Choix faits pour l'école</dt><dd>Fermée l'été : ce sont les vacances, les enfants aident aux moissons. Ouverte sous la neige : on ne fermait pas l'école pour la neige, et la récréation devient bataille de boules de neige et glissades. Sous la pluie, la récréation se passe en classe (sous le préau à l'ère industrielle). Par orage ou tempête, les écoliers restent en classe. En heure fixe « Jour », la journée d'école se rejoue toutes les 30 secondes ; en cycle accéléré, elle suit la journée du jeu.</dd>
+      </dl>
+    </div>
+    <p class="note">Performance : tous les personnages sont des modèles en boîtes regroupés en InstancedMesh, un par modèle, comme vie.js. Leur nombre est fixé à la construction : au plus 175 personnages et bêtes selon l'époque, dont 113 à 115 nouveaux (rues, marché, école). Seuls ceux dont la condition est vraie sont dessinés : au plus 95 environ à la fois (93 mesurés le matin d'un jour de marché de printemps, quand l'école se remplit), une trentaine sous la pluie, une dizaine la nuit, un seul (la cloche de l'école) sous l'orage. Seules les tenues de l'époque affichée sont assemblées (75 modèles environ, deux passes de dessin chacun).</p>
+  </section>
+
   <div class="deux">
     <section class="bloc">
       <h2 class="c-meteo">Chaque météo</h2>
       <dl>
-        <dt>Beau</dt><dd>La vie ordinaire : passants dans les rues, commères sur le pas de la porte, enfants autour de la fontaine, linge qui sèche, chat qui somnole devant une porte.</dd>
+        <dt>Beau</dt><dd>La vie ordinaire : tout le monde dehors, promeneurs et couples dans les rues, marché et récréation, commères sur le pas de la porte, enfants autour de la fontaine, linge qui sèche, chat qui somnole devant une porte.</dd>
         <dt>Nuageux</dt><dd>Ombres des nuages qui glissent ; une femme décroche le linge pièce par pièce, au cas où.</dd>
-        <dt>Pluie</dt><dd>Les volets se ferment un à un (Lumières, Empire) ; l'eau ruisselle aux coins des toits ; les flaques grandissent, les gouttes y font des ronds, puis elles sèchent quand le beau revient ; les passants courent un sac sur la tête en 1700, sous le parapluie ensuite (vert ou rouge aux Lumières et sous l'Empire, noir à l'ère industrielle) ; en 1700, des seaux recueillent les fuites des chaumières.</dd>
-        <dt>Orage</dt><dd>Volets clos, rideaux tirés aux fenêtres ; à chaque éclair, toutes les vitres flashent en blanc ; plus personne dehors.</dd>
+        <dt>Pluie</dt><dd>Les volets se ferment un à un (Lumières, Empire) ; l'eau ruisselle aux coins des toits ; les flaques grandissent, les gouttes y font des ronds, puis elles sèchent quand le beau revient ; les passants courent un sac sur la tête en 1700, sous le parapluie ensuite (vert ou rouge aux Lumières et sous l'Empire, noir à l'ère industrielle) ; un tiers des promeneurs seulement, moitié moins de clients au marché, récréation en classe ; en 1700, des seaux recueillent les fuites des chaumières.</dd>
+        <dt>Orage</dt><dd>Volets clos, rideaux tirés aux fenêtres ; à chaque éclair, toutes les vitres flashent en blanc ; plus personne dehors : rues désertes, marché fermé, écoliers gardés en classe.</dd>
         <dt>Brouillard</dt><dd>Lanternes des portes et réverbères allumés en plein jour, quelques lampes aux fenêtres, un passant tient sa lanterne à bout de bras.</dd>
         <dt>Tempête</dt><dd>Les volets mal attachés battent, le linge claque à l'horizontale, des tuiles s'envolent des toits, les fumées sont couchées par le vent.</dd>
-        <dt>Neige</dt><dd>Toits blanchis, stalactites de glace sous les avant-toits, cheminées qui fument plus fort et plus épais, un voisin déneige devant sa porte à la pelle, des enfants se lancent des boules de neige, bonhomme de neige.</dd>
-        <dt>Canicule</dt><dd>Fenêtres grandes ouvertes, voilages qui ondulent ; deux voisins assis à l'ombre de l'arbre s'éventent ; un chat s'étire sur un rebord de fenêtre ; les enfants s'aspergent à la fontaine ; presque plus de fumée.</dd>
+        <dt>Neige</dt><dd>Toits blanchis, stalactites de glace sous les avant-toits, cheminées qui fument plus fort et plus épais, un voisin déneige devant sa porte à la pelle, des enfants se lancent des boules de neige, bonhomme de neige ; moitié moins de promeneurs ; l'école reste ouverte (boules de neige et glissades à la récréation).</dd>
+        <dt>Canicule</dt><dd>Fenêtres grandes ouvertes, voilages qui ondulent ; deux voisins assis à l'ombre de l'arbre s'éventent ; un chat s'étire sur un rebord de fenêtre ; les enfants s'aspergent à la fontaine ; presque plus de fumée ; peu de promeneurs le jour, mais tout le monde sort le soir.</dd>
       </dl>
     </section>
     <section class="bloc">
@@ -105,10 +130,10 @@ dd { margin: 0 0 4px; color: var(--doux); }
       </dl>
       <h2 class="c-epoque" style="margin-top:14px">Chaque époque</h2>
       <dl>
-        <dt>1700</dt><dd>Chandelles orangées qui vacillent aux fenêtres, lanternes à chandelle sur la place, pas de volets (colombages), seaux sous les chaumières, sac sur la tête sous la pluie.</dd>
-        <dt>Lumières</dt><dd>Lampes à huile plus jaunes, réverbères à huile sur potence, volets peints qui s'ouvrent et se ferment, premiers parapluies.</dd>
-        <dt>Empire</dt><dd>Lampes à huile plus claires, réverbères, volets, parapluies de couleur.</dd>
-        <dt>Industrie</dt><dd>Becs de gaz à la lumière blanche et fixe, plus de fenêtres allumées et plus tard, réverbères à gaz, fumée de charbon grise aux cheminées des immeubles, parapluies noirs.</dd>
+        <dt>1700</dt><dd>Chandelles orangées qui vacillent aux fenêtres, lanternes à chandelle sur la place, pas de volets (colombages), seaux sous les chaumières, sac sur la tête sous la pluie ; tricornes et robes à paniers ; patrouille en habit blanc ; halle en bois ; école de paroisse ; crieur à la clochette.</dd>
+        <dt>Lumières</dt><dd>Lampes à huile plus jaunes, réverbères à huile sur potence, volets peints qui s'ouvrent et se ferment, premiers parapluies ; tricornes, robes à paniers et coiffures hautes ; patrouille en habit blanc à revers bleus ; halle sur socles de pierre ; petite école.</dd>
+        <dt>Empire</dt><dd>Lampes à huile plus claires, réverbères, volets, parapluies de couleur ; bicornes, redingotes et robes Empire à taille haute ; patrouille en habit bleu et shako ; calèche ; halle de pierre ; école communale ; tambour de ville.</dd>
+        <dt>Industrie</dt><dd>Becs de gaz à la lumière blanche et fixe, plus de fenêtres allumées et plus tard, réverbères à gaz, fumée de charbon grise aux cheminées des immeubles, parapluies noirs ; hauts-de-forme et crinolines ; patrouille en capote bleue et pantalon garance ; fiacre et omnibus à cheval ; halle métallique de type Baltard ; école de la loi Guizot.</dd>
       </dl>
     </section>
   </div>
@@ -116,10 +141,10 @@ dd { margin: 0 0 4px; color: var(--doux); }
   <section class="bloc">
     <h2 class="c-heure">Chaque heure</h2>
     <dl>
-      <dt>Aube</dt><dd>Le boulanger a allumé son four avant l'aube (lueur orange à la bouche du four, fumée) et sort ses pains ; le coq chante sur la meule de la chaumière ; les volets s'ouvrent un à un ; toutes les cheminées fument (on rallume le feu du matin) ; l'allumeur éteint les réverbères un par un ; quelques lève-tôt ont une lampe allumée.</dd>
-      <dt>Jour</dt><dd>La vie de la saison et de la météo ci-dessus ; une cheminée sur deux fume.</dd>
-      <dt>Crépuscule</dt><dd>Les fenêtres s'allument une à une ; l'allumeur passe de réverbère en réverbère et chacun s'allume quand il l'atteint ; la taverne s'anime (clients qui entrent et sortent, un buveur qui titube, fenêtres très éclairées) ; chauves-souris autour des toits (sauf l'hiver) ; en été, on dîne dehors.</dd>
-      <dt>Nuit</dt><dd>Ciel étoilé et lune dont la phase suit le mois (bouton « Mois suivant ») ; étoiles filantes en été ; les fenêtres s'éteignent tard, une à une, et leurs volets se ferment ; ombres chinoises derrière les rideaux (on danse derrière ceux de la taverne) ; le veilleur de nuit fait sa ronde avec sa lanterne et agite sa cloche ; un chat se promène sur un faîtage, les yeux brillants ; un hibou tourne la tête dans l'arbre de la lisière ; en fin de nuit, la boulangerie s'éclaire.</dd>
+      <dt>Aube</dt><dd>Le boulanger a allumé son four avant l'aube (lueur orange à la bouche du four, fumée) et sort ses pains ; le coq chante sur la meule de la chaumière ; les volets s'ouvrent un à un ; toutes les cheminées fument (on rallume le feu du matin) ; l'allumeur éteint les réverbères un par un ; quelques lève-tôt ont une lampe allumée ; le porteur d'eau commence sa tournée, les premiers passants sortent.</dd>
+      <dt>Jour</dt><dd>La vie de la saison et de la météo ci-dessus ; une cheminée sur deux fume ; le marché est ouvert ; à l'école : arrivée, classe, récréation, classe, sortie.</dd>
+      <dt>Crépuscule</dt><dd>Les fenêtres s'allument une à une ; l'allumeur passe de réverbère en réverbère et chacun s'allume quand il l'atteint ; la taverne s'anime (clients qui entrent et sortent, un buveur qui titube, fenêtres très éclairées) ; chauves-souris autour des toits (sauf l'hiver) ; en été, on dîne dehors et tout le bourg sort pour la promenade du soir ; la halle ferme, on bâche les étals.</dd>
+      <dt>Nuit</dt><dd>Ciel étoilé et lune dont la phase suit le mois (bouton « Mois suivant ») ; étoiles filantes en été ; les fenêtres s'éteignent tard, une à une, et leurs volets se ferment ; ombres chinoises derrière les rideaux (on danse derrière ceux de la taverne) ; le veilleur de nuit fait sa ronde avec sa lanterne et agite sa cloche ; un chat se promène sur un faîtage, les yeux brillants ; un hibou tourne la tête dans l'arbre de la lisière ; en fin de nuit, la boulangerie s'éclaire ; les rues sont vides, sauf le veilleur et ceux qui rentrent de la taverne en zigzag, la lanterne à la main ; l'école est vide.</dd>
       <dt>Cycle accéléré</dt><dd>Le cycle complet du jeu (jour 300 s, crépuscule 30 s, nuit 60 s, aube 30 s) joué en 70 secondes environ : le jour passe dix fois plus vite, le soir, la nuit et l'aube trois fois plus vite, pour qu'on voie les fenêtres s'allumer une à une. Le bandeau en haut à gauche montre où l'on en est.</dd>
     </dl>
   </section>
@@ -152,6 +177,7 @@ dd { margin: 0 0 4px; color: var(--doux); }
           <li>Les fumées suivent le rythme du foyer : toutes au matin, la moitié le jour, plus le soir, peu la nuit ; épaisses l'hiver, rares l'été.</li>
           <li>Des personnages de la nuit et du petit matin : veilleur, allumeur à toutes les époques, boulanger, coq, chats, hibou, chauves-souris, clients de la taverne.</li>
           <li>Une heure « crépuscule » distincte, plus rosée que l'aube, et la lecture accélérée du cycle.</li>
+          <li>Des rues peuplées selon l'heure et le temps (promeneurs, métiers, crieur, patrouille, attelages), un marché qui ouvre et ferme avec ses jours de marché, une école avec sa cloche et ses horaires.</li>
         </ul>
       </div>
     </div>
