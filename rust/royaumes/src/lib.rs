@@ -12,6 +12,7 @@ pub mod espions;
 pub mod forts;
 pub mod hasard;
 pub mod ia;
+pub mod ia_diplomatie;
 pub mod marine;
 pub mod meteo;
 pub mod partie;

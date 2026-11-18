@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 use serde_json::{json, Value};
 
 use crate::ia;
+use crate::ia_diplomatie;
 use crate::partie::{Partie, Rapport, BRIGANDS};
 use crate::regles::{regles, Panier};
 
@@ -324,7 +325,7 @@ pub fn executer(p: &mut Partie, c: &Value) -> Result<Value, String> {
         }
         "diplo" => {
             let k = royaume(p, c)?;
-            diplomatie(p, k, txt(c, "acte")?)
+            diplomatie(p, k, txt(c, "acte")?, c)
         }
         "echanger" => {
             let k = royaume(p, c)?;
@@ -505,7 +506,10 @@ fn echanger(p: &mut Partie, k: usize, r: &str, achat: bool) -> Result<Value, Str
     ok(if achat { format!("Acheté 10 {} pour {px} 🪙", regles().res_nom(r)) } else { format!("Vendu 10 {} pour {px} 🪙", regles().res_nom(r)) })
 }
 
-fn diplomatie(p: &mut Partie, k: usize, acte: &str) -> Result<Value, String> {
+/// {"action": "diplo", "royaume": k, "acte": …} : cadeau, guerre, paix, paix_ville (exiger une ville),
+/// paix_or (exiger des réparations), alliance, rompre (l'alliance), route, tribut,
+/// aide (demander à un allié d'entrer en guerre, avec "contre": royaume).
+fn diplomatie(p: &mut Partie, k: usize, acte: &str, c: &Value) -> Result<Value, String> {
     let nom = p.royaumes[k].nom.clone();
     let mut r = Rapport::default();
     let res = match acte {
@@ -518,6 +522,8 @@ fn diplomatie(p: &mut Partie, k: usize, acte: &str) -> Result<Value, String> {
             let g = (14.0 - f.cadeaux as f64 * 2.0).max(3.0);
             f.cadeaux += 1;
             f.relation += g;
+            // un présent laisse aussi un souvenir, qui s'efface en quelques années
+            ia_diplomatie::souvenir(p, k, 0, "cadeau", 4.0, "");
             format!("🎁 {nom} apprécie votre présent (+{g:.0})")
         }
         "guerre" => {
@@ -527,28 +533,12 @@ fn diplomatie(p: &mut Partie, k: usize, acte: &str) -> Result<Value, String> {
             ia::declarer_guerre(p, k, true, &mut r);
             format!("⚔️ Guerre déclarée à {nom}")
         }
-        "paix" => {
-            if p.royaumes[k].statut != "guerre" {
-                return Err("Vous n'êtes pas en guerre".into());
-            }
-            if p.royaumes[k].relation > -45.0 || p.puissance(k as i32) < p.puissance(0) * 0.7 {
-                faire_la_paix(p, k);
-                format!("🕊️ Paix signée avec {nom}")
-            } else {
-                p.royaumes[k].relation -= 3.0;
-                return Err(format!("{nom} refuse la paix"));
-            }
-        }
-        "alliance" => {
-            let f = &mut p.royaumes[k];
-            if f.statut == "guerre" {
-                return Err("Faites d'abord la paix".into());
-            }
-            if f.relation < 50.0 {
-                return Err(format!("{nom} ne vous fait pas assez confiance (relation ≥ 50)"));
-            }
-            f.statut = "alliance".into();
-            format!("🤝 Alliance conclue avec {nom}")
+        "paix" | "paix_ville" | "paix_or" => ia_diplomatie::negocier_paix(p, k, acte)?,
+        "alliance" => ia_diplomatie::alliance_proposee(p, k)?,
+        "rompre" => ia_diplomatie::rompre(p, k)?,
+        "aide" => {
+            let x = usize::try_from(num(c, "contre")?).map_err(|_| "royaume inconnu")?;
+            ia_diplomatie::aide_demandee(p, k, x)?
         }
         "route" => {
             let s = p.stats(0);
@@ -591,18 +581,6 @@ fn diplomatie(p: &mut Partie, k: usize, acte: &str) -> Result<Value, String> {
     ok(res)
 }
 
-pub fn faire_la_paix(p: &mut Partie, k: usize) {
-    let tour = p.tour;
-    let f = &mut p.royaumes[k];
-    f.statut = "paix".into();
-    f.treve = tour + 24;
-    f.relation = f.relation.max(-15.0);
-    let id = k as i32;
-    for a in p.armees.iter_mut().filter(|a| a.proprio == id) {
-        a.chemin.clear();
-    }
-}
-
 fn repondre(p: &mut Partie, id: u32, oui: bool) -> Result<Value, String> {
     let i = p.propositions.iter().position(|x| x.id == id).ok_or("proposition inconnue")?;
     let pr = p.propositions.remove(i);
@@ -633,12 +611,55 @@ fn repondre(p: &mut Partie, id: u32, oui: bool) -> Result<Value, String> {
             "Marché conclu".to_string()
         }
         ("alliance", true) => {
+            if p.royaumes[k].statut == "guerre" {
+                return Err("Faites d'abord la paix".into());
+            }
+            if let Err(e) = payer(p, &pr.demande) {
+                p.propositions.insert(i, pr);
+                return Err(e);
+            }
             p.royaumes[k].statut = "alliance".into();
             format!("🤝 Alliance avec {nom}")
         }
         ("paix", true) => {
-            faire_la_paix(p, k);
-            format!("🕊️ Paix signée avec {nom}")
+            if p.royaumes[k].statut != "guerre" {
+                return Err("Vous n'êtes plus en guerre".into());
+            }
+            // la ville promise doit être encore à l'un des deux, et l'on ne cède pas sa dernière ville
+            let ville = match pr.ville {
+                Some(vid) => Some(p.villes.iter().position(|v| v.id == vid && (v.proprio == 0 || v.proprio == k as i32)).ok_or("Cette ville a changé de mains : l'offre ne tient plus")?),
+                None => None,
+            };
+            if let Some(vi) = ville {
+                let cedant = p.villes[vi].proprio;
+                if p.villes.iter().filter(|v| v.proprio == cedant).count() < 2 {
+                    return Err("On ne cède pas sa dernière ville : l'offre ne tient plus".into());
+                }
+            }
+            if let Err(e) = payer(p, &pr.demande) {
+                p.propositions.insert(i, pr);
+                return Err(e);
+            }
+            // les réparations viennent du trésor de celui qui les offre
+            for (r, v) in &pr.donne {
+                let v = if r == "or" { v.min(p.royaumes[k].or.max(0.0)) } else { *v };
+                if r == "or" {
+                    p.royaumes[k].or -= v;
+                }
+                *p.royaumes[0].stock.entry(r.clone()).or_insert(0.0) += v;
+            }
+            let mut rap = Rapport::default();
+            let mut texte = format!("🕊️ Paix signée avec {nom}");
+            if let Some(vi) = ville {
+                let preneur = if p.villes[vi].proprio == 0 { k } else { 0 };
+                texte += &format!(" — {} change de mains", p.villes[vi].nom);
+                ia_diplomatie::ceder_ville(p, vi, preneur, &mut rap);
+            }
+            ia_diplomatie::signer_paix(p, 0, k, &mut rap);
+            for e in rap.evenements {
+                p.noter(e.texte);
+            }
+            texte
         }
         ("tribut", true) => {
             if let Err(e) = payer(p, &pr.demande) {
@@ -648,9 +669,13 @@ fn repondre(p: &mut Partie, id: u32, oui: bool) -> Result<Value, String> {
             p.royaumes[k].relation += 12.0;
             format!("Tribut payé à {nom}")
         }
+        ("aide", true) => ia_diplomatie::aide_acceptee(p, k, pr.cible.unwrap_or(usize::MAX))?,
+        ("aide", false) => ia_diplomatie::aide_refusee(p, k),
         ("tribut", false) => {
             p.royaumes[k].relation -= 15.0;
-            if p.hasard.p(0.55) {
+            if let Some(contre) = ia_diplomatie::contre_proposition(p, &pr) {
+                contre
+            } else if p.hasard.p(0.55) {
                 let mut r = Rapport::default();
                 ia::declarer_guerre(p, k, false, &mut r);
                 format!("{nom} vous déclare la guerre !")
@@ -662,7 +687,7 @@ fn repondre(p: &mut Partie, id: u32, oui: bool) -> Result<Value, String> {
             if k > 0 {
                 p.royaumes[k].relation -= 3.0;
             }
-            "Proposition refusée".to_string()
+            ia_diplomatie::contre_proposition(p, &pr).unwrap_or_else(|| "Proposition refusée".to_string())
         }
         _ => "…".to_string(),
     };

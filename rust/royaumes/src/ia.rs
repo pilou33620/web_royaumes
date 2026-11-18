@@ -4,8 +4,8 @@
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, VecDeque};
 
-use crate::partie::{Partie, Proposition, Rapport};
-use crate::regles::{regles, Panier};
+use crate::partie::{Partie, Rapport};
+use crate::regles::regles;
 
 const TYPES: [&str; 38] = [
     "cabane", "cabane", "maison", "maison", "maison_pierre", "ferme", "ferme", "bucheron", "carriere", "pecheur", "scierie", "moulin", "boulangerie", "caserne",
@@ -84,7 +84,7 @@ pub fn mois(p: &mut Partie, k: usize, rapport: &mut Rapport) {
     forts(p, k, &mes_villes, cap_case);
     // exploration : de temps en temps (souvent en guerre si l'on ne sait où frapper), un éclaireur
     // quitte la garnison vers la terre inconnue la plus proche
-    let perdu = p.royaumes[k].statut == "guerre" && cible_connue(p, id, cap_case).is_none();
+    let perdu = en_guerre(p, id) && cible_connue(p, id, cap_case).is_none();
     // les éclaireurs arrivés poursuivent vers la prochaine terre inconnue
     for i in 0..p.armees.len() {
         let a = &p.armees[i];
@@ -117,72 +117,22 @@ pub fn mois(p: &mut Partie, k: usize, rapport: &mut Rapport) {
             }
         }
     }
-    // humeur envers le joueur
-    let r = &mut p.royaumes[k];
-    let base = match r.caractere.as_str() {
-        "guerrier" => -20.0,
-        "marchand" => 15.0,
-        _ => 0.0,
-    } + r.attitude;
-    if r.statut == "alliance" {
-        r.relation += 0.3;
-    }
-    if r.commerce && r.statut != "guerre" {
-        r.relation += 0.4;
-    }
-    r.relation += (base - r.relation) * 0.03;
-    if r.statut == "guerre" {
-        r.relation = r.relation.min(-20.0);
-    }
-    r.relation = r.relation.clamp(-100.0, 100.0);
-    // guerre et paix
-    if r.statut != "guerre" && r.statut != "alliance" && p.tour > r.treve && r.relation <= -50.0 && p.tour > 18 && p.hasard.p(0.15) {
-        declarer_guerre(p, k, false, rapport);
-    }
-    let r = &p.royaumes[k];
-    if r.statut == "guerre" {
-        if p.tour >= r.prochaine_attaque {
-            if let Some(g) = p.armees.iter().position(|a| a.proprio == id && a.case == cap_case && a.chemin.is_empty()) {
-                if p.armees[g].effectif() >= 7 {
-                    attaquer(p, k, g, rapport);
-                    p.royaumes[k].prochaine_attaque = p.tour + p.hasard.entre(3, 6) as u32;
-                }
+    // diplomatie : humeurs, traités, guerres, paix et propositions, envers le joueur et les rivaux (ia_diplomatie.rs)
+    crate::ia_diplomatie::mois(p, k, rapport);
+    // en guerre (contre le joueur ou un rival) : l'attaque part de la capitale
+    if en_guerre(p, id) && p.tour >= p.royaumes[k].prochaine_attaque {
+        if let Some(g) = p.armees.iter().position(|a| a.proprio == id && a.case == cap_case && a.chemin.is_empty()) {
+            if p.armees[g].effectif() >= 7 {
+                attaquer(p, k, g, rapport);
+                p.royaumes[k].prochaine_attaque = p.tour + p.hasard.entre(3, 6) as u32;
             }
-        }
-        let r = &p.royaumes[k];
-        if p.tour > r.debut_guerre + 12 && p.tour >= r.prochaine_offre && (r.relation > -25.0 || p.puissance(id) < 0.5 * p.puissance(0)) && p.hasard.p(0.25) {
-            p.royaumes[k].prochaine_offre = p.tour + 6;
-            proposer(p, k, "paix", format!("{}, las de la guerre, vous propose la paix.", p.royaumes[k].nom), Panier::new(), Panier::new());
-        }
-    } else if p.tour > 12 && p.tour >= r.prochaine_offre {
-        let caractere = r.caractere.clone();
-        let relation = r.relation;
-        let statut = r.statut.clone();
-        let nom = r.nom.clone();
-        let mut offre = false;
-        if caractere == "marchand" && p.hasard.p(0.25) {
-            let donne = p.royaumes[k].surplus[p.hasard.indice(3)].clone();
-            let veut = p.royaumes[k].demande[p.hasard.indice(3)].clone();
-            let rg = regles();
-            let texte = format!("{nom} propose 30 {} {} contre 18 {} {}.", rg.res_icone(&donne), rg.res_nom(&donne), rg.res_icone(&veut), rg.res_nom(&veut));
-            proposer(p, k, "echange", texte, Panier::from([(donne, 30.0)]), Panier::from([(veut, 18.0)]));
-            offre = true;
-        } else if relation >= 65.0 && statut != "alliance" && p.hasard.p(0.2) {
-            proposer(p, k, "alliance", format!("{nom} vous propose une alliance durable."), Panier::new(), Panier::new());
-            offre = true;
-        } else if caractere == "guerrier" && relation < -15.0 && p.tour > 36 && p.puissance(id) > 1.4 * p.puissance(0) && p.hasard.p(0.2) {
-            proposer(p, k, "tribut", format!("{nom} exige un tribut de 150 🪙, sinon c'est la guerre."), Panier::new(), Panier::from([("or".to_string(), 150.0)]));
-            offre = true;
-        }
-        if offre {
-            p.royaumes[k].prochaine_offre = p.tour + p.hasard.entre(4, 9) as u32;
         }
     }
 }
 
-fn proposer(p: &mut Partie, k: usize, genre: &str, texte: String, donne: Panier, demande: Panier) {
-    let id = p.id();
-    p.propositions.push(Proposition { id, de: k, genre: genre.into(), texte, donne, demande });
+/// `id` est-il en guerre contre quelqu'un (le joueur ou un rival) ?
+fn en_guerre(p: &Partie, id: i32) -> bool {
+    !crate::ia_diplomatie::ennemis(p, id).is_empty()
 }
 
 pub fn meilleure_unite(p: &mut Partie, id: i32) -> String {
@@ -231,7 +181,7 @@ fn construire(p: &mut Partie, id: i32, villes: &[usize]) {
 /// — la capitale, puis les villes frontalières ou côtières ; à égalité la moins fortifiée — passe au niveau suivant.
 fn fortifier(p: &mut Partie, k: usize, villes: &[usize]) {
     let id = k as i32;
-    if !p.hasard.p(if p.royaumes[k].statut == "guerre" { 0.25 } else { 0.06 }) {
+    if !p.hasard.p(if en_guerre(p, id) { 0.25 } else { 0.06 }) {
         return;
     }
     let exposee = |vi: usize| {
@@ -345,7 +295,7 @@ fn forts(p: &mut Partie, k: usize, villes: &[usize], cap_case: usize) {
     }
     let Some(g) = p.armees.iter().position(|a| a.proprio == id && a.case == cap_case && a.chemin.is_empty()) else { return };
     // en guerre, un fort ennemi sans garnison, connu et à portée, est une proie
-    if p.royaumes[k].statut == "guerre" {
+    if en_guerre(p, id) {
         let proie = p.forts.iter()
             .filter(|f| p.est_ennemi(id, f.proprio) && !p.garnison(f.proprio, f.case) && p.connait(id, f.case) && p.carte.dist(f.case, cap_case) <= 12)
             .filter(|f| !p.armees.iter().any(|a| a.proprio == id && a.chemin.last() == Some(&f.case)))
@@ -362,7 +312,7 @@ fn forts(p: &mut Partie, k: usize, villes: &[usize], cap_case: usize) {
     if p.royaumes[k].projet_fort.is_some() || nb >= villes.len() || p.royaumes[k].or < rg.valeur(&d.cout) * part + 200.0 || p.armees[g].effectif() < 8 {
         return;
     }
-    if !p.hasard.p(if p.royaumes[k].statut == "guerre" { 0.1 } else { 0.03 }) {
+    if !p.hasard.p(if en_guerre(p, id) { 0.1 } else { 0.03 }) {
         return;
     }
     let site = villes
@@ -378,33 +328,14 @@ fn forts(p: &mut Partie, k: usize, villes: &[usize], cap_case: usize) {
 }
 
 pub fn declarer_guerre(p: &mut Partie, k: usize, par_joueur: bool, rapport: &mut Rapport) {
-    let tour = p.tour;
-    let attente = p.hasard.entre(2, 4) as u32;
-    let r = &mut p.royaumes[k];
-    if r.statut == "guerre" {
-        return;
-    }
-    r.statut = "guerre".into();
-    r.debut_guerre = tour;
-    r.relation = (r.relation - 30.0).min(-30.0);
-    r.commerce = false;
-    r.prochaine_attaque = tour + attente;
-    let nom = r.nom.clone();
-    if par_joueur {
-        for (i, o) in p.royaumes.iter_mut().enumerate() {
-            if i != k && !o.joueur && o.vivant {
-                o.relation -= 8.0;
-            }
-        }
-        p.evt(rapport, format!("⚔️ Vous déclarez la guerre à {nom} !"), "guerre", None);
-    } else {
-        p.evt(rapport, format!("⚔️ {nom} vous déclare la guerre !"), "guerre", None);
-    }
+    let (a, b) = if par_joueur { (0, k) } else { (k, 0) };
+    crate::ia_diplomatie::declarer_guerre(p, a, b, rapport);
 }
 
-/// La ville du joueur la plus proche de `depuis` que `id` a explorée (on ne frappe pas à l'aveugle).
+/// La ville ennemie (du joueur ou d'un rival en guerre) la plus proche de `depuis` que `id` a explorée (on ne frappe pas à l'aveugle).
 fn cible_connue(p: &Partie, id: i32, depuis: usize) -> Option<usize> {
-    (0..p.villes.len()).filter(|&i| p.villes[i].proprio == 0 && p.connait(id, p.villes[i].case)).min_by_key(|&i| p.carte.dist(p.villes[i].case, depuis))
+    let ennemis = crate::ia_diplomatie::ennemis(p, id);
+    (0..p.villes.len()).filter(|&i| ennemis.contains(&p.villes[i].proprio) && p.connait(id, p.villes[i].case)).min_by_key(|&i| p.carte.dist(p.villes[i].case, depuis))
 }
 
 /// La case de terre inexplorée la plus proche, à pied depuis `de`.
@@ -442,7 +373,7 @@ fn convoi(p: &Partie, id: i32, depart: usize, cible: usize) -> Option<(usize, Ve
 /// en guerre, flûtes au commerce, et de temps en temps un navire neuf.
 fn marine(p: &mut Partie, k: usize, cap_case: usize) {
     let id = k as i32;
-    let guerre = p.royaumes[k].statut == "guerre";
+    let guerre = en_guerre(p, id);
     let ports: Vec<usize> = p.batiments.iter().filter(|b| b.proprio == id && b.cle == "port" && b.fini()).map(|b| b.case).collect();
     for fi in 0..p.flottes.len() {
         let f = &p.flottes[fi];
@@ -468,9 +399,9 @@ fn marine(p: &mut Partie, k: usize, cap_case: usize) {
             }
             continue;
         }
-        // en guerre, les navires de guerre vont bloquer la ville côtière du joueur la plus proche qu'on connaît
+        // en guerre, les navires de guerre vont bloquer la ville côtière ennemie la plus proche qu'on connaît
         if guerre && p.de_guerre(f) && !p.blocus.iter().any(|b| b.par == id) {
-            let mut eaux: Vec<usize> = p.villes.iter().filter(|v| v.proprio == 0 && p.connait(id, v.case)).flat_map(|v| p.carte.voisins(v.case)).filter(|&c| !p.carte.cases[c].terre()).collect();
+            let mut eaux: Vec<usize> = p.villes.iter().filter(|v| p.est_ennemi(id, v.proprio) && p.connait(id, v.case)).flat_map(|v| p.carte.voisins(v.case)).filter(|&c| !p.carte.cases[c].terre()).collect();
             eaux.sort_by_key(|&c| p.carte.dist(c, f.case));
             if let Some((_, ch)) = eaux.into_iter().take(4).find_map(|e| p.chemin_mer(f.case, e).map(|ch| (e, ch))) {
                 if !ch.is_empty() {
@@ -536,8 +467,8 @@ fn espionnage(p: &mut Partie, k: usize, cap_case: usize) {
 fn attaquer(p: &mut Partie, k: usize, g: usize, rapport: &mut Rapport) {
     let id = k as i32;
     let depart = p.armees[g].case;
-    // secourir d'abord une de ses villes assiégée, sinon marcher sur la ville du joueur la plus proche qu'on connaît
-    let secours = p.sieges.iter().find(|s| s.assiegeant == 0 && p.villes.iter().any(|v| v.id == s.ville && v.proprio == id)).map(|s| s.case);
+    // secourir d'abord une de ses villes assiégée, sinon marcher sur la ville ennemie la plus proche qu'on connaît
+    let secours = p.sieges.iter().find(|s| p.est_ennemi(id, s.assiegeant) && p.villes.iter().any(|v| v.id == s.ville && v.proprio == id)).map(|s| s.case);
     let Some(cible) = secours.or_else(|| cible_connue(p, id, depart).map(|vi| p.villes[vi].case)) else { return };
     let Some(vi) = p.ville_a(cible) else { return };
     let par_terre = p.chemin(depart, cible);
@@ -566,20 +497,23 @@ fn attaquer(p: &mut Partie, k: usize, g: usize, rapport: &mut Rapport) {
     let aid = p.creer_armee(id, depart, u);
     let i = p.armee(aid).unwrap();
     let (qui, ville) = (p.royaumes[k].nom.clone(), p.villes[vi].nom.clone());
-    // le joueur n'apprend d'où elle part que s'il connaît l'endroit
+    // le joueur n'apprend d'où elle part que s'il connaît l'endroit (et rien des marches contre un autre que lui)
     let lieu = p.connait(0, depart).then_some(depart);
+    let contre_moi = p.villes[vi].proprio == 0 || secours.is_some_and(|_| p.sieges.iter().any(|s| s.case == cible && s.assiegeant == 0));
     if let Some(ch) = par_terre {
         p.armees[i].chemin = ch;
-        if secours.is_some() {
+        if contre_moi && secours.is_some() {
             p.evt(rapport, format!("⚠️ {qui} envoie une armée de secours ({total} soldats) vers {ville} !"), "guerre", lieu);
-        } else {
+        } else if contre_moi {
             p.evt(rapport, format!("⚠️ Une armée de {qui} ({total} soldats) marche sur {ville} !"), "guerre", lieu);
         }
     } else if let Some((fi, ch)) = convoi {
         p.embarquer(fi, i);
         p.flottes[fi].chemin = ch;
         p.flottes[fi].cible = Some(cible);
-        p.evt(rapport, format!("⚠️ Une armée de {qui} ({total} soldats) s'embarque contre {ville} !"), "guerre", lieu);
+        if contre_moi {
+            p.evt(rapport, format!("⚠️ Une armée de {qui} ({total} soldats) s'embarque contre {ville} !"), "guerre", lieu);
+        }
     }
 }
 

@@ -8,13 +8,15 @@ use serde::{Deserialize, Serialize};
 
 use crate::carte::{Carte, Options, Terrain, BOIS_ARBRE};
 use crate::hasard::Hasard;
+use crate::ia_diplomatie::{self, Diplomatie};
 use crate::meteo::{self, Meteo};
 use crate::regles::{regles, Panier};
 
 /// 2 : les remparts et citadelles sont devenus des niveaux de fortification des villes
 /// 3 : forts bâtis par les armées, retranchements (champs nouveaux, lus par défaut)
 /// 4 : éclairage public des villes (`Ville::eclairage`, éteint par défaut)
-pub const VERSION_SAUVEGARDE: u32 = 4;
+/// 5 : diplomatie entre tous les royaumes (`Partie::diplomatie` : souverains, liens entre rivaux, mémoire, coalitions)
+pub const VERSION_SAUVEGARDE: u32 = 5;
 /// La partie commence en avril 1700 (le printemps : on sème avant l'hiver).
 pub const TOUR_DEPART: u32 = 3;
 /// Les brigands : un « royaume » à part, ennemi de tous.
@@ -263,11 +265,17 @@ pub struct Choix {
 pub struct Proposition {
     pub id: u32,
     pub de: usize,
-    /// echange, alliance, paix, tribut, marchand
+    /// echange, alliance, paix, tribut, marchand, aide (entrer en guerre contre `cible`)
     pub genre: String,
     pub texte: String,
     pub donne: Panier,
     pub demande: Panier,
+    /// la ville cédée avec la paix (à celui qui ne la possède pas)
+    pub ville: Option<u32>,
+    /// le royaume contre lequel un allié demande de l'aide
+    pub cible: Option<usize>,
+    /// 0 : première offre ; 1, 2 : contre-propositions
+    pub manche: u32,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -379,6 +387,9 @@ pub struct Partie {
     pub choix: Vec<Choix>,
     #[serde(default)]
     pub forts: Vec<Fort>,
+    /// relations et traités entre rivaux, souverains, mémoire, coalitions (ia_diplomatie.rs)
+    #[serde(default)]
+    pub diplomatie: Diplomatie,
 }
 
 impl Partie {
@@ -568,6 +579,7 @@ impl Partie {
             blocus: Vec::new(),
             choix: Vec::new(),
             forts: Vec::new(),
+            diplomatie: Diplomatie::default(),
         };
         p.meteo = Meteo::tirer(&Meteo { temperature: 9.0, ..Meteo::default() }, TOUR_DEPART, &mut p.hasard);
         for (k, &s) in departs.iter().enumerate() {
@@ -616,6 +628,7 @@ impl Partie {
             p.decouvrir(k as i32, c, regles().vision.depart);
         }
         p.explorer();
+        ia_diplomatie::initialiser(&mut p, true);
         p.noter(format!("{} : vous fondez {}.", meteo::date_texte(TOUR_DEPART), p.villes[0].nom));
         p
     }
@@ -646,6 +659,8 @@ impl Partie {
             self.recalculer_territoire();
             self.recalculer_routes();
         }
+        // avant la version 5 : des souverains tirés des anciens caractères (guerrier → conquérant)
+        ia_diplomatie::initialiser(self, false);
         self.version = VERSION_SAUVEGARDE;
     }
 
@@ -712,20 +727,9 @@ impl Partie {
         self.villes.iter().enumerate().filter(|(_, v)| v.proprio == id).min_by_key(|(_, v)| self.carte.dist(v.case, case)).map(|(i, _)| i)
     }
 
+    /// Les brigands sont ennemis de tous ; deux royaumes (le joueur ou des rivaux) le sont en guerre.
     pub fn est_ennemi(&self, a: i32, b: i32) -> bool {
-        if a == b {
-            return false;
-        }
-        if a == BRIGANDS || b == BRIGANDS {
-            return true;
-        }
-        if a == 0 {
-            return self.royaumes[b as usize].statut == "guerre";
-        }
-        if b == 0 {
-            return self.royaumes[a as usize].statut == "guerre";
-        }
-        false
+        a != b && (a == BRIGANDS || b == BRIGANDS || ia_diplomatie::en_guerre(self, a, b))
     }
 
     // ------------------------------------------------------------------ brouillard de guerre
