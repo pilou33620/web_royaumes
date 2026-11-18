@@ -21,8 +21,8 @@ const NFUM = 700;
 const FUM = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(0.05, 0), toon(0xffffff, { transparent: true, opacity: 0.8, depthWrite: false }), NFUM);
 FUM.count = 0; FUM.frustumCulled = false; FUM.setColorAt(0, _c.set(0xffffff)); scene.add(FUM);
 const bouffees = [];
-const TEINTE = { blanche: new THREE.Color(0xf6f4ee), noire: new THREE.Color(0x55504a), poudre: new THREE.Color(0xf4f1ea) };
-/** Une bouffée de fumée : genre 'blanche', 'noire' ou 'poudre' ; k : taille (salves de l'armée). */
+const TEINTE = { blanche: new THREE.Color(0xf6f4ee), noire: new THREE.Color(0x55504a), poudre: new THREE.Color(0xf4f1ea), poussiere: new THREE.Color(0xb59a74) };
+/** Une bouffée de fumée : genre 'blanche', 'noire', 'poudre' ou 'poussiere' (travaux, impacts) ; k : taille (salves de l'armée). */
 export function bouffee(x, y, z, genre = 'blanche', k) {
   if (bouffees.length >= NFUM) bouffees.shift();
   bouffees.push({ x, y, z, age: 0, c: TEINTE[genre] || TEINTE.blanche, k: k ?? (genre === 'poudre' ? 2.6 : 1), vie: genre === 'poudre' ? 2.2 : 3 });
@@ -231,7 +231,7 @@ export function majVie(etat, rapport) {
   const fetes = fetesDuMois(etat, rapport);
   const C = P.carte();
   const train = (etat.joueur?.techs || []).includes('chemin_fer');
-  const sig = JSON.stringify([etat.batiments.map(b => [b.id, b.cle, b.case, b.reste, b.face, b.ville]), etat.routes, etat.saison, etat.epoque?.cle, [...fetes], train, etat.villes.map(v => [v.id, v.case])]);
+  const sig = JSON.stringify([etat.batiments.map(b => [b.id, b.cle, b.case, b.reste, b.face, b.ville, M.estArrete(b)]), etat.routes, etat.saison, etat.epoque?.cle, [...fetes], train, etat.villes.map(v => [v.id, v.case])]);
   if (sig === sigVie && C === carteVue) return;
   sigVie = sig; carteVue = C;
   epoque = etat.epoque?.cle || 'ancien';
@@ -245,7 +245,7 @@ function reconstruire(etat, C, fetes, train) {
   bles = []; lucioles = []; if (BLE) BLE.userData.sig = -1; lampes = []; RAIL = null;
   if (!C) { installerPools(); return; }
   const N = C.l * C.h, A = (nom, s) => acteur(nom, s);
-  const bats = etat.batiments.filter(b => b.reste === 0);
+  const bats = etat.batiments.filter(b => b.reste === 0 && !M.estArrete(b)); // un bâtiment arrêté (faubourg assiégé, pillé, saboté) ne vit plus
   const bati = new Set(etat.batiments.map(b => b.case));
   const foret = etat.cases?.foret || C.foret || [], proprio = etat.cases?.proprio || [];
   const terre = i => i >= 0 && P.TERRE(C.terrain[i]);
