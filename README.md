@@ -32,6 +32,10 @@ qui s'ouvre dans le navigateur, comme web_conquete.
   garance, képis et fourgon ; exercice en garnison, tambour en marche, bivouac la nuit.
 - **Saisons** : fleurs au printemps, blés dorés l'été, forêts rousses à l'automne, arbres nus et neige l'hiver.
   Le blé ne pousse pas l'hiver, les vendanges sont à l'automne, le froid consomme du bois de chauffage.
+- **Vie des villes** (aussi pour les rivaux) : jour de marché tous les trois mois dans chaque halle (impôts et
+  bonheur, sauf siège, blocus ou disette) ; écoles en vacances l'été, qui stimulent les ateliers de leur ville ;
+  chauffage l'hiver (bois, puis charbon à l'ère industrielle), le froid tue faute de combustible ; éclairage public
+  et veilleur de nuit au Siècle des Lumières (moins d'incendies) ; ignorance et délinquance des bourgs qui s'en passent.
 - **Météo tirée chaque mois** (climat tempéré du petit âge glaciaire) : soleil, nuages, pluie, orage et grêle,
   brouillard, neige, grand froid, canicule, sécheresse, tempête — avec leurs effets (récoltes, marches ralenties,
   poudre mouillée, pêche impossible, incendies, épidémies) et des prévisions. Années célèbres : Grand Hiver de 1709,
@@ -90,6 +94,7 @@ rust/royaumes/        le moteur et le serveur (Rust)
   src/meteo.rs        calendrier, saisons, météo et ses effets
   src/partie.rs       état de la partie, territoire, construction, armées, chemins
   src/tour.rs         la fin du mois (économie, marches, batailles, événements, victoire)
+  src/cite.rs         la vie des villes : jour de marché, écoles, chauffage, éclairage public
   src/ia.rs           les royaumes de l'ordinateur
   src/commandes.rs    les ordres du joueur (vérifiés par le moteur)
   src/vue.rs          ce que reçoit l'interface

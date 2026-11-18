@@ -4,6 +4,7 @@
 use std::collections::BTreeMap;
 
 use crate::carte::{Terrain, BOIS_ARBRE};
+use crate::cite::VieVille;
 use crate::ia;
 use crate::meteo::{self, Effets, Meteo};
 use crate::partie::{Combat, Evenement, Fin, Mouvement, Partie, Rapport, BRIGANDS};
@@ -482,7 +483,7 @@ impl Partie {
                     format!("Nouvelle-{}", self.prochain_id)
                 };
                 let vid = self.id();
-                self.villes.push(crate::partie::Ville { id: vid, nom: nom.clone(), proprio: pr, case: b.case, niveau: 1, capitale: false, fortif: 0, travaux_fortif: 0 });
+                self.villes.push(crate::partie::Ville { id: vid, nom: nom.clone(), proprio: pr, case: b.case, niveau: 1, capitale: false, fortif: 0, travaux_fortif: 0, eclairage: false });
                 if let Some(bb) = self.batiments.iter_mut().find(|x| x.id == id) {
                     bb.cle = "hotel".into();
                     bb.ville = Some(vid);
@@ -564,6 +565,9 @@ impl Partie {
             libres -= n;
         }
         self.royaumes[0].ouvriers_libres = libres;
+        // la vie des villes : ateliers instruits, jour de marché, ignorance, délinquance (cite.rs)
+        let vies: Vec<(usize, VieVille)> = (0..self.villes.len()).filter(|&vi| self.villes[vi].proprio == 0).map(|vi| (vi, self.vie_ville(vi))).collect();
+        let ateliers: BTreeMap<u32, f64> = vies.iter().map(|(vi, x)| (self.villes[*vi].id, x.ateliers)).collect();
         let j = &self.royaumes[0];
         let ecole = if j.a("vapeur") { 1.0 } else { 1.0 };
         let humeur = 0.75 + j.bonheur / 200.0;
@@ -652,6 +656,9 @@ impl Partie {
             }
             if d.cat == "artisanat" && vapeur {
                 f *= 1.2;
+            }
+            if d.cat == "artisanat" {
+                f *= 1.0 + b.ville.and_then(|v| ateliers.get(&v)).copied().unwrap_or(0.0);
             }
             // de bonnes routes : les charrois vont plus vite
             f *= 1.0 + 0.05 * (routes_niv - 1.0);
@@ -760,18 +767,8 @@ impl Partie {
         } else {
             false
         };
-        let froid = self.meteo.temperature < 7.0;
-        let mut chauffe = true;
-        if froid {
-            let besoin = pop * if self.meteo.temperature < 0.0 { 0.08 } else { 0.04 };
-            let b = st.entry("bois".into()).or_insert(0.0);
-            if *b >= besoin {
-                *b -= besoin;
-            } else {
-                *b = 0.0;
-                chauffe = false;
-            }
-        }
+        let chauffage = self.chauffer(pop);
+        let gele = chauffage.is_some_and(|v| v < 0.0);
         // bonheur
         let foi = (s.foi / pop.max(1.0)).min(1.0);
         let hyg = (s.hygiene / pop.max(1.0)).min(1.0);
@@ -789,8 +786,21 @@ impl Partie {
             ("Guerres".into(), -4.0 * guerres),
             ("Météo".into(), eff.bonheur),
         ];
-        if froid {
-            detail.push(("Chauffage (bois)".into(), if chauffe { 0.0 } else { -10.0 }));
+        let (mj, el) = (&rg.jour_marche, &rg.eclairage);
+        let halles: f64 = vies.iter().filter(|x| x.1.marche).map(|x| x.1.halles as f64).sum();
+        if halles > 0.0 {
+            detail.push(if famine { ("Marché déserté (disette)".into(), mj.disette * halles) } else { ("Jour de marché".into(), (mj.bonheur * halles).min(mj.bonheur_max)) });
+        }
+        let ignorantes = vies.iter().filter(|x| x.1.ignorance).count() as f64;
+        if ignorantes > 0.0 {
+            detail.push(("Ignorance (villes sans école)".into(), -rg.ecoles.ignorance_bonheur * ignorantes));
+        }
+        let eclairees = self.villes.iter().filter(|v| v.proprio == 0 && v.eclairage).count() as f64;
+        if eclairees > 0.0 {
+            detail.push(("Éclairage public".into(), (el.bonheur * eclairees).min(el.bonheur_max)));
+        }
+        if let Some(v) = chauffage {
+            detail.push((if v > 0.0 { "Chauffage : les foyers sont chauds" } else { "Chauffage" }.into(), v));
         }
         let cible: f64 = detail.iter().map(|x| x.1).sum::<f64>().clamp(0.0, 100.0);
         let j = &mut self.royaumes[0];
@@ -809,14 +819,21 @@ impl Partie {
             let g = (pop * 0.05 * (j.bonheur - 30.0) / 40.0).max(1.0);
             j.pop = (j.pop + g.round() as i64).min(s.logement);
         }
-        // or
+        // le froid et les maladies, faute de combustible
+        let geles = if gele { ((pop * rg.chauffage.pertes).ceil() as i64).max(1).min(j.pop - 1) } else { 0 };
+        j.pop -= geles;
+        // or : jour de marché (sauf disette) et délinquance des villes sans éclairage, en part des impôts
         let mult = match impots.as_str() { "bas" => 0.5, "eleve" => 1.6, _ => 1.0 };
-        let impot = j.pop as f64 * 0.5 * mult * (0.5 + j.bonheur / 100.0) * (1.0 + s.taxe);
+        let part = j.pop as f64 * 0.5 * mult * (0.5 + j.bonheur / 100.0);
+        let marche = if famine { 0.0 } else { halles * mj.impots };
+        let delinquance = vies.iter().filter(|x| x.1.delinquance).count() as f64 * el.delinquance;
+        let impot = part * (1.0 + s.taxe + marche - delinquance).max(0.0);
         let routes = if j.a("routes") { 1.5 } else { 1.0 };
         let nb_routes = self.royaumes.iter().filter(|r| !r.joueur && r.vivant && r.commerce && r.statut != "guerre").count() as f64;
         let commerce = nb_routes * 25.0 * routes;
         let nb_bat = self.batiments.iter().filter(|b| b.proprio == 0 && b.fini()).count() as f64;
-        let entretien = s.soldats as f64 * 0.5 + nb_bat * 0.2 + s.entretien_flotte + self.entretien_forts(0);
+        let eclairage = eclairees * el.entretien;
+        let entretien = s.soldats as f64 * 0.5 + nb_bat * 0.2 + s.entretien_flotte + self.entretien_forts(0) + eclairage;
         let commerce_mer = self.commerce_maritime(0);
         let j = &mut self.royaumes[0];
         j.commerce_mer = commerce_mer;
@@ -826,7 +843,16 @@ impl Partie {
             *or = 0.0;
             j.bonheur = (j.bonheur - 3.0).max(0.0);
         }
-        j.revenus = Panier::from([("impots".to_string(), impot), ("commerce".to_string(), commerce), ("commerce_mer".to_string(), commerce_mer), ("entretien".to_string(), entretien)]);
+        // dont : jour de marché, délinquance (dans les impôts), éclairage (dans l'entretien)
+        j.revenus = Panier::from([
+            ("impots".to_string(), impot),
+            ("commerce".to_string(), commerce),
+            ("commerce_mer".to_string(), commerce_mer),
+            ("entretien".to_string(), entretien),
+            ("marche".to_string(), part * marche),
+            ("delinquance".to_string(), part * delinquance),
+            ("eclairage".to_string(), eclairage),
+        ]);
         for (r, v) in j.stock.iter_mut() {
             if r != "or" {
                 *v = v.min(cap[r]).max(0.0);
@@ -843,8 +869,21 @@ impl Partie {
         if famine {
             self.evt(rapport, "🍽️ Famine ! Les greniers sont vides, la population diminue.".into(), "guerre", None);
         }
-        if froid && !chauffe {
-            self.evt(rapport, "🥶 Pas assez de bois de chauffage : le peuple grelotte.".into(), "meteo", None);
+        if gele {
+            self.evt(rapport, format!("🥶 Pas assez de combustible pour se chauffer : le peuple grelotte, le froid et les maladies emportent {geles} habitant(s)."), "meteo", None);
+        }
+        if self.jour_marche() {
+            for (vi, x) in &vies {
+                let (nom, case) = (self.villes[*vi].nom.clone(), Some(self.villes[*vi].case));
+                if x.marche && famine {
+                    self.evt(rapport, format!("🧺 Marché déserté à {nom} : la disette a vidé les étals."), "info", case);
+                } else if x.marche {
+                    let n = x.halles as f64;
+                    self.evt(rapport, format!("🧺 Jour de marché à {nom} : impôts +{:.0} %, bonheur +{:.0}.", n * mj.impots * 100.0, (n * mj.bonheur).min(mj.bonheur_max)), "or", case);
+                } else if x.halles > 0 {
+                    self.evt(rapport, format!("🧺 Pas de marché à {nom} : la ville est assiégée ou bloquée."), "info", case);
+                }
+            }
         }
     }
 
@@ -901,12 +940,8 @@ impl Partie {
 
     // ------------------------------------------------------------------ recherche
     fn recherche(&mut self, rapport: &mut Rapport) {
-        let s = self.stats(0);
+        let gain = self.savoir_mois();
         let j = &mut self.royaumes[0];
-        let mut gain = j.pop as f64 * 0.04 + s.savoir;
-        if j.a("lumieres") {
-            gain *= 1.25;
-        }
         j.savoir += gain;
         if let Some(t) = j.recherche.clone() {
             let d = regles().tech(&t).unwrap();
@@ -934,14 +969,7 @@ impl Partie {
                 .map(|b| b.id)
                 .collect();
             if let Some(&id) = self.hasard.choix(&bois_) {
-                let b = self.bat(id).cloned().unwrap();
-                let nom = regles().bat(&b.cle).unwrap().nom.clone();
-                if hyg >= 0.6 {
-                    self.evt(rapport, format!("🔥 Un incendie à {nom} est maîtrisé grâce aux puits."), "bon", Some(b.case));
-                } else {
-                    self.evt(rapport, format!("🔥 Incendie ! {nom} part en fumée."), "guerre", Some(b.case));
-                    let _ = self.demolir(b.case);
-                }
+                self.incendie(id, hyg, rapport);
             }
         }
         // épidémie
@@ -977,6 +1005,22 @@ impl Partie {
                 donne: Panier::from([("outils".to_string(), 15.0)]),
                 demande: Panier::from([("or".to_string(), 120.0)]),
             });
+        }
+    }
+
+    /// Le feu prend au bâtiment `id` du joueur : le veilleur d'une ville éclairée l'éteint une fois sur deux
+    /// (`eclairage.incendie`), sinon les puits (hygiène `hyg`) le maîtrisent, ou il part en fumée.
+    pub fn incendie(&mut self, id: u32, hyg: f64, rapport: &mut Rapport) {
+        let Some(b) = self.bat(id).cloned() else { return };
+        let nom = regles().bat(&b.cle).unwrap().nom.clone();
+        let veilleur = b.ville.and_then(|vid| self.villes.iter().find(|v| v.id == vid && v.eclairage)).map(|v| v.nom.clone());
+        if let Some(ville) = veilleur.filter(|_| self.hasard.p(1.0 - regles().eclairage.incendie)) {
+            self.evt(rapport, format!("🏮 Le veilleur de nuit de {ville} donne l'alerte : le feu est éteint avant de prendre à {nom}."), "bon", Some(b.case));
+        } else if hyg >= 0.6 {
+            self.evt(rapport, format!("🔥 Un incendie à {nom} est maîtrisé grâce aux puits."), "bon", Some(b.case));
+        } else {
+            self.evt(rapport, format!("🔥 Incendie ! {nom} part en fumée."), "guerre", Some(b.case));
+            let _ = self.demolir(b.case);
         }
     }
 

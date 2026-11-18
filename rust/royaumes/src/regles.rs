@@ -307,7 +307,81 @@ pub struct Regles {
     pub retranchement: DefRetranchement,
     pub forts: DefForts,
     pub siege: DefSiege,
+    pub jour_marche: DefJourMarche,
+    pub ecoles: DefEcoles,
+    pub chauffage: DefChauffage,
+    pub eclairage: DefEclairage,
     pub evenements_choix: Vec<DefChoix>,
+}
+
+/// Le jour de marché : tous les `tous_les` mois, chaque Halle du marché d'une ville l'anime.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DefJourMarche {
+    pub tous_les: u32,
+    /// impôts en plus par halle ouverte (part), bonheur par halle (plafonné), bonheur par halle désertée (disette)
+    pub impots: f64,
+    pub bonheur: f64,
+    pub bonheur_max: f64,
+    pub disette: f64,
+    /// or par halle ouverte pour un royaume de l'ordinateur (son économie est résumée)
+    pub ia_or: f64,
+    pub desc: String,
+}
+
+/// Les écoles : vacances d'été, ateliers de la ville, ignorance des villes sans école.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DefEcoles {
+    /// part du savoir d'une école l'été
+    pub ete: f64,
+    /// production des ateliers (artisanat) en plus par école de la ville, et au plus
+    pub ateliers: f64,
+    pub ateliers_max: f64,
+    /// au Siècle des Lumières, une ville de ce rang ou plus sans école perd du savoir et du bonheur (par ville)
+    pub ignorance_rang: u32,
+    pub ignorance_savoir: f64,
+    pub ignorance_bonheur: f64,
+    /// ordinateur : or par école (son savoir), or perdu par ville ignorante
+    pub ia_or: f64,
+    pub ia_ignorance: f64,
+    pub desc: String,
+}
+
+/// Le chauffage : l'hiver et par grand froid, les foyers brûlent du bois (ou du charbon à l'ère industrielle).
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DefChauffage {
+    /// bois par habitant et par mois ; ×`grand_froid` sous la neige, le gel ou sous `seuil_froid` °C (qui fait aussi chauffer hors de l'hiver)
+    pub par_habitant: f64,
+    pub grand_froid: f64,
+    pub seuil_froid: f64,
+    /// ce que vaut un charbon en bois
+    pub charbon: f64,
+    /// sans assez de combustible : bonheur, part des habitants perdus
+    pub malus: f64,
+    pub pertes: f64,
+    /// mois de chauffage en réserve qui donnent le `bonus` de bonheur
+    pub reserve: f64,
+    pub bonus: f64,
+    pub desc: String,
+}
+
+/// L'éclairage public (réverbères et veilleur de nuit), allumé ville par ville.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DefEclairage {
+    /// rang de la ville requis ; or par mois et par ville éclairée
+    pub rang: u32,
+    pub entretien: f64,
+    /// risque d'incendie qui reste dans une ville éclairée (multiplicateur)
+    pub incendie: f64,
+    pub bonheur: f64,
+    pub bonheur_max: f64,
+    /// au Siècle des Lumières, une ville de ce rang ou plus sans éclairage perd cette part d'impôts
+    pub delinquance_rang: u32,
+    pub delinquance: f64,
+    pub desc: String,
 }
 
 pub fn regles() -> &'static Regles {
@@ -427,6 +501,18 @@ mod essais {
             }
         }
         assert!(r.bat("remparts").unwrap().cat == "aucune" && r.bat("citadelle").unwrap().cat == "aucune", "ils ne se construisent plus");
+        // la vie des villes : jour de marché, écoles, chauffage, éclairage
+        let (m, e, c, l) = (&r.jour_marche, &r.ecoles, &r.chauffage, &r.eclairage);
+        assert!((2..=12).contains(&m.tous_les) && m.impots > 0.0 && m.impots <= 0.2, "jour de marché");
+        assert!(m.bonheur > 0.0 && m.bonheur_max >= m.bonheur && m.disette < 0.0 && m.ia_or > 0.0, "jour de marché : bonus et malus");
+        assert!(r.bat("marche").is_some_and(|b| b.taxe > 0.0) && r.bat("ecole").is_some_and(|b| b.savoir > 0.0 && b.ouvriers > 0));
+        assert!(e.ete > 0.0 && e.ete < 1.0 && e.ateliers > 0.0 && e.ateliers_max >= e.ateliers && e.ateliers_max <= 0.25, "écoles");
+        assert!(r.niveau(e.ignorance_rang).is_some() && e.ignorance_savoir > 0.0 && e.ignorance_bonheur > 0.0 && e.ia_or > 0.0 && e.ia_ignorance > 0.0, "ignorance");
+        assert!(c.par_habitant > 0.0 && c.par_habitant < 0.5 && c.grand_froid >= 1.0 && c.charbon >= 1.0 && res.contains(&"charbon") && res.contains(&"bois"), "chauffage");
+        assert!(c.malus < 0.0 && c.pertes > 0.0 && c.pertes < 0.1 && c.reserve >= 1.0 && c.bonus > 0.0 && c.bonus < -c.malus, "chauffage : bonus et malus");
+        assert!(r.niveau(l.rang).is_some() && r.niveau(l.delinquance_rang).is_some() && l.delinquance_rang >= l.rang, "éclairage : rangs");
+        assert!(l.entretien > 0.0 && l.incendie > 0.0 && l.incendie < 1.0 && l.bonheur > 0.0 && l.bonheur_max >= l.bonheur && l.delinquance > 0.0 && l.delinquance <= 0.2, "éclairage");
+        assert!(r.tech("lumieres").is_some() && r.epoques.iter().any(|x| x.cle == "lumieres"));
         assert_eq!(r.epoque(1700).cle, "ancien");
         assert_eq!(r.epoque(1790).cle, "empire");
         assert_eq!(r.epoque(1850).cle, "industrie");
