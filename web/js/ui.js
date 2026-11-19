@@ -136,6 +136,11 @@ function montrerModale() {
 export const modaleOuverte = () => fileModale.length > 0;
 
 // ------------------------------------------------------------------ actions des boutons
+/** Rejoue une action de bouton (data-a, data-v…) hors des fiches : la roulette (main.js). */
+export const agir = d => clic({ dataset: d });
+/** Le coût en texte court, pour une pastille de la roulette : « 15 🪵 · 8 🪨 ». */
+export const coutCourt = cout => Object.entries(cout || {}).map(([r, n]) => `${n} ${res(r).icone}`).join(' · ');
+export const payable = cout => peutPayer(cout);
 async function clic(el) {
   const d = el.dataset, a = d.a;
   const envoyer = async (cmd, ok) => { const r = await A.cmd(cmd); if (r.ok) { if (r.msg) annonce(r.msg, 'bon'); rafraichir(); ok && ok(r); } else if (r.msg) annonce('❌ ' + r.msg, 'guerre'); return r; };

@@ -2,26 +2,25 @@
 // La bibliothèque (scene.js) garde ses gestes ; on passe avant elle (écoute en capture sur window) pour lui retirer ce qui
 // n'est pas pour elle : les points de la paume, et le geste qu'un appui long a pris (pointercancel, qu'elle sait traiter).
 // - Paume : tant que le stylet est posé, et 0,4 s après, un doigt sur la carte est ignoré ; posée avant lui, elle est annulée.
-// - Appui long (0,45 s, tolérance 10 px au stylet, 14 px au doigt) : un anneau se remplit sous la pointe, puis l'action du
-//   clic droit (main.js : l'armée sélectionnée marche vers la case ; sans armée sélectionnée, la case est inspectée).
-// - Bouton latéral d'un stylet qui en a un : la même action, tout de suite.
+// - Appui long (0,45 s, tolérance 10 px au stylet, 14 px au doigt) : un anneau se remplit sous la pointe, puis la roulette
+//   de commandes s'ouvre (roulette.js, remplie par main.js) ; sans lever, glisser jusqu'à une commande et lever la lance.
+// - Bouton latéral d'un stylet qui en a un : la roulette tout de suite.
+// - Un toucher hors de la roulette ouverte la ferme (sur la carte, il ne fait rien d'autre).
 // - Sélection de texte bloquée au stylet, hors des champs de saisie.
-import { canvas, solA, caseA } from '../graphismes/rendu/scene.js';
+import { canvas } from '../graphismes/rendu/scene.js';
+import { estOuverte, contient, fermer, survol, choisir } from './roulette.js';
 
-const APPUI_MS = 450, PAUME_MS = 400, SEUIL = { pen: 10, touch: 14 };
+const APPUI_MS = 450, PAUME_MS = 400, GLISSE_PX = 24, SEUIL = { pen: 10, touch: 14 };
 const ptr = new Map();      // points posés sur la carte (stylet, doigt) : id → { x, y, x0, y0, type }
 const rejetes = new Set();  // points retirés à la bibliothèque : on avale leur suite
 let styletPose = false, dernierStylet = 0, appui = null, action = () => {}, dernierType = '';
+let tenu = null; // la pointe restée posée après l'ouverture de la roulette : { id, x0, y0, glisse }
 
 const surCarte = e => e.target === canvas;
 const paume = e => e.pointerType === 'touch' && (styletPose || performance.now() - dernierStylet < PAUME_MS);
 function rejeter(e) { rejetes.add(e.pointerId); e.stopImmediatePropagation(); if (e.cancelable) e.preventDefault(); }
 // retire un point à la bibliothèque : elle l'oublie comme un geste interrompu
 function annuler(id, p) { try { canvas.dispatchEvent(new PointerEvent('pointercancel', { pointerId: id, pointerType: p.type, bubbles: true, clientX: p.x, clientY: p.y })); } catch (_) { /* navigateur sans PointerEvent */ } }
-function lancer(x, y) {
-  const s = solA(x, y), i = s ? caseA(s.x, s.z) : -1;
-  if (i >= 0) action(i);
-}
 
 function appuiDebut(e) {
   const anneau = document.createElement('div');
@@ -42,18 +41,20 @@ function appuiFin(id) {
   if (!p) return;
   ptr.delete(id); rejetes.add(id); annuler(id, p);
   try { navigator.vibrate?.(12); } catch (_) { /* pas de vibreur */ }
-  lancer(p.x, p.y);
+  action(p.x, p.y);
+  tenu = { id, x0: p.x, y0: p.y, glisse: false };
 }
 
 addEventListener('pointerdown', e => {
   dernierType = e.pointerType;
   if (e.pointerType === 'pen') { styletPose = true; dernierStylet = performance.now(); }
+  if (estOuverte() && !contient(e.target)) { fermer(); if (surCarte(e)) rejeter(e); return; }
   if (!surCarte(e)) return;
   if (paume(e)) return rejeter(e);
   if (e.pointerType === 'pen') {
     // la paume était là avant le stylet : la bibliothèque y croirait à un pincement
     for (const [id, p] of ptr) if (p.type === 'touch') { ptr.delete(id); rejetes.add(id); if (appui?.id === id) appuiAnnuler(); annuler(id, p); }
-    if (e.buttons & 2) { rejeter(e); lancer(e.clientX, e.clientY); return; } // bouton latéral
+    if (e.buttons & 2) { rejeter(e); action(e.clientX, e.clientY); return; } // bouton latéral
   }
   if (e.pointerType !== 'pen' && e.pointerType !== 'touch') return;
   ptr.set(e.pointerId, { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, type: e.pointerType });
@@ -62,6 +63,11 @@ addEventListener('pointerdown', e => {
 }, true);
 
 addEventListener('pointermove', e => {
+  if (tenu?.id === e.pointerId) {
+    e.stopImmediatePropagation();
+    if (Math.hypot(e.clientX - tenu.x0, e.clientY - tenu.y0) >= GLISSE_PX) tenu.glisse = true;
+    return survol(e.clientX, e.clientY);
+  }
   if (rejetes.has(e.pointerId)) return void e.stopImmediatePropagation();
   const p = ptr.get(e.pointerId);
   if (!p) return;
@@ -72,6 +78,11 @@ addEventListener('pointermove', e => {
 function fin(e) {
   // seul le vrai lever du stylet compte (le pointercancel envoyé par appuiFin le laisse posé)
   if (e.pointerType === 'pen' && e.isTrusted) { styletPose = false; dernierStylet = performance.now(); }
+  if (tenu?.id === e.pointerId && e.isTrusted) {
+    // lever après avoir glissé choisit ; lever sur place laisse la roulette ouverte, à toucher ensuite
+    const glisse = tenu.glisse; tenu = null;
+    if (glisse && e.type === 'pointerup') choisir(e.clientX, e.clientY, true);
+  }
   if (rejetes.has(e.pointerId)) {
     // notre propre pointercancel doit atteindre la bibliothèque ; la vraie fin du point, non
     if (e.isTrusted) { rejetes.delete(e.pointerId); e.stopImmediatePropagation(); }
@@ -87,5 +98,5 @@ addEventListener('pointercancel', fin, true);
 const saisissable = n => !!(n?.nodeType === 1 ? n : n?.parentElement)?.closest?.('input, textarea, select, [contenteditable]:not([contenteditable="false"])');
 addEventListener('selectstart', e => { if (dernierType === 'pen' && !saisissable(e.target)) e.preventDefault(); }, true);
 
-/** L'action de l'appui long et du bouton latéral sur la case `i` (main.js). */
+/** L'action de l'appui long et du bouton latéral au point (x, y) de l'écran : ouvrir la roulette (main.js). */
 export function installerStylet(f) { action = f; }

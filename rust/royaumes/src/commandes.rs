@@ -57,6 +57,20 @@ pub fn executer(p: &mut Partie, c: &Value) -> Result<Value, String> {
         let v: Vec<usize> = (0..p.carte.cases.len()).filter(|&i| p.connait(0, i) && p.peut_construire(cle, i, 0).is_ok()).collect();
         return Ok(json!({"ok": true, "cases": v}));
     }
+    // la roulette (web/js/roulette.js) : les bâtiments qu'on pourrait lancer sur cette case (le coût n'est pas vérifié)
+    if c.get("action").and_then(Value::as_str) == Some("batiments_ici") {
+        let i = case(p, c)?;
+        let rg = regles();
+        let n = p.niveau_capitale(0);
+        let v: Vec<&str> = rg
+            .batiments
+            .iter()
+            .filter(|d| d.cat != "aucune" && d.niveau <= n && d.tech.as_ref().map_or(true, |t| p.a_tech(0, t)))
+            .filter(|d| p.connait(0, i) && p.peut_construire(&d.cle, i, 0).is_ok())
+            .map(|d| d.cle.as_str())
+            .collect();
+        return Ok(json!({"ok": true, "batiments": v}));
+    }
     if p.fin.is_some() && !p.sans_victoire {
         if txt(c, "action")? == "continuer" && p.fin.as_ref().is_some_and(|f| f.victoire) {
             p.sans_victoire = true;
@@ -819,6 +833,19 @@ mod essais {
         assert!(executer(&mut p, &json!({"action": "rechercher", "tech": "assolement"})).is_ok());
         assert!(executer(&mut p, &json!({"action": "diplo", "royaume": 1, "acte": "cadeau"})).is_ok());
         assert!(executer(&mut p, &json!({"action": "impots", "niveau": "eleve"})).is_ok());
+    }
+
+    #[test]
+    fn batiments_constructibles_sur_une_case() {
+        let mut p = Partie::nouvelle(Options { graine: 11, ..Options::default() });
+        let c = (0..p.carte.cases.len()).find(|&c| p.peut_construire("cabane", c, 0).is_ok() && p.connait(0, c)).unwrap();
+        let r = executer(&mut p, &json!({"action": "batiments_ici", "case": c})).unwrap();
+        let v: Vec<&str> = r["batiments"].as_array().unwrap().iter().map(|x| x.as_str().unwrap()).collect();
+        assert!(v.contains(&"cabane"), "{v:?}");
+        assert!(!v.contains(&"palais"), "pas au-dessus du rang de la capitale");
+        let cap = p.villes[0].case;
+        let r = executer(&mut p, &json!({"action": "batiments_ici", "case": cap})).unwrap();
+        assert!(r["batiments"].as_array().unwrap().is_empty(), "case occupée");
     }
 
     #[test]

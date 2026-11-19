@@ -1,6 +1,6 @@
 // Royaumes des Rives : démarrage, écran d'accueil (réglage de la carte avec aperçu 3D), boucle des tours.
 import { api } from './api.js';
-import { renderer, cam, viser, surTap, surClicDroit, posCase, chaqueImage, scene, voisins, qualite, reglerQualite, NIVEAUX_QUALITE } from '../graphismes/rendu/scene.js';
+import { renderer, cam, viser, surTap, surClicDroit, posCase, chaqueImage, scene, voisins, qualite, reglerQualite, NIVEAUX_QUALITE, solA, caseA } from '../graphismes/rendu/scene.js';
 import * as plateau from '../graphismes/rendu/plateau.js';
 import { initMonde, synchroniser, jouerMois, selectionnerArmee } from '../graphismes/rendu/monde.js';
 import { majVie } from '../graphismes/rendu/vie.js';
@@ -14,7 +14,8 @@ import { majChroniques } from '../graphismes/rendu/chroniques.js';
 import { majRoutes, effacerRoutes, niveauRoutes } from '../graphismes/rendu/routes.js';
 import { toutEffacer, effet } from '../graphismes/rendu/etiquettes.js';
 import * as ui from './ui.js';
-import { installerStylet } from './stylet.js'; // stylet et doigt : paume ignorée, appui long, bouton latéral (comme web_cao)
+import { installerStylet } from './stylet.js';
+import * as roulette from './roulette.js'; // la roulette de commandes (comme web_cao) // stylet et doigt : paume ignorée, appui long, bouton latéral (comme web_cao)
 import { suivreArmees } from './bivouacs.js'; // armées au repos (la nuit, ou campées hors des villes) : le bivouac de web_engine 2.12
 
 const $ = s => document.querySelector(s);
@@ -293,9 +294,55 @@ async function marcher(armee, i) {
 }
 // clic droit : l'armée sélectionnée (ou celle du mode « destination ») marche vers la case
 const armeeChoisie = () => { const id = J.mode?.genre === 'deplacer' ? J.mode.armee : J.armeeSel; return id != null && J.etat?.armees.some(a => a.id === id && a.proprio === 0) ? id : null; };
-// appui long et bouton latéral du stylet (stylet.js) : le clic droit avec une armée choisie, sinon la case est inspectée
-installerStylet(i => { if (J.etat && !J.occupe) armeeChoisie() != null ? clicDroit(i) : inspecter(i); });
-surClicDroit(clicDroit);
+// appui long et bouton latéral du stylet (stylet.js) : la roulette de la case sous la pointe
+installerStylet((x, y) => { const s = solA(x, y), i = s ? caseA(s.x, s.z) : -1; if (i >= 0) ouvrirRoulette(i, x, y); });
+// clic droit : avec une armée choisie, elle y marche ; sinon, la roulette (comme web_cao)
+surClicDroit((i, e) => armeeChoisie() != null ? clicDroit(i) : ouvrirRoulette(i, e.clientX, e.clientY));
+
+/** La roulette de la case i, ouverte en (x, y) : ce que l'on peut y faire (armée, construction, terres, fiche). */
+async function ouvrirRoulette(i, x, y) {
+  if (!J.etat || J.occupe || J.etat.fin && !J.etat.sans_victoire) return;
+  const E = J.etat, entrees = [], go = d => () => ui.agir(d);
+  const sel = armeeChoisie(), selA = E.armees.find(a => a.id === sel);
+  const ici = E.armees.find(a => a.case === i && a.proprio === 0 && !a.chemin.length) || E.armees.find(a => a.case === i && a.proprio === 0);
+  let ctx = 'case';
+  if (selA && selA.case !== i) { entrees.push({ ico: '🚶', nom: 'Marcher ici', fn: () => clicDroit(i) }); ctx = 'armée'; }
+  if (ici) {
+    ctx = 'armée';
+    entrees.push({ ico: '🚩', nom: 'Destination', fn: () => modeDeplacer(ici.id) });
+    const autres = E.armees.filter(a => a.proprio === 0 && a.id !== ici.id && a.case === i && !a.chemin.length);
+    const ordres = [
+      { ico: '📋', nom: 'Fiche de l\'armée', fn: () => choisirArmee(ici.id) },
+      { ico: '✂️', nom: 'Diviser', fn: go({ a: 'diviser', v: ici.id }) },
+      ...(ici.chemin.length ? [] : autres.map(a => ({ ico: '🤝', nom: `Fusionner (${a.effectif} soldats)`, fn: go({ a: 'fusionner', v: ici.id, f: a.id }) }))),
+      { ico: '⛏️', nom: 'Se retrancher', fn: go({ a: 'retrancher', v: ici.id }), off: !!ici.retrancher_verrou, info: ici.retrancher_verrou || '' },
+      { ico: '🏗️', nom: 'Construire un fort', fn: go({ a: 'fort', v: ici.id }), off: !!ici.fort_verrou || !ui.payable(J.R.forts.niveaux[0].cout), info: ici.fort_verrou || ui.coutCourt(J.R.forts.niveaux[0].cout) },
+    ];
+    if (ici.chemin.length) ordres.push({ ico: '✋', nom: 'Halte', fn: go({ a: 'halte', v: ici.id }) });
+    entrees.push({ ico: '⚔️', nom: 'Armée', items: ordres });
+  }
+  // construction : un groupe par catégorie, avec ce qui peut se bâtir ici (le serveur en juge)
+  const r = await api.cmd({ action: 'batiments_ici', case: i });
+  if (r.ok && r.batiments.length) {
+    if (ctx === 'case') ctx = 'construire';
+    for (const c of J.R.categories) {
+      const items = r.batiments.map(k => J.R.batiments.find(b => b.cle === k)).filter(b => b.cat === c.cle)
+        .map(b => ({ ico: b.icone, nom: b.nom, info: ui.coutCourt(b.cout), off: !ui.payable(b.cout), fn: go({ a: 'ici', v: b.cle, c: i }) }));
+      if (items.length) entrees.push({ ico: c.icone, nom: c.nom, items, cat: true });
+    }
+  }
+  // terres libres au bord du royaume
+  const j = E.joueur;
+  if (E.cases.proprio[i] === -1 && J.carte.terrain[i] >= 3 && voisins(i).some(v => E.cases.proprio[v] === 0)) entrees.push({ ico: '🗺️', nom: `Acheter (${j.prix_terre} 🪙)`, fn: go({ a: 'acheter', c: i }), danger: false });
+  const b = E.batiments.find(x => x.case === i && x.proprio === 0);
+  if (b && b.cle !== 'hotel') entrees.push({ ico: '🔨', nom: 'Démolir', danger: true, fn: go({ a: 'demolir', c: i }) });
+  entrees.push({ ico: '🔍', nom: 'Fiche', fn: () => inspecter(i) });
+  entrees.push({ ico: '🎯', nom: 'Centrer', fn: () => viserCase(i) });
+  // huit secteurs au plus : la fiche et le centrage restent, les catégories en trop cèdent la place
+  while (entrees.length > 8 && entrees.some(e => e.cat)) entrees.splice(entrees.findLastIndex(e => e.cat), 1);
+  const titre = ui.titreCase(i).replace(/<[^>]*>/g, '').replace(/^\S+\s/, '');
+  roulette.ouvrir(x, y, { titre, ctx, entrees });
+}
 async function clicDroit(i) {
   if (!J.etat || J.occupe) return;
   const id = armeeChoisie();
