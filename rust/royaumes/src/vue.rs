@@ -45,7 +45,7 @@ pub fn meteo_json(m: &Meteo, tour: u32) -> Value {
         "genre": m.genre, "titre": m.titre, "icone": m.icone, "temperature": m.temperature,
         "vent": m.vent, "direction": m.direction, "pluie": m.pluie, "neige_sol": m.neige_sol,
         "secheresse": m.secheresse, "historique": m.historique, "effets": e.resume,
-        "cultures": e.cultures, "mouvement": e.mouvement,
+        "cultures": e.cultures, "mouvement": e.mouvement, "tir": e.tir,
     })
 }
 
