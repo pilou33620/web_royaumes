@@ -178,6 +178,16 @@ pub struct DefFortif {
 /// L'ordre « Se retrancher » : mois de travaux, multiplicateur de la défense de l'armée retranchée.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
+pub struct DefAchatTerre {
+    /// prix en or du premier achat, puis `hausse` de plus à chaque case déjà achetée
+    pub or: f64,
+    pub hausse: f64,
+    pub desc: String,
+}
+
+/// L'achat de terres libres au bord du royaume (`Partie::acheter_terre`).
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct DefRetranchement {
     pub duree: u32,
     pub defense: f64,
@@ -300,6 +310,7 @@ pub struct Regles {
     pub marine: DefMarine,
     pub espionnage: DefEspionnage,
     pub fortifications: Vec<DefFortif>,
+    pub achat_terre: DefAchatTerre,
     pub retranchement: DefRetranchement,
     pub forts: DefForts,
     pub siege: DefSiege,

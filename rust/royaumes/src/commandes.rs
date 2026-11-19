@@ -106,6 +106,13 @@ pub fn executer(p: &mut Partie, c: &Value) -> Result<Value, String> {
             let f = p.fortifier(0, vi)?;
             Ok(json!({"ok": true, "msg": format!("{} {} : {} en travaux ({} mois)", f.icone, p.villes[vi].nom, f.nom, f.duree.max(1)), "mois": f.duree.max(1)}))
         }
+        // {"action": "acheter_terre", "case": i} : achète une case libre au bord du royaume
+        "acheter_terre" => {
+            let case = num(c, "case")? as usize;
+            let prix = p.acheter_terre(0, case)?;
+            p.recalculer_routes();
+            ok(format!("🗺️ Terres achetées pour {prix} 🪙"))
+        }
         // {"action": "eclairer", "ville": id, "actif": true|false} : allume ou éteint l'éclairage public (payé chaque mois)
         "eclairer" => {
             let vid = num(c, "ville")? as u32;
@@ -796,6 +803,28 @@ mod essais {
         assert!(executer(&mut p, &json!({"action": "rechercher", "tech": "assolement"})).is_ok());
         assert!(executer(&mut p, &json!({"action": "diplo", "royaume": 1, "acte": "cadeau"})).is_ok());
         assert!(executer(&mut p, &json!({"action": "impots", "niveau": "eleve"})).is_ok());
+    }
+
+    #[test]
+    fn achat_de_terres() {
+        let mut p = Partie::nouvelle(Options { graine: 11, ..Options::default() });
+        let n = p.carte.cases.len();
+        let bord = |p: &Partie| (0..n).find(|&c| p.carte.cases[c].terre() && p.carte.cases[c].proprio == -1 && p.carte.voisins(c).iter().any(|&v| p.carte.cases[v].proprio == 0)).unwrap();
+        let loin = (0..n).find(|&c| p.carte.cases[c].terre() && p.carte.cases[c].proprio == -1 && p.carte.voisins(c).iter().all(|&v| p.carte.cases[v].proprio != 0)).unwrap();
+        assert!(executer(&mut p, &json!({"action": "acheter_terre", "case": loin})).is_err(), "pas loin du royaume");
+        let cap = p.villes[0].case;
+        assert!(executer(&mut p, &json!({"action": "acheter_terre", "case": cap})).is_err(), "pas une case déjà prise");
+        p.royaumes[0].stock.insert("or".into(), 1000.0);
+        let (c1, prix1) = (bord(&p), p.prix_terre(0));
+        assert!(executer(&mut p, &json!({"action": "acheter_terre", "case": c1})).is_ok());
+        assert_eq!(p.carte.cases[c1].proprio, 0);
+        assert_eq!(p.joueur().stock["or"], 1000.0 - prix1);
+        assert!(p.prix_terre(0) > prix1, "chaque achat coûte plus cher");
+        p.recalculer_territoire();
+        assert_eq!(p.carte.cases[c1].proprio, 0, "la terre achetée reste au royaume");
+        p.royaumes[0].stock.insert("or".into(), 0.0);
+        let c2 = bord(&p);
+        assert!(executer(&mut p, &json!({"action": "acheter_terre", "case": c2})).is_err(), "sans or");
     }
 
     #[test]

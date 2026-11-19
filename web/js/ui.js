@@ -151,6 +151,7 @@ async function clic(el) {
     case 'halte': await envoyer({ action: 'halte', armee: +d.v }); break;
     case 'centrer': A.centrer(+d.v); break;
     case 'case': A.inspecter(+d.c); break;
+    case 'acheter': await envoyer({ action: 'acheter_terre', case: +d.c }); break;
     case 'viser': A.viserCase(+d.c); break;
     case 'fortifier': await envoyer({ action: 'fortifier', ville: +d.v }); break;
     case 'eclairer': await envoyer({ action: 'eclairer', ville: +d.v, actif: d.s === '1' }); break;
@@ -245,6 +246,8 @@ export function vueCase(i) {
   if (C.poissons[i]) h += ligne('Ressource', '🐟 Banc de poissons');
   if (E.cases.foret[i]) h += ligne('Bois sur pied', `🪵 ${E.cases.bois[i]}`);
   h += ligne('Territoire', pr >= 0 ? pastille(pr) + e(roy(pr).nom) : 'Terres libres') + '</div>';
+  // terres libres au bord du royaume : on peut les acheter (le serveur vérifie tout)
+  if (pr === -1 && C.terrain[i] >= 3 && voisins(i).some(v => E.cases.proprio[v] === 0)) h += `<div class="boite"><div class="mini" style="margin-bottom:5px">${e(R().achat_terre.desc)}</div><div class="btns"><button class="btn" data-a="acheter" data-c="${i}" ${j.stock.or >= j.prix_terre ? '' : 'disabled'}>🗺️ Acheter ces terres (${j.prix_terre} 🪙)</button></div></div>`;
   if (o.siege) h += vueSiege(o.siege);
   if (o.fort) h += vueFort(o.fort);
   for (const a of o.armees) {

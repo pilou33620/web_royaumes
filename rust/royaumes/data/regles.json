@@ -163,6 +163,7 @@
     {"niveau": 3, "nom": "Bastions à la Vauban", "icone": "⭐", "rang": 3, "tech": "vauban", "cout": {"pierre": 220, "planches": 40, "outils": 15, "or": 400}, "murs": 50, "defense": 1.5, "duree": 6, "enceinte": 1, "desc": "Enceinte bastionnée : elle englobe les cases voisines de la mairie."},
     {"niveau": 4, "nom": "Citadelle", "icone": "🏯", "rang": 4, "tech": "vauban", "cout": {"pierre": 350, "planches": 80, "outils": 40, "or": 900}, "murs": 80, "defense": 1.8, "duree": 10, "enceinte": 1, "territoire": 1, "desc": "Double enceinte et demi-lunes ; le territoire de la ville s'étend d'une case."}
   ],
+  "achat_terre": {"or": 60, "hausse": 20, "desc": "Acheter une case de terres libres qui touche votre royaume : elle vous appartient aussitôt, sans attendre que vos villes grandissent. Chaque achat coûte plus cher que le précédent."},
   "retranchement": {"duree": 1, "defense": 1.25, "desc": "Tranchées, abattis et gabions : une armée qui ne bouge plus se protège en un mois de travaux, jusqu'à ce qu'elle reparte."},
   "forts": {
     "distance": 3,

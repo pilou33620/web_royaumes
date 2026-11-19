@@ -25,6 +25,8 @@ qui s'ouvre dans le navigateur, comme web_conquete.
 - **Routes automatiques** : chaque bâtiment achevé est relié à l'hôtel de ville, les villes à leur capitale. Elles
   s'améliorent dans 📊 Royaume : chemins de terre → routes pavées → routes royales bordées d'arbres (production et
   marches plus rapides), et changent d'aspect.
+- **Achat de terres** : une case libre qui touche le royaume s'achète en or (🗺️ dans sa fiche) ; 60 🪙, puis 20 🪙 de
+  plus à chaque achat. Elle reste au royaume comme la case d'un fort.
 - **Bâtiments qui changent avec l'époque**, chacun sur sa dalle : colombages et chaume, puis crépi, volets et tuiles,
   puis pierre, ardoise et étages, puis brique et ardoise ; la mairie passe du beffroi à l'horloge, à la coupole dorée,
   puis au campanile ; les usines sortent de terre à l'ère industrielle.

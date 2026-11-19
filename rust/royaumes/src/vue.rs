@@ -138,6 +138,7 @@ pub fn etat(p: &Partie) -> Value {
             "pop": j.pop,
             "logement": s.logement,
             "soldats": s.soldats,
+            "prix_terre": p.prix_terre(0),
             "ouvriers_libres": j.ouvriers_libres,
             "bonheur": j.bonheur,
             "detail_bonheur": j.detail_bonheur,
