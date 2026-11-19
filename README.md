@@ -130,7 +130,7 @@ rust/royaumes/        le moteur et le serveur (Rust)
   src/vue.rs          ce que reçoit l'interface
   src/serveur.rs      serveur HTTP (web_tools_commun), sauvegardes, options, mise à jour
 web/                  l'interface (index.html, css/, js/) ; images, icônes et rendu : graphismes/
-  graphismes/         la bibliothèque graphique commune web_engine (three.js r186 ; rendu/ : plateau 3D, modèles, images, icônes,
+  graphismes/         la bibliothèque graphique commune web_engine (three.js r186 ; rendu/ : tous les rendus, plateau 3D, modèles, images, icônes,
                       routes, vie de la carte, météo, étiquettes, brouillard, marine, espions, remparts, sièges, forts).
                       NE PAS MODIFIER ICI : les graphismes se modifient dans web_engine (lib/), puis
                       `bash outils/maj-graphismes.sh` ; la CI vérifie que ce dossier est identique à web_engine
