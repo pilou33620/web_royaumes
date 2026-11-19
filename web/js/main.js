@@ -13,6 +13,7 @@ import { appliquerMeteo } from '../graphismes/rendu/meteo.js';
 import { majRoutes, effacerRoutes, niveauRoutes } from '../graphismes/rendu/routes.js';
 import { toutEffacer, effet } from '../graphismes/rendu/etiquettes.js';
 import * as ui from './ui.js';
+import './bivouacs.js'; // armées au repos la nuit : le bivouac de web_engine 2.12
 
 const $ = s => document.querySelector(s);
 const J = { R: null, carte: null, etat: null, info: null, mode: null, ombres: true, occupe: false, versionCarte: -1 };
