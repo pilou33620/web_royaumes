@@ -30,6 +30,7 @@ let C = null, H = [], familles = [], eau = null, glace = null, liseres = null, s
 let saison = 2, neige = 0, gel = 0, sec = 0;  // sec : 0, 1 champs jaunis, 2 grillés (meteo.js, d'après la sécheresse)
 let E = { arbres: [], foret: [], bati: new Set(), routes: new Set(), forts: new Set() }; // état du mois : ce qui change le décor (un fort dégage sa case d'arbres et de buttes)
 let rivPts = new Map(); // case → points des rivières qui la traversent (pour y écarter arbres et rochers)
+let cascades = [];      // pied des cascades { x, y, z } : leur écume (eau.js)
 let degages = new Set(); // cases des ouvrages de siège et des garnisons (sieges.js, monde.js) : ni arbres, ni buttes, ni champs, comme la case d'un fort
 const degage = i => E.forts.has(i) || degages.has(i);
 
@@ -84,6 +85,7 @@ const matRiv = toon(0x46a9dd, { polygonOffset: true, polygonOffsetFactor: -2, po
 export const MAT_SOL = new THREE.MeshToonMaterial({ vertexColors: true, gradientMap: degrade });
 /** Les berges de sable des rivières : boue.js les recouvre d'eau trouble pendant une crue (couleur recopiée de MAT_SOL sinon). */
 export const MAT_BERGE = MAT_SOL.clone();
+const MAT_CONTOUR = new THREE.LineBasicMaterial({ color: 0x14130f, transparent: true, opacity: 0.55 });  // le trait entre les cases
 export { matRiv as MAT_RIV };
 
 // ------------------------------------------------------------------ construction
@@ -117,13 +119,13 @@ const hexagone = r => new THREE.CircleGeometry(r, 6).rotateX(-Math.PI / 2).rotat
 
 function rebatir() {
   for (const f of familles) jeter(f);
-  const N = C.l * C.h, TU = lot(), DE = lot(), RS = lot(), RE = lot();
+  const N = C.l * C.h, TU = lot(), DE = lot(), RS = lot(), RE = lot(), bords = [];
   for (let i = 0; i < N; i++) H[i] = TERR[genre(i)][1];
   rivieres(RS, RE);
   const teinte = (TEINTES[saison] || TEINTES[2]).clone().lerp(PAILLE, Math.min(sec, 2) * 0.22);  // l'herbe sèche avec la sécheresse
   for (let i = 0; i < N; i++) {
     const g0 = genre(i), [col, top] = TERR[g0], { x, z, c, r } = posCase(i), bas = -1, h = top - bas;
-    const g = cyl(R * 0.965, R, h, 6).clone();
+    const g = cyl(R, R, h, 6).clone();  // le dessus à pleine taille : les cases se touchent
     g.translate(x, bas + h / 2, z);
     const k = new THREE.Color(col).offsetHSL((hache(c, r, 1) - 0.5) * 0.015, 0, (hache(c, r, 2) - 0.5) * 0.05);
     if (!EAUX.has(g0)) { k.multiply(teinte); if (neige) k.lerp(BLANC, neige * 0.6); }
@@ -131,9 +133,15 @@ function rebatir() {
     for (let v = 0; v < n.count; v++) { const f = n.getY(v) > 0.5 ? 1 : 0.62; a.set([k.r * f, k.g * f, k.b * f], v * 3); } // flancs plus sombres
     g.setAttribute('color', new THREE.BufferAttribute(a, 3));
     TU.g.push(g);
+    if (!EAUX.has(g0)) for (let k = 0; k < 6; k++) {  // le contour de la case : un fin trait sombre entre deux cases de terre
+      const a = k * Math.PI / 3, b = a + Math.PI / 3;
+      bords.push(x + Math.sin(a) * R, top + 0.004, z + Math.cos(a) * R, x + Math.sin(b) * R, top + 0.004, z + Math.cos(b) * R);
+    }
     if (g0 !== 'bati') decor(DE, i, g0, top, x, z, c, r);
   }
-  familles = [fige(TU, groupe, MAT_SOL), fige(DE, groupe, MAT_SOL), fige(RS, groupe, MAT_BERGE), fige(RE, groupe, matRiv)];
+  const traits = new THREE.BufferGeometry(); traits.setAttribute('position', new THREE.Float32BufferAttribute(bords, 3));
+  const contours = new THREE.LineSegments(traits, MAT_CONTOUR); groupe.add(contours);
+  familles = [fige(TU, groupe, MAT_SOL), fige(DE, groupe, MAT_SOL), fige(RS, groupe, MAT_BERGE), fige(RE, groupe, matRiv), contours];
   teinterEaux();
 }
 
@@ -141,6 +149,8 @@ const p = (L, g, col, x, y, z, ry = 0, ep = EP) => put(L, g, col, x, y, z, ry, e
 /** Les points ([x, z]) du tracé des rivières, par case ; et les cases bâties (villes, fermes) : la nuit s'y reflète (nuit.js). */
 export const pointsRiviere = () => rivPts;
 export const casesBaties = () => E.bati;
+/** Le pied des cascades ({ x, y, z }) : l'écume s'y forme (eau.js). */
+export const piedsCascades = () => cascades;
 export const presRiviere = (i, x, z) => (rivPts.get(i) || []).some(v => (v[0] - x) ** 2 + (v[1] - z) ** 2 < 0.13);
 /** Un point au hasard (stable) dans la case, à l'écart des rivières. */
 function auHasard(i, x, z, k, sel, rayon = 0.62) {
@@ -242,7 +252,7 @@ function decor(L, i, g0, y, x, z, c, r) {
   if (champ(i)) {
     // parcellaire : trois bandes de deux parcelles, alignées sur une direction de la case, avec leurs sillons
     const an = (hache(c, r, 7) * 3 | 0) * Math.PI / 3, ca = Math.cos(an), sa = Math.sin(an);
-    const CC = sec === 3 ? [0x8a6e4a, 0x7a6040, 0x806848] : saison !== 0 && sec === 2 ? [0xa8824a, 0x94703e, 0x8a6a3c] : saison !== 0 && sec === 1 ? [0xd8c060, 0xc9ad4e, 0xbfa452] : saison === 0 ? (neige > 0.3 ? [0xeef2f6, 0xe4eaef] : [0xa08a5a, 0x8f7a4f]) : saison === 1 ? [0x9fd35a, 0x86c24a, 0xb5d86a] : saison === 3 ? [0xc9a35a, 0xa8803f, 0x9b7d4a] : [0xe3c75b, 0xd6b24a, 0xa9c457, 0xc9b24a];
+    const CC = sec === 3 ? [0x8a6e4a, 0x7a6040, 0x806848] : saison !== 0 && sec === 2 ? [0xa8824a, 0x94703e, 0x8a6a3c] : saison !== 0 && sec === 1 ? [0xd8c060, 0xc9ad4e, 0xbfa452] : saison === 0 ? (neige > 0.3 ? [0xeef2f6, 0xe4eaef] : [0xa08a5a, 0x8f7a4f]) : saison === 1 ? [0x9fd35a, 0x86c24a, 0xb5d86a] : saison === 3 ? [0xc9a35a, 0x6e4e32, 0xa8803f, 0x7a5a3a] : [0xe3c75b, 0xd6b24a, 0xa9c457, 0xc9b24a];
     const poser = (w, h, d, col, lx, lz) => p(L, boite(w, h, d), col, x + lx * ca + lz * sa, y + h / 2, z - lx * sa + lz * ca, an, 0);
     if (hache(c, r, 12) < 0.35) { // épouvantail
       const ex = x + 0.05 * sa, ez = z + 0.05 * ca;
@@ -254,12 +264,19 @@ function decor(L, i, g0, y, x, z, c, r) {
     for (let b = -1; b <= 1; b++) for (const cote of [-1, 1]) {
       const col = new THREE.Color(CC[hache(c * 7 + b, r * 5 + cote, 9) * CC.length | 0]), lx = cote * (W + JEU) / 2, lz = b * (D + JEU);
       poser(W, 0.03, D, col.getHex(), lx, lz);
+      if (saison === 2 && b === 1 && cote === -1 && hache(c, r, 14) < 0.7) for (const gg of [-0.12, 0.12]) { // meules de foin, l'été
+        const gx = lx + gg; p(L, cone(0.06, 0.11, 8), 0xd8b45a, x + gx * ca + (lz) * sa, y + 0.085, z - gx * sa + (lz) * ca, 0, 0.004);
+        p(L, sphere(0.025, 0), 0xc9a24a, x + gx * ca + lz * sa, y + 0.14, z - gx * sa + lz * ca, 0, 0);
+      }
       if (saison === 2 && b === 0 && cote === 1) for (const gg of [-0.15, 0, 0.15]) { // gerbes
         const gx = lx + gg;
         p(L, cone(0.03, 0.08, 6), 0xe3c75b, x + gx * ca + lz * sa, y + 0.07, z - gx * sa + lz * ca, 0, 0.004);
       }
       if (saison !== 0) for (const sl of [-1, 0, 1]) poser(W * 0.9, 0.034, 0.018, col.clone().multiplyScalar(0.8).getHex(), lx, lz + sl * D / 3); // sillons
     }
+  }
+  if (saison === 1 && (g0 === 'prairie' || g0 === 'colline') && !nb && !degage(i)) for (let k = 0; k < 9; k++) { // fleurs des prés au printemps
+    const q = auHasard(i, x, z, 0, 120 + k); if (q) p(L, sphere(0.012, 0), [0xff6b9a, 0xffd34d, 0xffffff, 0xb57bff][k % 4], q[0], y + 0.012, q[1], 0, 0);
   }
   if (g0 === 'prairie' && !nb && !degage(i) && hache(i, 70) < 0.5) { const q = auHasard(i, x, z, 0, 71); if (q) p(L, sphere(S0, 0), saison === 3 ? 0x8fa03c : saison === 0 ? nv(0x7d8a5a, 0.5) : 0x5fa83c, q[0], y + 0.7 * S0, q[1]); }
   if (g0 === 'hautfond' && hache(i, 72) < 0.3) { const q = auHasard(i, x, z, 0, 73); if (q) p(L, sphere(arrondi((0.8 + hache(i, 74) * 0.6) * S0), 0), 0x9b958a, q[0], y + 0.6 * S0, q[1]); }
@@ -292,7 +309,7 @@ export function ruban(pts, larg, y = 0) {
   return g;
 }
 function rivieres(RS, RE) {
-  rivPts = new Map();
+  rivPts = new Map(); cascades = [];
   const sable = saison === 0 && neige > 0.3 ? 0xe8ecef : 0xdccf96;
   const niveau = i => Math.max(H[i], MER);
   for (const ch of C.rivieres || []) ch.forEach((i, n) => {
@@ -311,6 +328,7 @@ function rivieres(RS, RE) {
     if (ap != null && niveau(ap) < H[i] - 0.05) {
       const q = posCase(ap), dh = H[i] - niveau(ap);
       p(RE, boite(0.03, dh, 2 * w), 0xffffff, B[0], niveau(ap) + dh / 2 + 0.012, B[1], -Math.atan2(q.z - k.z, q.x - k.x), 0);
+      cascades.push({ x: B[0], y: niveau(ap) + 0.02, z: B[1] });
     }
   });
 }

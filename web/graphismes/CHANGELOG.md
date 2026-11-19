@@ -3,6 +3,35 @@
 Numérotation : on change le premier chiffre quand un jeu doit adapter son code (fonction renommée, format d'état modifié),
 le deuxième pour un ajout (nouveau modèle, nouvelle animation), le troisième pour une correction.
 
+## 2.19.0 — 2026-11-19
+
+Le plateau (`plateau.js`, les deux jeux) : les cases se touchent (le dessus à pleine taille, sans biseau ni fossé entre elles),
+et un fin trait sombre souligne le contour de chaque case de terre.
+
+## 2.18.0 — 2026-11-19
+
+Nouvelle cabane de pêcheur (`modeles.js`, maquette `maquettes/web_engine/pecheur-propositions.html`, mélange des propositions P1 et P3) :
+cabane sur pilotis au bord de l'eau avec son échelle, jetée en L qui dépasse le rivage et ses deux barques, étal de la criée sous
+un auvent rayé et ses caisses de poissons, filet tendu, séchoir à poissons, casiers et tonneau ; toit et porte relevés (givre, épidémie).
+
+## 2.17.0 — 2026-11-19
+
+Saisons, vent, lumière de nuit, eau, journée des habitants, animaux, trains, commerce et grèves :
+- saisons (plateau.js) : fleurs des prés au printemps, meules de foin l'été, labours bruns à l'automne ; la glace prend peu à peu
+  sur l'eau l'hiver (meteo.js) ; `piedsCascades()` ;
+- vent : herbes hautes qui ondulent près du regard (ambiance.js) ; poussière soulevée sur les routes sèches (boue.js) ;
+- nuit (nuit.js) : `lueur(x, y, z, r, allongement, cap)`, taches de lumière au sol (lanternes et réverbères de quartiers.js,
+  phares de web_power) ; halo orangé au-dessus des grandes villes ;
+- `eau.js` (socle) : vagues qui se brisent sur les côtes, écume et embruns au pied des cascades, `sillage(x, y, z)` (gabares de
+  chroniques.js, bateaux de web_power) ;
+- journée (vie.js) : marché le matin seulement, paysans qui rentrent au village au crépuscule, bétail et basse-cour à l'abri sous la pluie ;
+- animaux : `envol(x, y, z)` (faune.js), les oiseaux s'envolent quand une armée passe près d'un bois (monde.js) ;
+- `rail.js` (moderne) : `poserVoie(parent, pts, { ech, electrique, wagons })`, traverses, rails, caténaire, train en navette
+  (vapeur qui fume, rame électrique) ;
+- `piquetGreve()` (chantiers.js) : grévistes, pancartes, banderole et brasero ;
+- chroniques.js : charrettes sur les routes commerciales entre la capitale du joueur et celles de ses alliés ;
+- cabane de pêcheur : le ponton dépasse le rivage (il s'arrêtait sur le sable), pieux dans l'eau, barque amarrée.
+
 ## 2.16.0 — 2026-11-19
 
 Plus de lumière, de vie et de règles visibles, et un réglage de qualité :
