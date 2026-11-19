@@ -82,7 +82,7 @@ function appliquer(etat, rapport) {
   majVie(etat, rapport);
   majQuartiers(etat);
   appliquerMeteo(etat.meteo, etat.saison);
-  majChroniques(etat, rapport);  // incendies, épidémie, famine, feux d'artifice, bateaux (après la météo : la famine vide les champs)
+  majChroniques(etat, rapport);  // incendies, épidémie, famine, feux d'artifice, bateaux, traces de bataille, couronnement, révolte, mariage, fuite des assiégés (après la météo : la famine vide les champs)
   ui.majHUD();
 }
 async function lancer() {
