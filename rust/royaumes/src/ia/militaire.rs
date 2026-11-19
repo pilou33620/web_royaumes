@@ -467,7 +467,7 @@ fn sieges(p: &mut Partie, c: &Ctx, rapport: &mut Rapport) {
             }
             if parti {
                 let qui = p.nom_royaume(id);
-                annoncer(p, rapport, format!("🏳️ {qui} lève le siège {} et se replie ({n} soldats)", crate::forts::de_lieu(&nom)), s.case, proprio == 0);
+                annoncer(p, rapport, format!("🏳️ {qui} lève le siège {} et se replie ({n} soldats)", crate::forts::de_lieu(&nom), n = n as i64 * crate::regles::HOMMES), s.case, proprio == 0);
             }
             continue;
         }
@@ -515,7 +515,7 @@ fn replis(p: &mut Partie, c: &Ctx, rapport: &mut Rapport) {
             p.armees[ai].retranche = None;
             let qui = p.nom_royaume(id);
             let concerne = c.vus.iter().any(|h| h.proprio == 0 && p.carte.dist(h.case, case) <= 5);
-            annoncer(p, rapport, format!("🏃 L'armée de {qui} ({n} soldats) se replie vers {ville}"), case, concerne);
+            annoncer(p, rapport, format!("🏃 L'armée de {qui} ({n} soldats) se replie vers {ville}", n = n as i64 * crate::regles::HOMMES), case, concerne);
         }
     }
 }
@@ -543,7 +543,7 @@ fn defense(p: &mut Partie, c: &Ctx, rapport: &mut Rapport) {
             let ville = maitre(p, case).map(|m| m.1).unwrap_or_default();
             let qui = p.nom_royaume(id);
             let depart = p.armees[p.armee(aid).unwrap()].case;
-            annoncer(p, rapport, format!("⚠️ {qui} envoie une armée de secours ({n} soldats) vers {ville} !"), depart, qui_assiege == 0);
+            annoncer(p, rapport, format!("⚠️ {qui} envoie une armée de secours ({n} soldats) vers {ville} !", n = n as i64 * crate::regles::HOMMES), depart, qui_assiege == 0);
         } else if c.niv >= 0.3 {
             appeler(p, c, point, besoin, false);
         }
@@ -818,7 +818,7 @@ fn rassembler(p: &mut Partie, c: &Ctx, cp: &mut Campagne, rapport: &mut Rapport)
             let route = ch.clone();
             let Some(aid) = detacher(p, ai, l, ch) else { return };
             cp.armee = Some(aid);
-            annoncer(p, rapport, format!("⚠️ Une armée de {qui} ({n} soldats) marche sur {ville} !"), cp.rassemblement, concerne);
+            annoncer(p, rapport, format!("⚠️ Une armée de {qui} ({n} soldats) marche sur {ville} !", n = n as i64 * crate::regles::HOMMES), cp.rassemblement, concerne);
             detachements(p, c, aid, &route);
         }
         Some((fi, ch)) => {
@@ -843,7 +843,7 @@ fn rassembler(p: &mut Partie, c: &Ctx, cp: &mut Campagne, rapport: &mut Rapport)
             p.flottes[fi].cible = Some(cp.cible);
             cp.armee = Some(a);
             let escorte = if p.de_guerre(&p.flottes[fi]) { ", escortée" } else { "" };
-            annoncer(p, rapport, format!("⚠️ Une armée de {qui} ({n} soldats) s'embarque{escorte} contre {ville} !"), cp.rassemblement, concerne);
+            annoncer(p, rapport, format!("⚠️ Une armée de {qui} ({n} soldats) s'embarque{escorte} contre {ville} !", n = n as i64 * crate::regles::HOMMES), cp.rassemblement, concerne);
         }
     }
 }
@@ -905,7 +905,7 @@ fn suivre(p: &mut Partie, c: &Ctx, cp: &mut Campagne, aid: u32, rapport: &mut Ra
                 p.armees[ai].chemin = ch;
                 cp.armee = None;
                 cp.debut = p.tour;
-                annoncer(p, rapport, format!("🏃 L'armée de {qui} ({n} soldats) renonce et se replie"), case, cp.ennemi == 0);
+                annoncer(p, rapport, format!("🏃 L'armée de {qui} ({n} soldats) renonce et se replie", n = n as i64 * crate::regles::HOMMES), case, cp.ennemi == 0);
             }
         }
         return;

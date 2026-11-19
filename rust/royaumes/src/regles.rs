@@ -10,6 +10,11 @@ pub const REGLES_JSON: &str = include_str!("../data/regles.json");
 
 pub type Panier = BTreeMap<String, f64>;
 
+/// Hommes montrés au joueur pour une unité de population du moteur : une unité recrutée est un régiment de 10 soldats,
+/// un habitant du moteur un foyer de 10 habitants. Les règles et l'équilibre comptent en unités ; seuls l'interface
+/// (vue.rs, règles servies) et les messages comptent en hommes.
+pub const HOMMES: i64 = 10;
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct DefBat {

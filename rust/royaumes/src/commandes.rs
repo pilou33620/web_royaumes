@@ -283,7 +283,7 @@ pub fn executer(p: &mut Partie, c: &Value) -> Result<Value, String> {
             p.peut_embarquer(fi, ai)?;
             let n = p.armees[ai].effectif();
             p.embarquer(fi, ai);
-            ok(format!("⛵ {n} soldats embarquent"))
+            ok(format!("⛵ {n} soldats embarquent", n = n as i64 * crate::regles::HOMMES))
         }
         "debarquer" => {
             let fi = flotte(p, c)?;
@@ -436,7 +436,7 @@ impl Partie {
             return Err("Une ville ne peut dépasser le rang de la capitale".into());
         }
         if self.royaumes[id as usize].pop < def.pop {
-            return Err(format!("Il faut {} habitants", def.pop));
+            return Err(format!("Il faut {} habitants", def.pop as i64 * crate::regles::HOMMES));
         }
         if !self.peut_payer(id, &def.cout) {
             return Err("Ressources insuffisantes".into());
