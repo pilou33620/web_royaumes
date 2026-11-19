@@ -14,6 +14,7 @@ import { majChroniques } from '../graphismes/rendu/chroniques.js';
 import { majRoutes, effacerRoutes, niveauRoutes } from '../graphismes/rendu/routes.js';
 import { toutEffacer, effet } from '../graphismes/rendu/etiquettes.js';
 import * as ui from './ui.js';
+import { installerStylet } from './stylet.js'; // stylet et doigt : paume ignorée, appui long, bouton latéral (comme web_cao)
 import { suivreArmees } from './bivouacs.js'; // armées au repos (la nuit, ou campées hors des villes) : le bivouac de web_engine 2.12
 
 const $ = s => document.querySelector(s);
@@ -291,16 +292,20 @@ async function marcher(armee, i) {
   return r;
 }
 // clic droit : l'armée sélectionnée (ou celle du mode « destination ») marche vers la case
-surClicDroit(async i => {
+const armeeChoisie = () => { const id = J.mode?.genre === 'deplacer' ? J.mode.armee : J.armeeSel; return id != null && J.etat?.armees.some(a => a.id === id && a.proprio === 0) ? id : null; };
+// appui long et bouton latéral du stylet (stylet.js) : le clic droit avec une armée choisie, sinon la case est inspectée
+installerStylet(i => { if (J.etat && !J.occupe) armeeChoisie() != null ? clicDroit(i) : inspecter(i); });
+surClicDroit(clicDroit);
+async function clicDroit(i) {
   if (!J.etat || J.occupe) return;
-  const id = J.mode?.genre === 'deplacer' ? J.mode.armee : J.armeeSel;
-  if (id == null || !J.etat.armees.some(a => a.id === id && a.proprio === 0)) return;
+  const id = armeeChoisie();
+  if (id == null) return;
   const r = await marcher(id, i);
   if (!r.ok) return ui.annonce('❌ ' + r.msg, 'guerre');
   ui.annonce(r.msg, 'bon'); if (J.mode) annulerMode();
   plateau.trace(r.chemin || [i]); plateau.selection(i, 0xffd34d);
   J.armeeSel = id; selectionnerArmee(id); // l'armée reste sélectionnée : on peut changer d'avis d'un autre clic droit
-});
+}
 surTap(async i => {
   if (!J.etat || J.occupe) return;
   if (J.mode?.genre === 'construire') {

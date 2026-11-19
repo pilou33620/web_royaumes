@@ -108,6 +108,9 @@ tout seul. La partie est sauvegardée à chaque mois dans `saves/` ; on peut aus
   plusieurs armées) ou fusionner avec une autre armée arrêtée sur la même case ; assaut depuis le panneau de siège.
   On recrute par régiments de 10 soldats (bouton ×5 pour cinq d'un coup) ; les habitants se comptent à la même
   échelle (le moteur compte en régiments et en foyers : `HOMMES` dans regles.rs).
+- **Stylet** (comme web_cao) : la paume et les doigts posés sont ignorés tant que le stylet touche l'écran (et 0,4 s
+  après) ; un appui long (0,45 s, un anneau se remplit) au stylet ou au doigt, ou le bouton latéral du stylet, fait
+  le clic droit (l'armée choisie marche vers la case ; sans armée choisie, la case est inspectée).
 - **Marine et espions** : recrutez au port et à la taverne, puis touchez la flotte ou l'espion pour naviguer,
   débarquer, commercer ou lancer une mission.
 - **Villes** : touchez la mairie pour monter de rang ou fortifier la ville.

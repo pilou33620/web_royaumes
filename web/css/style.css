@@ -147,3 +147,8 @@ body.feuille #fin-tour .ft-2{display:none}
 .faub{display:inline-block;background:rgba(255,255,255,.07);border-radius:6px;padding:1px 5px;margin:2px 2px 0 0}
 .faub.pille{color:#ffb3a8}
 .mini-btn{background:rgba(255,255,255,.1);border:0;border-radius:6px;padding:0 5px;font-size:12px;vertical-align:1px}
+
+/* appui long du stylet ou du doigt (stylet.js) : un anneau se remplit sous la pointe, comme dans web_cao */
+.appui-long { position: fixed; width: 64px; height: 64px; margin: -32px 0 0 -32px; border-radius: 50%; border: 3px solid #3fa0ea; box-shadow: 0 0 14px rgba(63, 160, 234, .45); pointer-events: none; z-index: 9590; opacity: 0; transform: scale(1.6); animation: appuiLong 330ms ease-in 120ms forwards; }
+@keyframes appuiLong { to { opacity: 1; transform: scale(.7); } }
+@media (prefers-reduced-motion: reduce) { .appui-long { animation: none; opacity: 1; transform: scale(.7); } }
