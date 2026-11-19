@@ -90,9 +90,12 @@ pub fn executer(p: &mut Partie, c: &Value) -> Result<Value, String> {
         "recruter" => {
             let id = num(c, "batiment")? as u32;
             let u = txt(c, "unite")?;
+            // « nombre » : plusieurs d'un coup, autant que l'or et les habitants le permettent
+            let voulu = c.get("nombre").and_then(Value::as_u64).unwrap_or(1).clamp(1, 20);
             p.recruter(0, id, u)?;
+            let n = 1 + (1..voulu).take_while(|_| p.recruter(0, id, u).is_ok()).count();
             let du = rg.unite(u).unwrap();
-            ok(format!("{} {} : en formation", du.icone, du.nom))
+            ok(if n > 1 { format!("{} {} ×{n} : en formation", du.icone, du.nom) } else { format!("{} {} : en formation", du.icone, du.nom) })
         }
         "ameliorer" => {
             let vid = num(c, "ville")? as u32;
@@ -816,6 +819,20 @@ mod essais {
         assert!(executer(&mut p, &json!({"action": "rechercher", "tech": "assolement"})).is_ok());
         assert!(executer(&mut p, &json!({"action": "diplo", "royaume": 1, "acte": "cadeau"})).is_ok());
         assert!(executer(&mut p, &json!({"action": "impots", "niveau": "eleve"})).is_ok());
+    }
+
+    #[test]
+    fn recruter_par_cinq() {
+        let mut p = Partie::nouvelle(Options { graine: 11, ..Options::default() });
+        let cap = p.villes[0].case;
+        let c = p.carte.rayon(cap, 4).into_iter().find(|&c| p.carte.cases[c].bat.is_none() && p.peut_construire("cabane", c, 0).is_ok()).unwrap();
+        let b = p.poser("caserne", c, 0, true);
+        p.royaumes[0].pop = 200;
+        p.royaumes[0].stock.insert("or".into(), 40.0); // de quoi payer deux miliciens seulement
+        p.royaumes[0].stock.insert("bois".into(), 100.0);
+        let r = executer(&mut p, &json!({"action": "recruter", "batiment": b, "unite": "milice", "nombre": 5})).unwrap();
+        assert!(r["msg"].as_str().unwrap().contains("×2"), "{r}");
+        assert_eq!(p.bat(b).unwrap().file.len(), 2);
     }
 
     #[test]

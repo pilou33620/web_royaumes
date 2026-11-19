@@ -144,7 +144,7 @@ async function clic(el) {
     case 'ici': await envoyer({ action: 'construire', cle: d.v, case: +d.c }, () => fermerFeuille()); break;
     case 'demolir': if (await modale('Démolir ?', '<p>La moitié des matériaux sera récupérée.</p>', [{ l: 'Démolir', c: 'rouge', v: true }, { l: 'Annuler', c: 'b2', v: false }])) await envoyer({ action: 'demolir', case: +d.c }, () => fermerFeuille()); break;
     case 'pause': await envoyer({ action: 'pause', batiment: +d.v }); break;
-    case 'recruter': await envoyer({ action: 'recruter', batiment: +d.b, unite: d.v }); break;
+    case 'recruter': await envoyer({ action: 'recruter', batiment: +d.b, unite: d.v, nombre: +(d.n || 1) }); break;
     case 'ameliorer': await envoyer({ action: 'ameliorer', ville: +d.v }); break;
     case 'armee': A.choisirArmee(+d.v); break;
     case 'deplacer': A.modeDeplacer(+d.v); break;
@@ -294,7 +294,7 @@ export function vueCase(i) {
       const ud = unite(u), prix = j.prix_unites?.[u] || ud.cout;
       if (!ok.includes(u)) continue;
       const stats = ud.genre === 'espion' ? '🚶' + ud.vitesse : `⚔${ud.att} 🛡${ud.def}${ud.siege ? ' · siège ×' + ud.siege : ''}${ud.transport ? ' · ⛵' + ud.transport + ' soldats' : ''} · ${ud.genre === 'marine' ? '🧭' : '🚶'}${ud.vitesse}`;
-      h += `<div class="ligne"><span>${ud.icone} <b>${e(ud.nom)}</b> <span class="mini">${stats}</span><br><span class="couts" style="display:inline-flex">${couts(prix)}</span></span><button class="btn" data-a="recruter" data-b="${b.id}" data-v="${u}" ${peutPayer(prix) ? '' : 'disabled'}>Recruter</button></div>`;
+      h += `<div class="ligne"><span>${ud.icone} <b>${e(ud.nom)}</b> <span class="mini">${stats}</span><br><span class="couts" style="display:inline-flex">${couts(prix)}</span></span><span class="btns" style="margin:0;flex-wrap:nowrap"><button class="btn" data-a="recruter" data-b="${b.id}" data-v="${u}" ${peutPayer(prix) ? '' : 'disabled'}>Recruter</button><button class="btn b2" data-a="recruter" data-b="${b.id}" data-v="${u}" data-n="5" ${peutPayer(prix) ? '' : 'disabled'} title="Autant que possible, jusqu'à 5">×5</button></span></div>`;
     }
     const verrou = d.unites.filter(u => !ok.includes(u)).map(u => unite(u)).filter(Boolean);
     if (verrou.length) h += `<div class="mini">🔒 Plus tard : ${verrou.map(u => u.icone + ' ' + e(u.nom)).join(', ')}</div>`;
