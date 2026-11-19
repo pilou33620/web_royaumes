@@ -170,6 +170,7 @@ async function clic(el) {
     case 'mission': await envoyer({ action: 'mission', espion: +d.v, genre: d.g, ville: +d.c }); break;
     case 'assaut': assaut(+d.v); break;
     case 'diviser': diviser(+d.v); break;
+    case 'fusionner': await envoyer({ action: 'fusionner', armee: +d.v, avec: +d.f }); break;
     case 'diplo': if (d.v === 'guerre' && !await modale('Déclarer la guerre ?', `<p>Vous allez entrer en guerre contre <b>${e(roy(+d.r).nom)}</b>. ${trahison(roy(+d.r)) || 'Les autres royaumes vous jugeront belliqueux.'}</p>`, [{ l: '⚔️ Guerre !', c: 'rouge', v: true }, { l: 'Annuler', c: 'b2', v: false }])) break;
       if (d.v === 'rompre' && !await modale('Rompre l\'alliance ?', `<p><b>${e(roy(+d.r).nom)}</b> y verra une trahison, et s'en souviendra longtemps.</p>`, [{ l: '💔 Rompre', c: 'rouge', v: true }, { l: 'Annuler', c: 'b2', v: false }])) break;
       await envoyer({ action: 'diplo', royaume: +d.r, acte: d.v }); break;
@@ -402,6 +403,9 @@ export function vueArmee(id) {
   if (s) h += vueSiege(s);
   const fort = E.forts.find(f => f.case === a.case && f.proprio === 0);
   if (fort) h += vueFort(fort);
+  // nos autres armées arrêtées sur la même case : on peut les fusionner avec celle-ci
+  const voisines = eau || a.chemin.length ? [] : E.armees.filter(x => x.proprio === 0 && x.id !== a.id && x.case === a.case && !x.chemin.length);
+  if (voisines.length) h += `<div class="boite"><h4>🤝 Fusionner</h4>${voisines.map(x => `<div class="ligne"><span>${x.effectif} soldats <span class="mini">· ${unitesTexte(x.unites)}</span></span><button class="btn" data-a="fusionner" data-v="${a.id}" data-f="${x.id}">Fusionner</button></div>`).join('')}</div>`;
   const flottes = E.flottes.filter(f => f.proprio === 0 && !f.armee && f.capacite > 0 && accostable(a, f));
   if (flottes.length) h += `<div class="boite"><h4>⛵ Embarquer</h4>${flottes.map(f => `<div class="ligne"><span>${unitesTexte(f.navires)} <span class="mini">· ${f.capacite} places</span></span><button class="btn" data-a="embarquer" data-f="${f.id}" data-v="${a.id}" ${a.effectif > f.capacite ? 'disabled' : ''}>Embarquer</button></div>${a.effectif > f.capacite ? '<div class="mini">Trop de soldats pour ces navires : divisez l\'armée.</div>' : ''}`).join('')}</div>`;
   if (!eau) {
@@ -464,17 +468,21 @@ function vueArmees() {
   if (menaces.length) h += `<div class="boite" style="border-color:#c0392b"><h4>⚠️ Menaces en approche</h4>${menaces.map(a => { const fin = a.chemin[a.chemin.length - 1], v = E.villes.find(x => x.case === fin); return `<div class="ligne"><span>${pastille(a.proprio)}${e(roy(a.proprio).nom)} · ${a.effectif} soldats → ${v ? e(v.nom) : '?'} (~${a.mois} mois)</span><button class="btn b2" data-a="centrer" data-v="${a.id}">🎯</button></div>`; }).join('')}</div>`;
   return h + `<p class="mini">Solde : ${(j.soldats * 0.5).toFixed(0)} 🪙 par mois pour ${j.soldats} soldats · marine et espions ${Math.round(j.entretien_flotte || 0)} 🪙 · forts ${Math.round(j.entretien_forts || 0)} 🪙. Navires au Port, espions à la Taverne.</p>`;
 }
-let partage = {};
+let partage = {}, fois = 1;
 async function diviser(id) {
   const a = J.etat.armees.find(x => x.id === id);
   if (!a) return;
-  partage = {};
+  partage = {}; fois = 1;
   for (const u in a.unites) partage[u] = Math.floor(a.unites[u] / 2);
-  const html = `<p>Unités de la nouvelle armée :</p>${Object.keys(a.unites).map(u => `<div class="ligne"><span>${unite(u).icone} ${e(unite(u).nom)} <span class="mini">(${a.unites[u]})</span></span><span class="pas"><button data-u="${u}" data-d="-1">−</button><b id="pt_${u}">${partage[u]}</b><button data-u="${u}" data-d="1">+</button></span></div>`).join('')}`;
+  const html = `<p>Chaque nouvelle armée emmène :</p>${Object.keys(a.unites).map(u => `<div class="ligne"><span>${unite(u).icone} ${e(unite(u).nom)} <span class="mini">(${a.unites[u]})</span></span><span class="pas"><button data-u="${u}" data-d="-1">−</button><b id="pt_${u}">${partage[u]}</b><button data-u="${u}" data-d="1">+</button></span></div>`).join('')}
+    <div class="ligne"><span><b>Nombre de nouvelles armées</b></span><span class="pas"><button data-n="-1">−</button><b id="pt_fois">1</b><button data-n="1">+</button></span></div>`;
   const p = modale('✂️ Diviser l\'armée', html, [{ l: 'Former', v: true }, { l: 'Annuler', c: 'b2', v: false }]);
-  setTimeout(() => document.querySelectorAll('#modale-boite .pas button').forEach(b => (b.onclick = () => { const u = b.dataset.u; partage[u] = Math.max(0, Math.min(a.unites[u], partage[u] + +b.dataset.d)); document.getElementById('pt_' + u).textContent = partage[u]; })), 20);
+  setTimeout(() => document.querySelectorAll('#modale-boite .pas button').forEach(b => (b.onclick = () => {
+    if (b.dataset.n) { fois = Math.max(1, fois + +b.dataset.n); document.getElementById('pt_fois').textContent = fois; return; }
+    const u = b.dataset.u; partage[u] = Math.max(0, Math.min(a.unites[u], partage[u] + +b.dataset.d)); document.getElementById('pt_' + u).textContent = partage[u];
+  })), 20);
   if (!await p) return;
-  const r = await A.cmd({ action: 'diviser', armee: id, unites: partage });
+  const r = await A.cmd({ action: 'diviser', armee: id, unites: partage, fois });
   if (!r.ok) return annonce('❌ ' + r.msg, 'guerre');
   annonce(r.msg, 'bon');
   A.choisirArmee(r.armee);

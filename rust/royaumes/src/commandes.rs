@@ -195,18 +195,31 @@ pub fn executer(p: &mut Partie, c: &Value) -> Result<Value, String> {
                     part.insert(u.clone(), n.min(dispo));
                 }
             }
+            // « fois » : autant d'armées de cette composition (il doit rester quelqu'un dans l'armée d'origine)
+            let fois = c.get("fois").and_then(Value::as_u64).unwrap_or(1).max(1) as u32;
             let total: u32 = part.values().sum();
-            if total == 0 || total >= p.armees[ai].effectif() {
+            if total == 0 || total * fois >= p.armees[ai].effectif() || part.iter().any(|(u, n)| n * fois > p.armees[ai].unites[u]) {
                 return Err("Choisissez une partie de l'armée".into());
             }
             for (u, n) in &part {
-                let x = p.armees[ai].unites.get_mut(u).unwrap();
-                *x -= n;
+                *p.armees[ai].unites.get_mut(u).unwrap() -= n * fois;
             }
             p.armees[ai].unites.retain(|_, n| *n > 0);
             let case = p.armees[ai].case;
-            let nid = p.creer_armee(0, case, part);
-            Ok(json!({"ok": true, "msg": "Nouvelle armée formée", "armee": nid}))
+            let ids: Vec<u32> = (0..fois).map(|_| p.creer_armee(0, case, part.clone())).collect();
+            Ok(json!({"ok": true, "msg": if fois > 1 { format!("{fois} nouvelles armées formées") } else { "Nouvelle armée formée".into() }, "armee": ids[0]}))
+        }
+        // {"action": "fusionner", "armee": id, "avec": id} : l'armée « avec » rejoint « armee » (même case, toutes deux à l'arrêt)
+        "fusionner" => {
+            let (id, autre) = (num(c, "armee")? as u32, num(c, "avec")? as u32);
+            let ai = p.armee(id).filter(|&i| p.armees[i].proprio == 0).ok_or("armée inconnue")?;
+            let bi = p.armee(autre).filter(|&i| p.armees[i].proprio == 0 && i != ai).ok_or("armée inconnue")?;
+            let (a, b) = (&p.armees[ai], &p.armees[bi]);
+            if a.case != b.case || !a.chemin.is_empty() || !b.chemin.is_empty() || !p.praticable(a.case) {
+                return Err("Les deux armées doivent être arrêtées sur la même case".into());
+            }
+            p.fusionner(ai, bi);
+            ok("Armées fusionnées")
         }
         "ameliorer_routes" => {
             let cible = p.ameliorer_routes(0)?;
@@ -803,6 +816,27 @@ mod essais {
         assert!(executer(&mut p, &json!({"action": "rechercher", "tech": "assolement"})).is_ok());
         assert!(executer(&mut p, &json!({"action": "diplo", "royaume": 1, "acte": "cadeau"})).is_ok());
         assert!(executer(&mut p, &json!({"action": "impots", "niveau": "eleve"})).is_ok());
+    }
+
+    #[test]
+    fn diviser_puis_fusionner() {
+        let mut p = Partie::nouvelle(Options { graine: 11, ..Options::default() });
+        let ai = p.armees.iter().position(|a| a.proprio == 0).unwrap();
+        let id = p.armees[ai].id;
+        p.armees[ai].unites = [("milice".to_string(), 7)].into();
+        assert!(executer(&mut p, &json!({"action": "diviser", "armee": id, "unites": {"milice": 2}, "fois": 4})).is_err(), "il doit rester quelqu'un");
+        assert!(executer(&mut p, &json!({"action": "diviser", "armee": id, "unites": {"milice": 2}, "fois": 3})).is_ok());
+        let miennes = |p: &Partie| p.armees.iter().filter(|a| a.proprio == 0).map(|a| a.id).collect::<Vec<_>>();
+        assert_eq!(miennes(&p).len(), 4);
+        assert_eq!(p.armees[p.armee(id).unwrap()].effectif(), 1);
+        // à la fin du mois, les armées séparées du joueur le restent
+        p.fin_du_mois();
+        assert_eq!(miennes(&p).len(), 4);
+        for autre in miennes(&p).into_iter().filter(|&x| x != id) {
+            assert!(executer(&mut p, &json!({"action": "fusionner", "armee": id, "avec": autre})).is_ok());
+        }
+        assert_eq!(miennes(&p), vec![id]);
+        assert_eq!(p.armees[p.armee(id).unwrap()].effectif(), 7);
     }
 
     #[test]

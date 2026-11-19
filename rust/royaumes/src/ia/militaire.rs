@@ -301,15 +301,7 @@ fn regrouper(p: &mut Partie, id: i32) {
         let chez_soi = p.ville_a(a.case).is_some_and(|vi| p.villes[vi].proprio == id) || p.fort_a(a.case).is_some_and(|fi| p.forts[fi].proprio == id);
         if a.proprio == id && a.chemin.is_empty() && chez_soi {
             if let Some(j) = (0..i).find(|&j| p.armees[j].proprio == id && p.armees[j].case == p.armees[i].case && p.armees[j].chemin.is_empty()) {
-                let a = p.armees.remove(i);
-                for (u, n) in a.unites {
-                    *p.armees[j].unites.entry(u).or_insert(0) += n;
-                }
-                let r = &mut p.armees[j].retranche;
-                *r = match (*r, a.retranche) {
-                    (Some(x), Some(y)) => Some(x.min(y)),
-                    (x, y) => x.or(y),
-                };
+                p.fusionner(j, i);
                 continue;
             }
         }

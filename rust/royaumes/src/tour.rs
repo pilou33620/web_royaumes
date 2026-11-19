@@ -237,17 +237,9 @@ impl Partie {
                 continue;
             }
             if a.chemin.is_empty() && !self.assiege(a.proprio, a.case) {
-                if let Some(j) = self.armees.iter().position(|o| o.id != a.id && o.proprio == a.proprio && o.case == a.case && o.chemin.is_empty() && o.id < a.id) {
-                    for (u, n) in &a.unites {
-                        *self.armees[j].unites.entry(u.clone()).or_insert(0) += n;
-                    }
-                    // des renforts rejoignent une position retranchée : elle le reste
-                    let r = &mut self.armees[j].retranche;
-                    *r = match (*r, a.retranche) {
-                        (Some(x), Some(y)) => Some(x.min(y)),
-                        (x, y) => x.or(y),
-                    };
-                    self.armees.remove(i);
+                // le joueur fusionne lui-même ses armées (ordre « fusionner ») : celles qu'il a séparées restent séparées
+                if let Some(j) = self.armees.iter().position(|o| o.id != a.id && o.proprio == a.proprio && o.case == a.case && o.chemin.is_empty() && o.id < a.id).filter(|_| a.proprio != 0) {
+                    self.fusionner(j, i);
                     continue;
                 }
                 if a.proprio == BRIGANDS {

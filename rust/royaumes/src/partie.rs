@@ -1097,6 +1097,20 @@ impl Partie {
         id
     }
 
+    /// L'armée d'indice `src` rejoint celle d'indice `dst` (même case) : ses unités passent, la position retranchée le reste.
+    pub fn fusionner(&mut self, dst: usize, src: usize) {
+        let a = self.armees[src].clone();
+        let d = &mut self.armees[dst];
+        for (u, n) in a.unites {
+            *d.unites.entry(u).or_insert(0) += n;
+        }
+        d.retranche = match (d.retranche, a.retranche) {
+            (Some(x), Some(y)) => Some(x.min(y)),
+            (x, y) => x.or(y),
+        };
+        self.armees.remove(src);
+    }
+
     pub fn armee(&self, id: u32) -> Option<usize> {
         self.armees.iter().position(|a| a.id == id)
     }
