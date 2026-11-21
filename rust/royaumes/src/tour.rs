@@ -139,6 +139,14 @@ impl Partie {
         // mois suivant
         self.tour += 1;
         self.meteo = Meteo::tirer(&self.meteo, self.tour, &mut self.hasard);
+        // début du mois : les points de marche reviennent, les armées du joueur poursuivent leur route
+        for a in &mut self.armees {
+            a.utilise = 0.0;
+        }
+        let en_route: Vec<u32> = self.armees.iter().filter(|a| a.proprio == 0 && !a.chemin.is_empty()).map(|a| a.id).collect();
+        for id in en_route {
+            self.avancer(id, &mut rapport);
+        }
         rapport.pop_apres = self.joueur().pop;
         rapport.bilan = self.royaumes[0].bilan.clone();
         self.rapport = rapport.clone();
@@ -208,41 +216,54 @@ impl Partie {
         self.armees.retain(|a| a.unites.values().any(|&n| n > 0));
     }
 
-    fn marches(&mut self, eff: &Effets, rapport: &mut Rapport) {
-        let mut points: BTreeMap<u32, f64> = BTreeMap::new();
-        for a in &self.armees {
-            if !a.chemin.is_empty() {
-                points.insert(a.id, self.vitesse(a) * eff.mouvement);
-            }
+    /// Un pas de l'armée `i` sur son chemin : paie la case, découvre alentour, puis siège ou bataille en arrivant.
+    fn pas(&mut self, i: usize, eff: &Effets, rapport: &mut Rapport, etape: usize) -> usize {
+        let (id, pr) = (self.armees[i].id, self.armees[i].proprio);
+        let suiv = self.armees[i].chemin.remove(0);
+        self.armees[i].utilise += self.cout_pour(pr, suiv);
+        self.armees[i].case = suiv;
+        self.armees[i].retranche = None;
+        self.decouvrir(pr, suiv, regles().vision.armee);
+        self.entrer(id, eff, rapport, etape);
+        suiv
+    }
+
+    fn peut_avancer(&self, i: usize, eff: &Effets) -> bool {
+        let a = &self.armees[i];
+        !a.chemin.is_empty() && self.reste_marche(a, eff.mouvement) > 0.05
+    }
+
+    /// Marche immédiate (armées du joueur, comme dans un 4X) : l'armée avance tout de suite, tant qu'il lui reste
+    /// des points de marche ce mois-ci ; le reste du chemin se poursuit au début des mois suivants.
+    pub fn avancer(&mut self, id: u32, rapport: &mut Rapport) {
+        let eff = self.meteo.effets(self.tour);
+        let Some(i) = self.armee(id) else { return };
+        let (proprio, mut trajet) = (self.armees[i].proprio, vec![self.armees[i].case]);
+        // une armée sur l'eau débarque à la fin du mois (marches)
+        while let Some(i) = self.armee(id).filter(|&i| self.praticable(self.armees[i].case) && self.peut_avancer(i, &eff)) {
+            trajet.push(self.pas(i, &eff, rapport, trajet.len()));
         }
+        if trajet.len() > 1 {
+            rapport.mouvements.push(Mouvement { armee: id, proprio, trajet, flotte: false });
+        }
+    }
+
+    fn marches(&mut self, eff: &Effets, rapport: &mut Rapport) {
         let mut trajets: BTreeMap<u32, Vec<usize>> = BTreeMap::new();
         for a in &self.armees {
             if !a.chemin.is_empty() {
                 trajets.insert(a.id, vec![a.case]);
             }
         }
+        // les armées du joueur ont déjà marché pendant le mois (ordre « deplacer », début du mois) : il ne leur reste rien
         for etape in 0..14 {
             let mut bouge = false;
             let ids: Vec<u32> = self.armees.iter().map(|a| a.id).collect();
             for id in ids {
-                let Some(i) = self.armee(id) else { continue };
-                if self.armees[i].chemin.is_empty() {
-                    continue;
-                }
-                let pts = points.get(&id).copied().unwrap_or(0.0);
-                if pts <= 0.05 {
-                    continue;
-                }
-                let suiv = self.armees[i].chemin[0];
-                points.insert(id, pts - self.cout_pour(self.armees[i].proprio, suiv));
-                self.armees[i].chemin.remove(0);
-                self.armees[i].case = suiv;
-                self.armees[i].retranche = None;
-                let pr = self.armees[i].proprio;
-                self.decouvrir(pr, suiv, regles().vision.armee);
+                let Some(i) = self.armee(id).filter(|&i| self.peut_avancer(i, eff)) else { continue };
+                let suiv = self.pas(i, eff, rapport, etape + 1);
                 trajets.entry(id).or_default().push(suiv);
                 bouge = true;
-                self.entrer(id, eff, rapport, etape + 1);
             }
             if !bouge {
                 break;

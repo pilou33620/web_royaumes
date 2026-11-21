@@ -161,9 +161,20 @@ pub fn executer(p: &mut Partie, c: &Value) -> Result<Value, String> {
             let ch = p.chemin(depart, vers).ok_or_else(|| {
                 if p.carte.cases[vers].terre() { "Destination inaccessible à pied (embarquez l'armée sur une flotte)".to_string() } else { "Une armée ne marche pas sur l'eau : embarquez-la sur des flûtes au port".to_string() }
             })?;
-            let mois = p.mois_trajet(&p.armees[ai], &ch);
-            p.armees[ai].chemin = ch.clone();
-            Ok(json!({"ok": true, "msg": format!("🚩 En route : {} cases, environ {} mois", ch.len(), mois), "chemin": ch, "mois": mois}))
+            p.armees[ai].chemin = ch;
+            // l'armée marche tout de suite, dans la limite de ses points de marche du mois
+            let mut r = Rapport::default();
+            p.avancer(id, &mut r);
+            let mut msg = match p.armee(id) {
+                None => "⚔️ L'armée a péri en chemin".to_string(),
+                Some(ai) if p.armees[ai].chemin.is_empty() => "🚩 L'armée est arrivée".to_string(),
+                Some(ai) => format!("🚩 En route : encore {} cases, environ {} mois", p.armees[ai].chemin.len(), p.mois_trajet(&p.armees[ai], &p.armees[ai].chemin)),
+            };
+            for e in &r.evenements {
+                msg += &format!(" · {}", e.texte);
+            }
+            let chemin = p.armee(id).map(|ai| p.armees[ai].chemin.clone()).unwrap_or_default();
+            Ok(json!({"ok": true, "msg": msg, "chemin": chemin, "mouvements": r.mouvements, "combats": r.combats}))
         }
         // ---------------------------------------------------------------- retranchements et forts
         "retrancher" => {
@@ -222,8 +233,14 @@ pub fn executer(p: &mut Partie, c: &Value) -> Result<Value, String> {
                 *p.armees[ai].unites.get_mut(u).unwrap() -= n * fois;
             }
             p.armees[ai].unites.retain(|_, n| *n > 0);
-            let case = p.armees[ai].case;
+            let (case, utilise) = (p.armees[ai].case, p.armees[ai].utilise);
             let ids: Vec<u32> = (0..fois).map(|_| p.creer_armee(0, case, part.clone())).collect();
+            // les nouvelles armées ont déjà marché autant que l'armée d'origine ce mois-ci
+            for &n in &ids {
+                if let Some(i) = p.armee(n) {
+                    p.armees[i].utilise = utilise;
+                }
+            }
             Ok(json!({"ok": true, "msg": if fois > 1 { format!("{fois} nouvelles armées formées") } else { "Nouvelle armée formée".into() }, "armee": ids[0]}))
         }
         // {"action": "fusionner", "armee": id, "avec": id} : l'armée « avec » rejoint « armee » (même case, toutes deux à l'arrêt)
@@ -833,10 +850,35 @@ mod essais {
         let v = p.carte.voisins(a.case).into_iter().find(|&x| p.praticable(x)).unwrap();
         let r = executer(&mut p, &json!({"action": "deplacer", "armee": a.id, "case": v})).unwrap();
         assert_eq!(r["ok"], true);
+        let ai = p.armee(a.id).unwrap();
+        assert_eq!(p.armees[ai].case, v, "l'armée marche tout de suite");
+        assert!(p.armees[ai].utilise > 0.0);
         assert!(executer(&mut p, &json!({"action": "rechercher", "tech": "chemin_fer"})).is_err());
         assert!(executer(&mut p, &json!({"action": "rechercher", "tech": "assolement"})).is_ok());
         assert!(executer(&mut p, &json!({"action": "diplo", "royaume": 1, "acte": "cadeau"})).is_ok());
         assert!(executer(&mut p, &json!({"action": "impots", "niveau": "eleve"})).is_ok());
+    }
+
+    #[test]
+    fn marche_immediate_limitee_par_mois() {
+        let mut p = Partie::nouvelle(Options { graine: 11, ..Options::default() });
+        let a = p.armees.iter().find(|a| a.proprio == 0).unwrap().clone();
+        // une destination lointaine, hors d'atteinte en un mois
+        let loin = (0..p.carte.cases.len()).filter(|&c| p.praticable(c) && p.ville_a(c).is_none()).filter_map(|c| p.chemin(a.case, c).map(|ch| (c, ch))).find(|(_, ch)| p.mois_trajet(&a, ch) >= 3).map(|(c, _)| c).unwrap();
+        assert!(executer(&mut p, &json!({"action": "deplacer", "armee": a.id, "case": loin})).unwrap()["ok"] == true);
+        let ai = p.armee(a.id).unwrap();
+        let (case, reste) = (p.armees[ai].case, p.armees[ai].chemin.len());
+        assert_ne!(case, a.case, "elle a avancé");
+        assert!(reste > 0, "mais pas jusqu'au bout");
+        // plus de points : un nouvel ordre ne la fait pas bouger
+        let v = p.armees[ai].chemin[0];
+        executer(&mut p, &json!({"action": "deplacer", "armee": a.id, "case": v})).unwrap();
+        assert_eq!(p.armees[p.armee(a.id).unwrap()].case, case);
+        // le mois suivant, elle repart d'elle-même
+        p.fin_du_mois();
+        if let Some(ai) = p.armee(a.id) {
+            assert_ne!(p.armees[ai].case, case, "elle poursuit sa route au début du mois");
+        }
     }
 
     #[test]

@@ -130,6 +130,7 @@ impl Partie {
         let mut a = f.armee.take().expect("flotte vide");
         a.case = f.case;
         a.chemin = vec![case];
+        a.utilise = 0.0;
         let id = a.id;
         self.armees.push(a);
         id

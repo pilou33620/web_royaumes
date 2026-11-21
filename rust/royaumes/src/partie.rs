@@ -166,6 +166,8 @@ pub struct Armee {
     pub chemin: Vec<usize>,
     /// retranchement : mois de travaux restants, `Some(0)` retranchée ; perdu dès qu'elle bouge
     pub retranche: Option<u32>,
+    /// points de marche déjà dépensés ce mois-ci (remis à zéro au début de chaque mois)
+    pub utilise: f64,
 }
 
 /// Un fort bâti par une armée hors des villes : 0 en chantier, 1 Redoute, 2 Fort bastionné, 3 Fort à batteries.
@@ -1120,6 +1122,7 @@ impl Partie {
             (Some(x), Some(y)) => Some(x.min(y)),
             (x, y) => x.or(y),
         };
+        d.utilise = d.utilise.max(a.utilise);
         self.armees.remove(src);
     }
 
@@ -1139,6 +1142,11 @@ impl Partie {
             v *= 1.5;
         }
         v
+    }
+
+    /// Points de marche qui restent à l'armée ce mois-ci.
+    pub fn reste_marche(&self, a: &Armee, mouvement: f64) -> f64 {
+        self.vitesse(a) * mouvement - a.utilise
     }
 
     pub fn attaque(&self, a: &Armee, contre_ville: bool, tir: f64) -> f64 {
@@ -1262,7 +1270,7 @@ impl Partie {
 
     /// Les cases que l'armée `a` peut atteindre ce mois-ci (ses points de marche, routes, terrain et météo compris).
     pub fn portee(&self, a: &Armee) -> Vec<usize> {
-        let pts = self.vitesse(a) * self.meteo.effets(self.tour).mouvement;
+        let pts = self.reste_marche(a, self.meteo.effets(self.tour).mouvement);
         let n = self.carte.cases.len();
         let mut dist = vec![f64::INFINITY; n];
         let mut tas = BinaryHeap::new();

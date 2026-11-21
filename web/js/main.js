@@ -289,13 +289,24 @@ function inspecter(i) {
 async function marcher(armee, i) {
   if (EAU(i)) return { ok: false, msg: 'Une armée ne marche pas sur l\'eau : embarquez-la sur des flûtes (⛵ dans la fiche de l\'armée, à côté d\'une flotte)' };
   const c = { action: 'deplacer', armee, case: i };
-  let r = await cmd(c);
+  let r = await cmdMarche(c);
   if (!r.ok && r.confirmer) {
     const oui = await ui.modale('⚔️ Déclarer la guerre ?', `<p>${r.confirmer}</p>`, [{ l: 'Attaquer', c: 'rouge', v: true }, { l: 'Annuler', c: 'b2', v: false }]);
     if (!oui) return { ok: false, msg: 'Ordre annulé' };
-    r = await cmd({ ...c, confirme: true });
+    r = await cmdMarche({ ...c, confirme: true });
   }
   return r;
+}
+// l'armée marche tout de suite (dans la limite de ses points du mois) : on joue sa marche avant le nouvel état
+async function cmdMarche(c) {
+  const r = await api.cmd(c);
+  if (r?.mouvements?.length) {
+    const m = { mouvements: r.mouvements, combats: r.combats || [] }, duree = 350 * Math.max(...r.mouvements.map(x => x.trajet.length - 1));
+    J.occupe = true;
+    try { jouerMoisBrouillard(m, duree); await jouerMois(m, r.etat, duree); } finally { J.occupe = false; }
+  }
+  if (r?.etat) appliquer(r.etat);
+  return r || { ok: false, msg: 'Serveur injoignable' };
 }
 // clic droit : l'armée sélectionnée (ou celle du mode « destination ») marche vers la case
 const armeeChoisie = () => { const id = J.mode?.genre === 'deplacer' ? J.mode.armee : J.armeeSel; return id != null && J.etat?.armees.some(a => a.id === id && a.proprio === 0) ? id : null; };
