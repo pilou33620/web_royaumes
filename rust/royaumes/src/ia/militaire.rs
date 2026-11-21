@@ -1377,7 +1377,7 @@ mod essais {
 
     /// Un royaume riche : de l'or, des matériaux, des armes, du fer et du blé en abondance, du monde, et les revenus qui vont avec.
     fn riche(p: &mut Partie, k: usize) {
-        for (r, v) in [("or", 100000.0), ("bois", 900.0), ("planches", 900.0), ("pierre", 900.0), ("outils", 300.0), ("armes", 300.0), ("fer", 300.0), ("ble", 400.0)] {
+        for (r, v) in [("or", 100000.0), ("fer", 600.0), ("charbon", 300.0), ("nourriture", 400.0)] {
             p.royaumes[k].stock.insert(r.into(), v);
         }
         p.royaumes[k].pop = 300;
@@ -1630,7 +1630,7 @@ mod essais {
         let stock = p.royaumes[1].stock.clone();
         riche(&mut p, 1);
         p.royaumes[1].stock = stock.clone();
-        for (r, v) in [("or", 2000.0), ("armes", 50.0), ("ble", 300.0), ("bois", 300.0)] {
+        for (r, v) in [("or", 2000.0), ("fer", 100.0), ("nourriture", 300.0)] {
             p.royaumes[1].stock.insert(r.into(), v);
         }
         let reserves = p.royaumes[1].stock.clone();
@@ -1869,9 +1869,9 @@ mod essais {
         }
         assert!(p.villes[cap].travaux_fortif > 0, "la capitale passe en travaux");
         assert!(p.royaumes[1].stock["or"] < 100000.0, "les travaux sont payés, par l'ordre du joueur");
-        // sans les moyens (le bois de la palissade entamerait sa réserve de chauffage), rien
+        // sans les moyens (l'or de la palissade), rien
         let mut q = (1..40).find_map(|g| en_guerre(g, DIFFICILE)).unwrap();
-        q.royaumes[1].stock.insert("bois".into(), 30.0);
+        q.royaumes[1].stock.insert("or".into(), 30.0);
         for _ in 0..80 {
             let c = Ctx::new(&mut q, 1);
             fortifier(&mut q, &c);

@@ -111,9 +111,7 @@ pub fn reserve(p: &Partie, k: usize, r: &str) -> f64 {
         pop * 0.3 * 1.5
     } else {
         match r {
-            "bois" => 20.0 + pop * rg.chauffage.par_habitant * rg.chauffage.grand_froid * 2.0,
-            "planches" | "pierre" => 20.0,
-            "outils" => 10.0,
+            "fer" => 10.0,
             _ => 0.0,
         }
     }
@@ -168,13 +166,7 @@ pub fn bilan(p: &Partie, k: usize, horizon: f64) -> Bilan {
     // la population mange, se chauffe, boit et s'habille
     let c = &rg.chauffage;
     let mois = meteo::mois(p.tour);
-    let hiver_proche = matches!(mois, 8..=11 | 0..=1);
     let chauffe = pop * c.par_habitant * c.grand_froid;
-    *conso.entry("bois".into()).or_insert(0.0) += chauffe * 0.35;
-    let boire = s.taverne.min(pop) * 0.1;
-    let besoin_boisson = boire;
-    let vetir = pop * 0.05;
-    *conso.entry("tissu".into()).or_insert(0.0) += vetir;
     let p_ = |x: &str| prod.get(x).copied().unwrap_or(0.0);
     let c_ = |x: &str| conso.get(x).copied().unwrap_or(0.0);
     let nb = |cle: &str| mien.iter().filter(|b| b.cle == cle).count() as f64;
@@ -186,18 +178,8 @@ pub fn bilan(p: &Partie, k: usize, horizon: f64) -> Bilan {
     let mut fixe = |x: &str, v: f64| {
         cible.insert(x.to_string(), v + epargne.get(x).copied().unwrap_or(0.0));
     };
-    fixe("bois", 30.0 + 15.0 * horizon + if hiver_proche { chauffe * 3.0 } else { chauffe });
-    fixe("planches", 25.0 + 10.0 * rang as f64);
-    fixe("pierre", 25.0 + 15.0 * rang as f64);
-    fixe("outils", 10.0 + 5.0 * rang as f64);
-    fixe("minerai", 10.0 * nb("fonderie"));
-    fixe("fer", 6.0 * (nb("forge") + nb("armurerie") + nb("usine")) + if rang >= 4 { 20.0 } else { 0.0 });
-    fixe("farine", 6.0 + 8.0 * nb("boulangerie"));
-    fixe("laine", 6.0 * (nb("tisserand") + nb("manufacture")));
-    fixe("tissu", vetir * horizon + if rang >= 3 { 10.0 } else { 0.0 });
-    fixe("biere", besoin_boisson * horizon / 2.0);
-    fixe("vin", besoin_boisson * horizon / 2.0);
-    fixe("armes", if rang >= 2 { 4.0 } else { 0.0 });
+    // le fer arme les troupes (mousquets, canons, navires) ; le chauffage d'hiver se paie en or, ou en charbon
+    fixe("fer", 10.0 + 8.0 * rang as f64);
     fixe("charbon", if rg.epoque(p.annee()).cle == "industrie" { chauffe * 2.0 } else { 0.0 } + 8.0 * (nb("haut_fourneau") + nb("usine")));
     let mut besoin = Panier::new();
     for (x, &ci) in &cible {
@@ -209,21 +191,13 @@ pub fn bilan(p: &Partie, k: usize, horizon: f64) -> Bilan {
         if net < 0.0 && st(x) < ci {
             b += 0.5;
         }
-        // le bois et la pierre font tout le reste : n'en produire aucun est grave
-        if matches!(x.as_str(), "bois" | "pierre") && p_(x) <= 0.0 {
-            b += 1.0;
-        }
         besoin.insert(x.clone(), b);
     }
-    // les chaînes : ce qui manque en aval donne envie de l'amont (outils ← fer ← minerai, tissu ← laine)
-    let derive = |besoin: &mut Panier, amont: &str, aval: &[&str]| {
-        let v = aval.iter().map(|x| besoin.get(*x).copied().unwrap_or(0.0)).fold(0.0, f64::max) * 0.7;
-        let e = besoin.entry(amont.to_string()).or_insert(0.0);
-        *e = e.max(v);
-    };
-    derive(&mut besoin, "fer", &["outils", "armes"]);
-    derive(&mut besoin, "minerai", &["fer"]);
-    derive(&mut besoin, "laine", &["tissu"]);
+    // la production (🔨) des villes : de quoi tenir les chantiers (un par ville) à bon rythme
+    let villes: Vec<usize> = (0..p.villes.len()).filter(|&vi| p.villes[vi].proprio == id).collect();
+    let par_ville = villes.iter().map(|&vi| p.production_ville(vi)).sum::<f64>() / villes.len().max(1) as f64;
+    let voulu = 8.0 + 5.0 * rang as f64;
+    besoin.insert("production".into(), ((voulu - par_ville) / voulu).clamp(0.0, 1.5) + 0.3);
     // les vivres se valent (le pain, le poisson, la viande…) : un seul besoin, plus la variété
     let manger = pop * 0.3;
     let vivres: f64 = rg.nourriture.iter().map(|x| st(x)).sum();
@@ -257,16 +231,16 @@ pub fn bilan(p: &Partie, k: usize, horizon: f64) -> Bilan {
     let b_savoir = if rang >= 2 { 0.6 } else { 0.2 };
     let caserne = p.a_batiment(id, "caserne") || mien.iter().any(|b| b.cle == "caserne");
     let b_defense = if r.statut == "guerre" { 2.0 } else { 0.4 } + if caserne { 0.0 } else { 0.8 };
-    let cap_vivres = p.capacite(&s, "pain");
+    let cap_vivres = p.capacite(&s, "nourriture");
     // on agrandit les entrepôts quand ce qu'on veut garder n'y tient plus (pas pour entasser ce qui déborde)
     let stockage_plein = cible.iter().any(|(x, &ci)| !rg.est_vivre(x) && ci >= s.stockage * 0.85);
     let vivres_pleins = cible_vivres >= cap_vivres * 0.85;
     // un filon de fer connu, libre, à portée d'une ville, quand on manque de fer et qu'on n'a où creuser
     // un filon de fer à creuser chez soi, tant qu'on n'a pas de mine (et qu'on manque de fer)
-    let creuser = besoin.get("minerai").copied().unwrap_or(0.0) >= 0.3
+    let creuser = besoin.get("fer").copied().unwrap_or(0.0) >= 0.3
         && !mien.iter().any(|b| b.cle == "mine_fer")
         && (0..p.carte.cases.len()).any(|c| p.carte.cases[c].proprio == id && p.peut_construire("mine_fer", c, id).is_ok());
-    let filon = besoin.get("minerai").copied().unwrap_or(0.0) >= 0.5
+    let filon = besoin.get("fer").copied().unwrap_or(0.0) >= 0.5
         && !creuser
         && !mien.iter().any(|b| b.cle == "mine_fer")
         && p.carte.cases.iter().enumerate().any(|(c, kc)| kc.gisement.as_deref() == Some("fer") && kc.proprio == -1 && p.connait(id, c) && p.villes.iter().any(|v| v.proprio == id && p.carte.dist(v.case, c) <= 7));
@@ -320,6 +294,8 @@ pub fn multiplicateur_site(p: &Partie, cle: &str, c: usize) -> f64 {
 fn valeur(r: &str) -> f64 {
     if r == "or" {
         1.0
+    } else if r == "production" {
+        3.0
     } else {
         regles().prix.get(r).copied().unwrap_or(1.0)
     }
@@ -350,10 +326,7 @@ pub fn utilite(p: &Partie, k: usize, b: &Bilan, cle: &str, mult: f64) -> f64 {
     u += d.logement as f64 * 1.2 * b.b_logement;
     u += 7.0 * part(d.hygiene, b.hygiene) * point * if b.hygiene < 0.5 && b.pop > 30.0 { 1.5 } else { 1.0 };
     u += 10.0 * part(d.foi, b.foi) * point;
-    if d.taverne > 0.0 {
-        let boissons = rg.boissons.iter().any(|x| dispo(x) > 1.0) as u8 as f64;
-        u += 10.0 * part(d.taverne, b.taverne) * point * (0.3 + 0.7 * boissons);
-    }
+    u += 10.0 * part(d.taverne, b.taverne) * point;
     u += d.decor.min((15.0 - b.decor).max(0.0)) * point;
     u += d.taxe * b.pop * 0.5 * (0.6 + b.b_or);
     u += d.savoir * 2.0 * b.b_savoir;
@@ -391,11 +364,13 @@ pub fn utilite(p: &Partie, k: usize, b: &Bilan, cle: &str, mult: f64) -> f64 {
             let forestiers = p.batiments.iter().filter(|x| x.proprio == k as i32 && x.cle == "forestier").count();
             let epuises = bucherons.iter().filter(|&&c| bois_autour(p, c) < 200.0).count();
             if forestiers < epuises {
-                u += 15.0 * (0.5 + besoin("bois"));
+                u += 15.0 * (0.5 + besoin("production"));
             }
         }
         _ => {}
     }
+    // ce qu'on bâtit s'entretient chaque mois en or
+    u -= crate::tour::ENTRETIEN_BATIMENT * (0.6 + b.b_or);
     // le caractère pondère : un belliqueux arme, un marchand commerce, un bâtisseur embellit et loge
     let caractere = match (p.royaumes[k].caractere.as_str(), d.cat.as_str()) {
         ("guerrier", "militaire") => 1.8,
@@ -406,9 +381,12 @@ pub fn utilite(p: &Partie, k: usize, b: &Bilan, cle: &str, mult: f64) -> f64 {
     // au Hameau, le bois et la pierre vont à la ville : l'armée attend le Village (sauf en guerre ; une tour qui gagne de la terre, non)
     let hameau = if b.rang == 1 && d.cat == "militaire" && d.territoire == 0 && p.royaumes[k].statut != "guerre" { 0.25 } else { 1.0 };
     // un bâtiment sans ouvriers pour le faire tourner rend peu
-    let main = if d.ouvriers > 0 { (b.libres / d.ouvriers as f64).clamp(0.25, 1.0) } else { 1.0 };
-    let cout = regles().valeur(&d.cout);
-    u * caractere * hameau * main / (1.0 + cout / 200.0)
+    let main = if d.ouvriers > 0 { (b.libres / d.ouvriers as f64).clamp(0.05, 1.0) } else { 1.0 };
+    // le même bâtiment rend de moins en moins (sauf les logements)
+    let deja = if d.cat == "habitat" { 0.0 } else { p.batiments.iter().filter(|x| x.proprio == k as i32 && x.cle == cle).count() as f64 };
+    // l'or et le fer payés, et les mois de production qu'il immobilise dans sa ville
+    let cout = regles().valeur(&d.cout) + d.production * valeur("production");
+    u * caractere * hameau * main / (1.0 + cout / 200.0) / (1.0 + 0.3 * deja)
 }
 
 /// Le meilleur emplacement de `cle` pour `id` (rend la case et ce qu'elle multiplie), parmi `n` cases au plus.
@@ -418,7 +396,7 @@ fn emplacement(p: &mut Partie, id: i32, cle: &str, q: &Qualite) -> Option<(usize
     let mut cases: Vec<(usize, usize)> = Vec::new();
     for &(centre, niveau) in &villes {
         for c in p.carte.rayon(centre, niveau as i32 + 4) {
-            if !cases.iter().any(|x| x.0 == c) && p.carte.cases[c].proprio == id && p.carte.cases[c].bat.is_none() && p.peut_construire(cle, c, id).is_ok() && p.connait(id, c) {
+            if !cases.iter().any(|x| x.0 == c) && p.carte.cases[c].proprio == id && p.carte.cases[c].bat.is_none() && p.peut_construire(cle, c, id).is_ok() && p.connait(id, c) && ville_libre(p, id, c) {
                 cases.push((c, centre));
             }
         }
@@ -551,21 +529,20 @@ fn pauses(p: &mut Partie, k: usize, b: &Bilan) {
     let c = &rg.chauffage;
     let froid = matches!(meteo::saison(meteo::mois(p.tour)), 0 | 3);
     let st = p.royaumes[k].stock.clone();
-    // le bois de chauffage l'hiver, et celui du rang suivant quand la population y suffit
-    let epargne = |r: &str| b.epargne.get(r).copied().unwrap_or(0.0);
-    let garder_bois = (froid && st["bois"] < b.pop * c.par_habitant * c.grand_froid * 3.0) || (b.rang_proche && st["bois"] < epargne("bois") + 10.0 && st["planches"] >= epargne("planches"));
+    // le charbon de chauffage l'hiver, à l'ère industrielle
+    let garder = |r: &str| r == "charbon" && froid && rg.epoque(p.annee()).cle == "industrie" && st.get(r).copied().unwrap_or(0.0) < b.pop * c.par_habitant * c.grand_froid * 1.5;
     let mut ordres = Vec::new();
     for x in p.batiments.iter().filter(|x| x.proprio == id && x.fini()) {
         let d = rg.bat(&x.cle).unwrap();
         if d.conso.is_empty() {
             continue;
         }
-        let brule_bois = d.conso.contains_key("bois");
+        let brule = d.conso.keys().any(|r| garder(r));
         let sans_matiere = d.conso.iter().any(|(r, v)| st.get(r).copied().unwrap_or(0.0) < *v && b.prod.get(r).copied().unwrap_or(0.0) <= 0.0);
         // inutile de transformer ce qui manque en ce qui déborde (le bois en planches quand les planches s'entassent)
         let deborde = |r: &String| b.cible.get(r).is_some_and(|&ci| st.get(r).copied().unwrap_or(0.0) >= (ci * 1.5).max(40.0));
         let superflu = d.prod.keys().all(deborde) && d.conso.keys().any(|r| b.besoin.get(r).copied().unwrap_or(0.0) >= 0.5);
-        let voulu = (brule_bois && garder_bois) || sans_matiere || superflu;
+        let voulu = brule || sans_matiere || superflu;
         if x.pause != voulu {
             ordres.push(x.id);
         }
@@ -587,7 +564,7 @@ fn recherche(p: &mut Partie, k: usize, b: &Bilan, q: &Qualite) {
         return;
     }
     let caractere = p.royaumes[k].caractere.clone();
-    let vivres = b.besoin.get("pain").copied().unwrap_or(0.0);
+    let vivres = b.besoin.get("nourriture").copied().unwrap_or(0.0);
     let interet = |t: &str| -> f64 {
         let cout = regles().tech(t).map_or(100.0, |d| d.cout);
         let mut v: f64 = match t {
@@ -742,16 +719,15 @@ fn colonie(p: &mut Partie, k: usize, b: &Bilan) {
     for (r, v) in avec_epargne.iter_mut() {
         *v += b.epargne.get(r).copied().unwrap_or(0.0);
     }
-    // les outils de la mine de fer d'abord
-    let outils = p.royaumes[k].stock.get("outils").copied().unwrap_or(0.0) - avec_epargne.get("outils").copied().unwrap_or(0.0);
-    if !p.peut_payer(id, &avec_epargne) || p.royaumes[k].stock["or"] < avec_epargne["or"] + 100.0 || (b.creuser && outils < 4.0) || !p.hasard.p(envie) {
+    // la ville la plus proche bâtira la colonie : il faut qu'elle soit libre (un chantier à la fois par ville)
+    if !p.peut_payer(id, &avec_epargne) || p.royaumes[k].stock["or"] < avec_epargne["or"] + 100.0 || !p.hasard.p(envie) {
         return;
     }
     let portee = if p.a_tech(id, "cartographie") { 5 } else { 3 };
     let mut cand: Vec<usize> = Vec::new();
     for v in p.villes.iter().filter(|v| v.proprio == id) {
         for c in p.carte.rayon(v.case, v.niveau as i32 + 2 + portee) {
-            if !cand.contains(&c) && p.carte.cases[c].t == Terrain::Plaine && p.connait(id, c) && p.peut_construire("colonie", c, id).is_ok() {
+            if !cand.contains(&c) && p.carte.cases[c].t == Terrain::Plaine && p.connait(id, c) && p.peut_construire("colonie", c, id).is_ok() && ville_libre(p, id, c) {
                 cand.push(c);
             }
         }
@@ -795,16 +771,20 @@ fn demolir_inutile(p: &mut Partie, k: usize, b: &Bilan) {
     }
 }
 
-/// Les chantiers du mois : les bâtiments les plus utiles qu'il peut payer (sans toucher à l'épargne du rang,
-/// sauf urgence), chacun à son meilleur emplacement. Pas plus de chantiers ouverts que son rang n'en permet.
+/// La ville dont dépendrait un bâtiment de `id` sur `c` n'a pas de chantier en cours (un seul à la fois par ville).
+fn ville_libre(p: &Partie, id: i32, c: usize) -> bool {
+    p.ville_proche(c, id).is_some_and(|vi| p.chantier_de(p.villes[vi].id).is_none())
+}
+
+/// Les chantiers du mois, comme le joueur : chaque ville sans chantier en ouvre un, le bâtiment le plus utile qu'il
+/// peut payer (sans toucher à l'épargne du rang, sauf urgence), à son meilleur emplacement autour de cette ville.
 fn construire(p: &mut Partie, k: usize, b: &Bilan, q: &Qualite) {
     let id = k as i32;
     let rg = regles();
     // même étourdi, on ne se trompe pas quand la disette menace
     let q = &Qualite { erreur: if b.mois_vivres < 1.5 || p.royaumes[k].famine { 0.0 } else { q.erreur }, ..*q };
-    let ouverts = p.batiments.iter().filter(|x| x.proprio == id && !x.fini()).count();
-    let max_chantiers = (1 + b.rang as usize + (p.royaumes[k].caractere == "batisseur") as usize).min(5);
-    if ouverts >= max_chantiers {
+    let libres = p.villes.iter().filter(|v| v.proprio == id && p.chantier_de(v.id).is_none()).count();
+    if libres == 0 {
         return;
     }
     let niveau = b.rang;
@@ -822,59 +802,32 @@ fn construire(p: &mut Partie, k: usize, b: &Bilan, q: &Qualite) {
         cand.truncate(q.options);
     }
     cand.sort_by(|a, c| c.1.total_cmp(&a.1));
-    let mut lances = 0;
-    // l'urgence passe avant l'épargne : vivres, bois, logement, et ce qui produit ce qu'il manque pour le rang
+    // l'urgence passe avant l'épargne : vivres, logement, production qui manque, et ce que réclame le rang
     let st = p.royaumes[k].stock.clone();
     let urgence = |cle: &str| -> bool {
         let d = rg.bat(cle).unwrap();
-        let vivres = d.prod.keys().any(|r| b.besoin.get(r).copied().unwrap_or(0.0) >= 1.0 && rg.nourriture.contains(r));
+        let manque = |r: &String| b.besoin.get(r).copied().unwrap_or(0.0) >= 1.0;
+        let vivres = d.prod.keys().any(|r| manque(r) && rg.nourriture.contains(r));
         let manque_au_rang = |r: &String| b.epargne.get(r).is_some_and(|&e| st.get(r).copied().unwrap_or(0.0) < e);
-        // quand la population suffit au rang suivant, tout attend qu'il soit payé : les vivres seuls, et de quoi
-        // produire ce qu'il réclame et qu'on ne produit pas du tout
         if b.rang_proche {
             let loger = d.logement > 0 && b.pop + 3.0 >= b.logement && rg.niveau(b.rang + 1).is_some_and(|n| b.logement < n.pop as f64 + 4.0);
             return vivres || loger || d.prod.keys().any(|r| manque_au_rang(r) && b.prod.get(r).copied().unwrap_or(0.0) <= 0.0);
         }
-        (d.logement > 0 && b.b_logement >= 1.0) || vivres || d.prod.keys().any(|r| r == "bois" && b.besoin.get(r).copied().unwrap_or(0.0) >= 1.0) || d.prod.keys().any(manque_au_rang)
+        (d.logement > 0 && b.b_logement >= 1.0) || vivres || d.prod.keys().any(|r| r == "production" && manque(r)) || d.prod.keys().any(manque_au_rang)
     };
-    // sans bois qui rentre, on garde de quoi bâtir un bûcheron
-    let sans_bois = b.prod.get("bois").copied().unwrap_or(0.0) <= 0.0;
-    // ce que réclame le rang suivant et qu'on ne produit pas encore (la pierre des premiers mois sans carrière) : on n'y touche pas,
-    // au Hameau, ou quand la population y suffit presque (garder les outils d'un rang lointain bloquerait la mine, le port, l'arsenal)
-    let garde: Panier = rg
-        .niveau(b.rang + 1)
-        .filter(|_| b.rang == 1 || b.rang_proche)
-        .map(|n| n.cout.iter().filter(|(r, _)| *r != "or" && b.prod.get(*r).copied().unwrap_or(0.0) <= 0.0).map(|(r, q)| (r.clone(), q.min(st.get(r).copied().unwrap_or(0.0)))).collect())
-        .unwrap_or_default();
+    let mut lances = 0;
     let mut essais = 0;
-    while lances < q.actions && ouverts + lances < max_chantiers && !cand.is_empty() && essais < 6 {
+    while lances < q.actions.max(1) && lances < libres && !cand.is_empty() && essais < 6 + libres {
         essais += 1;
         let i = if p.hasard.p(q.erreur) { p.hasard.indice(cand.len()) } else { 0 };
         let (cle, _) = cand.remove(i);
         let d = rg.bat(cle).unwrap();
-        // payer sans entamer l'épargne du rang (sauf urgence : vivres, bois, logement)
+        // payer sans entamer l'épargne du rang (sauf urgence)
         let mut avec_epargne = d.cout.clone();
         for (r, v) in avec_epargne.iter_mut() {
             *v += b.epargne.get(r).copied().unwrap_or(0.0);
         }
         if !p.peut_payer(id, &avec_epargne) && !(urgence(cle) && p.peut_payer(id, &d.cout)) {
-            continue;
-        }
-        if sans_bois && !matches!(cle, "bucheron" | "forestier") && p.royaumes[k].stock["bois"] - d.cout.get("bois").copied().unwrap_or(0.0) < 15.0 {
-            continue;
-        }
-        // (la chaîne du fer ne compte pas : la mine, la fonderie et la forge font les outils qui manquent)
-        let fer = d.prod.keys().any(|x| x == "fer" || x == "minerai");
-        let entame = d.cout.iter().any(|(r, v)| {
-            let g = garde.get(r).copied().unwrap_or(0.0);
-            st.get(r).copied().unwrap_or(0.0) - v < g && !d.prod.contains_key(r) && !(fer && r == "outils")
-        });
-        // (sauf les logements qui manquent encore pour atteindre la population du rang)
-        if entame && !(d.logement > 0 && rg.niveau(b.rang + 1).is_some_and(|n| b.pop < n.pop as f64)) {
-            continue;
-        }
-        // les outils de la mine, eux, ne vont à rien d'autre (pas même aux maisons de pierre)
-        if b.creuser && !fer && d.cout.get("outils").is_some_and(|v| st.get("outils").copied().unwrap_or(0.0) - v < 4.0) {
             continue;
         }
         let Some((c, mult)) = emplacement(p, id, cle, q) else { continue };
@@ -883,6 +836,10 @@ fn construire(p: &mut Partie, k: usize, b: &Bilan, q: &Qualite) {
         }
         if p.construire(id, cle, c).is_ok() {
             lances += 1;
+            // un bâtiment utile peut l'être aussi pour la ville voisine
+            if lances < libres {
+                cand.push((cle, 0.0));
+            }
         }
     }
 }
@@ -915,12 +872,12 @@ mod essais {
     #[test]
     fn le_rival_construit_avec_ses_reserves_et_au_bon_endroit() {
         let mut p = Partie::nouvelle(Options { graine: 42, difficulte: 1.35, brigands: false, ..Options::default() });
-        let avant = p.royaumes[1].stock.clone();
         let bats = p.batiments.iter().filter(|b| b.proprio == 1).count();
         mois(&mut p, 1);
-        let apres = &p.royaumes[1].stock;
         assert!(p.batiments.iter().filter(|b| b.proprio == 1).count() > bats, "il bâtit dès le premier mois");
-        assert!(apres["bois"] < avant["bois"] + 1e-9 || apres["planches"] < avant["planches"], "il paie dans ses réserves");
+        for v in p.villes.iter().filter(|v| v.proprio == 1) {
+            assert!(p.batiments.iter().filter(|b| b.ville == Some(v.id) && !b.fini()).count() <= 1, "un chantier à la fois par ville");
+        }
         for b in p.batiments.iter().filter(|b| b.proprio == 1 && !b.fini()) {
             let d = regles().bat(&b.cle).unwrap();
             if d.besoin.as_deref() == Some("foret") {
@@ -930,31 +887,30 @@ mod essais {
                 assert!(p.carte.voisins(b.case).iter().any(|&v| !p.carte.cases[v].terre()), "un pêcheur au bord de l'eau");
             }
         }
-        // sans rien en caisse, il ne bâtit rien
+        // sans rien en caisse, il ne bâtit que ce qui ne coûte que de la production
         let mut q = Partie::nouvelle(Options { graine: 42, difficulte: 1.35, brigands: false, ..Options::default() });
         for v in q.royaumes[1].stock.values_mut() {
             *v = 0.0;
         }
-        let bats = q.batiments.iter().filter(|b| b.proprio == 1).count();
         mois(&mut q, 1);
-        assert_eq!(q.batiments.iter().filter(|b| b.proprio == 1).count(), bats);
+        assert!(q.batiments.iter().filter(|b| b.proprio == 1 && !b.fini()).all(|b| regles().bat(&b.cle).unwrap().cout.is_empty()), "sans or, rien qui en coûte");
         assert!(q.royaumes[1].stock.values().all(|&v| v >= 0.0));
     }
 
     #[test]
     fn surplus_et_demande_suivent_les_reserves() {
         let mut p = Partie::nouvelle(Options { graine: 7, brigands: false, ..Options::default() });
-        p.royaumes[1].stock.insert("pierre".into(), 180.0);
+        p.royaumes[1].stock.insert("fer".into(), 180.0);
         for r in regles().nourriture.clone() {
             p.royaumes[1].stock.insert(r, 0.0);
         }
         let b = bilan(&p, 1, 3.0);
         marchandises(&mut p, 1, &b);
         let r = &p.royaumes[1];
-        assert!(r.surplus.contains(&"pierre".to_string()), "{:?}", r.surplus);
+        assert!(r.surplus.contains(&"fer".to_string()), "{:?}", r.surplus);
         assert!(r.demande.iter().any(|x| regles().nourriture.contains(x)), "il demande des vivres : {:?}", r.demande);
-        // le prix suit : la pierre est bon marché chez lui
-        assert!(crate::commandes::prix(&p, 1, "pierre", true) < crate::commandes::prix(&p, 2, "pierre", true) || p.royaumes[2].surplus.contains(&"pierre".to_string()));
+        // le prix suit : le fer est bon marché chez lui
+        assert!(crate::commandes::prix(&p, 1, "fer", true) < crate::commandes::prix(&p, 2, "fer", true) || p.royaumes[2].surplus.contains(&"fer".to_string()));
     }
 
     #[test]

@@ -395,7 +395,7 @@ mod essais {
         assert_eq!(ordre(&mut p, autre), Err("Cette ville ne vous appartient pas".into()));
         assert_eq!(ordre(&mut p, 999_999), Err("ville inconnue".into()));
         let stock = |p: &mut Partie, n: f64| {
-            for r in ["bois", "planches", "pierre", "outils", "or"] {
+            for r in ["or", "fer", "charbon", "nourriture"] {
                 p.royaumes[0].stock.insert(r.into(), n);
             }
         };
@@ -486,7 +486,7 @@ mod essais {
         assert!(!p.enceinte(0).contains(&case));
         assert!(p.batiments.iter().any(|b| b.case == case && b.cle == cle && b.arret > p.tour), "le bâtiment pillé est arrêté");
         assert!(r.evenements.iter().any(|e| e.texte.contains("faubourgs")));
-        assert!(p.bat(bi).unwrap().produit.get("planches").copied().unwrap_or(0.0) > 0.0, "l'intra-muros produit : {}", p.bat(bi).unwrap().etat);
+        assert!(p.bat(bi).unwrap().produit.get("production").copied().unwrap_or(0.0) > 0.0, "l'intra-muros produit : {}", p.bat(bi).unwrap().etat);
         assert!(p.bat(bo).unwrap().produit.is_empty(), "le faubourg ne produit plus : {}", p.bat(bo).unwrap().etat);
         let e = crate::vue::etat(&p);
         let s = &e["sieges"][0];

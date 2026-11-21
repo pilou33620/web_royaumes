@@ -24,7 +24,10 @@ pub struct DefBat {
     pub cat: String,
     pub niveau: u32,
     pub tech: Option<String>,
+    /// payé au lancement du chantier (or, fer)
     pub cout: Panier,
+    /// production (🔨) que la ville doit y investir
+    pub production: f64,
     pub duree: u32,
     pub ouvriers: u32,
     pub logement: u32,
@@ -296,6 +299,8 @@ pub struct DefRes {
     pub cle: String,
     pub nom: String,
     pub icone: String,
+    /// un flux (la production 🔨, par ville) : ne se stocke pas
+    pub flux: bool,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -515,7 +520,7 @@ mod essais {
         assert!(r.bat("marche").is_some_and(|b| b.taxe > 0.0) && r.bat("ecole").is_some_and(|b| b.savoir > 0.0 && b.ouvriers > 0));
         assert!(e.ete > 0.0 && e.ete < 1.0 && e.ateliers > 0.0 && e.ateliers_max >= e.ateliers && e.ateliers_max <= 0.25, "écoles");
         assert!(r.niveau(e.ignorance_rang).is_some() && e.ignorance_savoir > 0.0 && e.ignorance_bonheur > 0.0, "ignorance");
-        assert!(c.par_habitant > 0.0 && c.par_habitant < 0.5 && c.grand_froid >= 1.0 && c.charbon >= 1.0 && res.contains(&"charbon") && res.contains(&"bois"), "chauffage");
+        assert!(c.par_habitant > 0.0 && c.par_habitant < 0.5 && c.grand_froid >= 1.0 && c.charbon >= 1.0 && res.contains(&"charbon"), "chauffage");
         assert!(c.malus < 0.0 && c.pertes > 0.0 && c.pertes < 0.1 && c.reserve >= 1.0 && c.bonus > 0.0 && c.bonus < -c.malus, "chauffage : bonus et malus");
         assert!(r.niveau(l.rang).is_some() && r.niveau(l.delinquance_rang).is_some() && l.delinquance_rang >= l.rang, "éclairage : rangs");
         assert!(l.entretien > 0.0 && l.incendie > 0.0 && l.incendie < 1.0 && l.bonheur > 0.0 && l.bonheur_max >= l.bonheur && l.delinquance > 0.0 && l.delinquance <= 0.2, "éclairage");

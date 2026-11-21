@@ -87,7 +87,7 @@ impl Partie {
         gain * if j.a("lumieres") { 1.25 } else { 1.0 }
     }
 
-    /// Le chauffage de `id` ce mois-ci : il brûle le combustible (le charbon d'abord à l'ère industrielle, le bois en complément).
+    /// Le chauffage de `id` ce mois-ci : il brûle le combustible (le charbon d'abord à l'ère industrielle, le bois acheté en or en complément).
     /// Rend la ligne de bonheur : `None` hors de l'hiver, le malus sans assez de combustible, le bonus avec une bonne réserve.
     pub fn chauffer(&mut self, id: i32, pop: f64) -> Option<f64> {
         let c = &regles().chauffage;
@@ -104,14 +104,15 @@ impl Partie {
             *x -= t;
             reste -= t * charbon;
         }
-        let x = st.entry("bois".into()).or_insert(0.0);
+        // le reste : du bois de chauffage acheté en or
+        let x = st.entry("or".into()).or_insert(0.0);
         let t = x.min(reste);
         *x -= t;
         reste -= t;
         if reste > 1e-6 {
             return Some(c.malus);
         }
-        let reserve = st["bois"] + st.get("charbon").copied().unwrap_or(0.0) * charbon;
+        let reserve = st["or"] + st.get("charbon").copied().unwrap_or(0.0) * charbon;
         Some(if reserve >= c.reserve * besoin { c.bonus } else { 0.0 })
     }
 }
@@ -155,7 +156,7 @@ mod essais {
         assert!(Partie { tour: TOUR_DEPART, ..p.clone() }.jour_marche(), "avril est jour de marché");
         p.villes[0].niveau = 2;
         p.royaumes[0].pop = 30;
-        p.royaumes[0].stock.insert("pain".into(), 300.0);
+        p.royaumes[0].stock.insert("nourriture".into(), 300.0);
         poser(&mut p, "marche", 0);
         assert!(p.jour_marche() && p.vie_ville(0).marche);
         assert_eq!(crate::vue::etat(&p)["jour_marche"], true);
@@ -236,11 +237,11 @@ mod essais {
     fn hiver_et_chauffage() {
         let mut p = partie(23, 1703, 0); // janvier
         p.royaumes[0].pop = 40;
-        p.royaumes[0].stock.insert("pain".into(), 300.0);
+        p.royaumes[0].stock.insert("nourriture".into(), 300.0);
         let besoin = 40.0 * regles().chauffage.par_habitant;
         assert!((p.chauffage_par_habitant() * 40.0 - besoin).abs() < 1e-9);
         // une bonne réserve : les foyers sont chauds
-        p.royaumes[0].stock.insert("bois".into(), 100.0);
+        p.royaumes[0].stock.insert("or".into(), 100.0);
         let r = p.fin_du_mois();
         assert_eq!(detail(&p, "Chauffage"), Some(regles().chauffage.bonus));
         assert!(!r.evenements.iter().any(|e| e.texte.starts_with("🥶")));
@@ -252,28 +253,28 @@ mod essais {
         q.tour += 3;
         q.meteo.genre = "nuages".into();
         assert_eq!(q.chauffage_par_habitant(), 0.0);
-        // sans bois : le froid et les maladies
+        // sans or : le froid et les maladies
         let mut p = partie(23, 1703, 0);
         p.royaumes[0].pop = 40;
-        p.royaumes[0].stock.insert("pain".into(), 300.0);
-        p.royaumes[0].stock.insert("bois".into(), 0.0);
+        p.royaumes[0].stock.insert("nourriture".into(), 300.0);
+        p.royaumes[0].stock.insert("or".into(), 0.0);
         let r = p.fin_du_mois();
         assert_eq!(detail(&p, "Chauffage"), Some(regles().chauffage.malus));
         assert!(r.evenements.iter().any(|e| e.texte.starts_with("🥶")), "{:?}", r.evenements);
         assert!(p.joueur().pop < 40);
         // l'ère industrielle : le charbon d'abord
         let mut p = partie(23, 1820, 0);
-        p.royaumes[0].stock.insert("bois".into(), 50.0);
+        p.royaumes[0].stock.insert("or".into(), 50.0);
         p.royaumes[0].stock.insert("charbon".into(), 50.0);
         assert_eq!(p.chauffer(0, 40.0), Some(regles().chauffage.bonus));
-        assert_eq!(p.joueur().stock["bois"], 50.0);
+        assert_eq!(p.joueur().stock["or"], 50.0);
         assert!(p.joueur().stock["charbon"] < 50.0);
-        // l'ordinateur brûle son propre bois ; sans bois, son peuple grelotte comme le nôtre
+        // l'ordinateur brûle son or ; sans or, son peuple grelotte comme le nôtre
         let mut q = partie(23, 1703, 0);
-        q.royaumes[1].stock.insert("bois".into(), 100.0);
+        q.royaumes[1].stock.insert("or".into(), 100.0);
         assert_eq!(q.chauffer(1, 40.0), Some(regles().chauffage.bonus));
-        assert!(q.royaumes[1].stock["bois"] < 100.0);
-        q.royaumes[1].stock.insert("bois".into(), 0.0);
+        assert!(q.royaumes[1].stock["or"] < 100.0);
+        q.royaumes[1].stock.insert("or".into(), 0.0);
         q.fin_du_mois();
         assert!(q.royaumes[1].detail_bonheur.iter().any(|x| x.0 == "Chauffage" && x.1 == regles().chauffage.malus), "{:?}", q.royaumes[1].detail_bonheur);
     }
@@ -297,7 +298,7 @@ mod essais {
         assert!(ordre(&mut p, true).is_ok() && p.villes[0].eclairage);
         assert_eq!(crate::vue::etat(&p)["villes"][0]["eclairage"], true);
         p.royaumes[0].pop = 30;
-        p.royaumes[0].stock.insert("pain".into(), 300.0);
+        p.royaumes[0].stock.insert("nourriture".into(), 300.0);
         p.royaumes[0].stock.insert("or".into(), 500.0);
         p.fin_du_mois();
         assert_eq!(detail(&p, "Éclairage public"), Some(regles().eclairage.bonheur));

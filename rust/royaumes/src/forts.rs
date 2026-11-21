@@ -242,7 +242,7 @@ mod essais {
     }
 
     fn stock(p: &mut Partie, n: f64) {
-        for r in ["bois", "planches", "pierre", "outils", "or"] {
+        for r in ["or", "fer", "charbon", "nourriture"] {
             p.royaumes[0].stock.insert(r.into(), n);
         }
     }
@@ -338,7 +338,7 @@ mod essais {
         stock(&mut p, 5000.0);
         let r = ordre(&mut p, json!({"action": "construire_fort", "armee": id})).unwrap();
         let fid = r["fort"].as_u64().unwrap() as u32;
-        assert_eq!(p.royaumes[0].stock["bois"], 5000.0 - 40.0);
+        assert_eq!(p.royaumes[0].stock["or"], 5000.0 - 80.0);
         let fi = p.fort(fid).unwrap();
         assert_eq!((p.forts[fi].niveau, p.forts[fi].travaux), (0, 2));
         assert_eq!(ordre(&mut p, json!({"action": "construire_fort", "armee": id})), Err("Il y a déjà un fort ici".into()));

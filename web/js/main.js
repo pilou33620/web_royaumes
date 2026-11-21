@@ -101,7 +101,7 @@ async function lancer() {
   $('#chargement').classList.add('cache');
   if (etat.tour === 3 && !etat.batiments.some(b => b.proprio === 0 && !['hotel', 'cabane'].includes(b.cle))) {
     await ui.modale(`👑 Avril 1700 — ${cap ? cap.nom : ''}`, `<p>Votre hameau s'éveille au printemps. Chaque <b>tour dure un mois</b> : donnez vos ordres, puis touchez <b>« Fin du mois »</b>.</p>
-      <p>🏗️ <b>Construisez</b> bûcherons, pêcheurs, carrières, et des fermes sans tarder : le blé se récolte l'été et l'automne, rien ne pousse l'hiver, et le froid demande du bois de chauffage.</p>
+      <p>🏗️ <b>Construisez</b> : chaque ville bâtit <b>un bâtiment à la fois</b>, payé en 🔨 production (bûcherons, carrières, ateliers) et parfois en 🪙. Des fermes et des pêcheurs sans tarder : la 🌾 nourriture se récolte l'été et l'automne, rien ne pousse l'hiver, et le chauffage se paie en or. Écoles et académies font avancer la 💡 science.</p>
       <p>🌦️ <b>Le temps compte</b> : neige et boue ralentissent les armées, la pluie mouille la poudre, la canicule brûle les récoltes. Touchez la météo pour les prévisions.</p>
       <p>🤝 Commercez, alliez-vous… ou faites la guerre. De 1700 à 1850, les découvertes changent vos bâtiments et vos armées.</p>
       <p class="mini">Glisser = déplacer · pincer = zoom · deux doigts = tourner · toucher une case pour l'inspecter.</p>`, [{ l: 'C\'est parti !', v: true }]);
@@ -343,7 +343,7 @@ async function ouvrirRoulette(i, x, y) {
     if (ctx === 'case') ctx = 'construire';
     for (const c of J.R.categories) {
       const items = r.batiments.map(k => J.R.batiments.find(b => b.cle === k)).filter(b => b.cat === c.cle)
-        .map(b => ({ ico: b.icone, nom: b.nom, info: ui.coutCourt(b.cout), off: !ui.payable(b.cout), fn: go({ a: 'ici', v: b.cle, c: i }) }));
+        .map(b => ({ ico: b.icone, nom: b.nom, info: ui.coutBatCourt(b), off: !ui.payable(b.cout), fn: go({ a: 'ici', v: b.cle, c: i }) }));
       if (items.length) entrees.push({ ico: c.icone, nom: c.nom, items, cat: true });
     }
   }

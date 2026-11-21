@@ -85,7 +85,8 @@ pub fn executer(p: &mut Partie, c: &Value) -> Result<Value, String> {
             let i = case(p, c)?;
             let id = p.construire(0, cle, i)?;
             let d = rg.bat(cle).unwrap();
-            Ok(json!({"ok": true, "msg": format!("{} {} : travaux lancés ({} mois)", d.icone, d.nom, d.duree.max(1)), "id": id}))
+            let mois = p.bat(id).map_or(1, |b| b.reste.max(1));
+            Ok(json!({"ok": true, "msg": format!("{} {} : chantier ouvert ({} 🔨, environ {mois} mois)", d.icone, d.nom, d.production), "id": id}))
         }
         "demolir" => {
             let i = case(p, c)?;
@@ -95,7 +96,7 @@ pub fn executer(p: &mut Partie, c: &Value) -> Result<Value, String> {
             }
             p.demolir(i)?;
             p.recalculer_routes();
-            ok("Démoli (la moitié des matériaux est récupérée)")
+            ok("Démoli")
         }
         "pause" => {
             let id = num(c, "batiment")? as u32;
@@ -417,6 +418,13 @@ impl Partie {
             return Err("Terre inconnue : explorez-la d'abord".into());
         }
         self.peut_construire(cle, case, id)?;
+        // un seul chantier à la fois par ville : celle dont dépendra le bâtiment
+        if let Some(vi) = self.ville_proche(case, id) {
+            if let Some(bi) = self.chantier_de(self.villes[vi].id) {
+                let (en_cours, reste) = (rg.bat(&self.batiments[bi].cle).map_or("?", |x| x.nom.as_str()), self.batiments[bi].reste);
+                return Err(format!("{} construit déjà : {en_cours} (encore ~{reste} mois)", self.villes[vi].nom));
+            }
+        }
         if !self.peut_payer(id, &d.cout) {
             return Err("Ressources insuffisantes".into());
         }
@@ -841,9 +849,7 @@ mod essais {
         assert!(executer(&mut p, &json!({"action": "voler"})).is_err());
         assert!(executer(&mut p, &json!({"action": "construire", "cle": "palais", "case": 0})).is_err());
         let c = (0..p.carte.cases.len()).find(|&c| p.peut_construire("cabane", c, 0).is_ok()).unwrap();
-        let bois = p.joueur().stock["bois"] + p.carte.cases[c].arbres as f64 * 3.0;
         assert!(executer(&mut p, &json!({"action": "construire", "cle": "cabane", "case": c})).is_ok());
-        assert_eq!(p.joueur().stock["bois"], bois - 15.0);
         assert!(executer(&mut p, &json!({"action": "construire", "cle": "cabane", "case": c})).is_err());
         // déplacer l'armée d'une case
         let a = p.armees.iter().find(|a| a.proprio == 0).unwrap().clone();
@@ -895,6 +901,33 @@ mod essais {
     }
 
     #[test]
+    fn un_chantier_a_la_fois_par_ville_paye_en_production() {
+        let mut p = Partie::nouvelle(Options { graine: 11, brigands: false, ..Options::default() });
+        let cap = p.villes[0].case;
+        let libres: Vec<usize> = p.carte.rayon(cap, 3).into_iter().filter(|&c| p.peut_construire("caserne", c, 0).is_ok() && p.connait(0, c)).collect();
+        p.royaumes[0].stock.insert("or".into(), 1000.0);
+        let r = executer(&mut p, &json!({"action": "construire", "cle": "caserne", "case": libres[0]})).unwrap();
+        assert!(r["msg"].as_str().unwrap().contains("🔨"), "{r}");
+        assert_eq!(p.joueur().stock["or"], 1000.0, "la caserne ne coûte que de la production");
+        let e = executer(&mut p, &json!({"action": "construire", "cle": "cabane", "case": libres[1]})).unwrap_err();
+        assert!(e.contains("construit déjà"), "{e}");
+        // la production de la ville avance le chantier jusqu'à son coût
+        let bid = p.carte.cases[libres[0]].bat.unwrap();
+        let cout = regles().bat("caserne").unwrap().production;
+        let mut mois = 0;
+        while !p.bat(bid).unwrap().fini() {
+            let avant = p.bat(bid).unwrap().avance;
+            p.fin_du_mois();
+            mois += 1;
+            assert!(p.bat(bid).unwrap().fini() || p.bat(bid).unwrap().avance >= avant + p.production_ville(0) - 1e-6);
+            assert!(mois < 20);
+        }
+        assert!(mois >= 2 && (mois as f64) <= (cout / 5.0).ceil(), "{mois} mois");
+        // la ville est libre : un autre chantier s'ouvre
+        assert!(executer(&mut p, &json!({"action": "construire", "cle": "cabane", "case": libres[1]})).is_ok());
+    }
+
+    #[test]
     fn recruter_par_cinq() {
         let mut p = Partie::nouvelle(Options { graine: 11, ..Options::default() });
         let cap = p.villes[0].case;
@@ -902,7 +935,6 @@ mod essais {
         let b = p.poser("caserne", c, 0, true);
         p.royaumes[0].pop = 200;
         p.royaumes[0].stock.insert("or".into(), 40.0); // de quoi payer deux miliciens seulement
-        p.royaumes[0].stock.insert("bois".into(), 100.0);
         let r = executer(&mut p, &json!({"action": "recruter", "batiment": b, "unite": "milice", "nombre": 5})).unwrap();
         assert!(r["msg"].as_str().unwrap().contains("×2"), "{r}");
         assert_eq!(p.bat(b).unwrap().file.len(), 2);

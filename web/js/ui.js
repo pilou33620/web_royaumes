@@ -67,7 +67,8 @@ export function majHUD() {
   const delta = r => (b[r] ? `<small class="${b[r] > 0 ? 'p' : 'm'}">${b[r] > 0 ? '+' : ''}${Math.round(b[r])}</small>` : '');
   const puce = (icone, val, cls = '', titre = '', d = '', p = '') => `<div class="puce ${cls}" title="${titre}"${p ? ` data-p="${p}"` : ''}>${icone} ${val}${d}</div>`;
   const mesVilles = E.villes.filter(v => v.proprio === 0), rv = j.revenus || {};
-  const nourr = R().nourriture.reduce((s, r) => s + (st[r] || 0), 0);
+  const nourr = R().nourriture.reduce((s, r) => s + (st[r] || 0), 0), rd = j.rendements || {};
+  const parMois = v => `<small class="${v >= 0 ? 'p' : 'm'}">${v >= 0 ? '+' : ''}${Math.round(v)}</small>`;
   const rs = r => puce(res(r).icone, fmt(st[r] || 0), (st[r] || 0) >= (j.capacite[r] || 1e9) - 0.5 ? 'plein' : (st[r] || 0) < 3 ? 'bas' : '', res(r).nom, delta(r));
   $('#ressources').innerHTML =
     (mesVilles.some(v => v.assiegee) ? puce('🏰', 'Siège !', 'bas', 'Une de vos villes est assiégée', '', 'armees') : '') +
@@ -75,8 +76,10 @@ export function majHUD() {
     puce('🪙', fmt(st.or), '', `Or — impôts +${Math.round(rv.impots || 0)}, commerce +${Math.round((rv.commerce || 0) + (j.commerce_mer || 0))} (dont mer ${Math.round(j.commerce_mer || 0)}), entretien −${Math.round(rv.entretien || 0)} (flotte et espions ${Math.round(j.entretien_flotte || 0)}, forts ${Math.round(j.entretien_forts || 0)})${vieOr(j).length ? ' — dont ' + vieOr(j).join(', ') : ''}`, delta('or')) +
     puce('👥', `${j.pop}/${j.logement}`, j.pop >= j.logement ? 'plein' : '', 'Habitants / logements') +
     puce(j.bonheur >= 60 ? '😊' : j.bonheur >= 35 ? '😐' : '😠', Math.round(j.bonheur) + '%', j.bonheur < 35 ? 'bas' : '', e(`Bonheur — ${(j.detail_bonheur || []).filter(([, v]) => v).map(([k, v]) => `${k} ${signe(v)}`).join(', ')}`)) +
-    puce('🍽️', fmt(nourr), j.famine ? 'bas' : '', 'Nourriture') +
-    ['bois', 'planches', 'pierre', 'outils', 'ble', 'farine', 'pain', 'poisson', 'minerai', 'charbon', 'fer', 'armes', 'biere', 'vin', 'laine', 'tissu'].map(rs).join('');
+    puce('🌾', fmt(nourr), j.famine ? 'bas' : '', `Nourriture en réserve — ${signe(rd.nourriture || 0)} par mois (récoltes moins ce que mange la population)`, parMois(rd.nourriture || 0)) +
+    puce('🔨', fmt(rd.production || 0), '', 'Production par mois, toutes villes : elle avance le chantier de chaque ville (un à la fois par ville)', '', 'royaume') +
+    puce('💡', fmt(j.savoir_mois || 0), '', 'Science par mois : population, écoles, académies', '', 'royaume') +
+    ['fer', 'charbon'].map(rs).join('');
   $('#date').textContent = `${SAISON_ICONE[E.saison]} ${E.date} · ${E.epoque.nom}`;
   $('#meteo').textContent = `${ICONE_METEO[E.meteo.genre] || '🌤️'} ${NOM_METEO[E.meteo.genre] || ''} ${Math.round(E.meteo.temperature)}°C`;
   const q = j.quete;
@@ -211,17 +214,20 @@ function dispo(b) {
   return '';
 }
 function metaBat(b) {
-  return [b.ouvriers ? `👷${b.ouvriers}` : '', b.logement ? `👥+${b.logement}` : '', Object.entries(b.prod || {}).map(([r, v]) => `${res(r).icone}${v}/mois`).join(' '),
-    Object.keys(b.conso || {}).length ? '← ' + Object.keys(b.conso).map(r => res(r).icone).join('') : '', b.duree ? `⏳${b.duree} mois` : ''].filter(Boolean).join(' · ');
+  return [b.ouvriers ? `👷${b.ouvriers}` : '', b.logement ? `👥+${b.logement}` : '', Object.entries(b.prod || {}).map(([r, v]) => `+${v}${res(r).icone}/mois`).join(' '),
+    b.savoir ? `+${b.savoir}💡/mois` : '', Object.keys(b.conso || {}).length ? '← ' + Object.keys(b.conso).map(r => res(r).icone).join('') : ''].filter(Boolean).join(' · ');
 }
+// le prix d'un bâtiment : la production que sa ville y investira, plus l'or (et le fer) payés au lancement
+const coutsBat = b => `${b.production ? `<span class="cout">🔨${b.production}</span>` : ''}${couts(b.cout)}`;
+export const coutBatCourt = b => [b.production ? `${b.production} 🔨` : '', coutCourt(b.cout)].filter(Boolean).join(' · ');
 function vueConstruire() {
   let h = `<div class="onglets">${R().categories.map(c => `<button class="onglet ${c.cle === ongletConstruire ? 'on' : ''}" data-a="cat" data-v="${c.cle}">${c.icone} ${c.nom}</button>`).join('')}</div><div class="grille-cartes">`;
   for (const b of R().batiments) {
     if (b.cat !== ongletConstruire) continue;
     const v = dispo(b);
-    h += `<div class="fiche ${v ? 'verrou' : ''}" data-a="bat" data-v="${b.cle}">${v ? `<div class="verrou-t">${v}</div>` : ''}<div class="fi">${b.icone}</div><div class="fn">${e(b.nom)}</div><div class="fd">${e(b.desc)}</div><div class="couts">${couts(b.cout)}</div><div class="meta">${metaBat(b)}</div></div>`;
+    h += `<div class="fiche ${v ? 'verrou' : ''}" data-a="bat" data-v="${b.cle}">${v ? `<div class="verrou-t">${v}</div>` : ''}<div class="fi">${b.icone}</div><div class="fn">${e(b.nom)}</div><div class="fd">${e(b.desc)}</div><div class="couts">${coutsBat(b)}</div><div class="meta">${metaBat(b)}</div></div>`;
   }
-  return h + `</div><p class="mini" style="margin-top:10px">Capitale : <b>${nomNiveau(J.etat.joueur.niveau_capitale)}</b> · ${J.etat.epoque.nom}. Les travaux avancent d'un mois à chaque tour.</p>`;
+  return h + `</div><p class="mini" style="margin-top:10px">Capitale : <b>${nomNiveau(J.etat.joueur.niveau_capitale)}</b> · ${J.etat.epoque.nom}. Chaque ville bâtit <b>un bâtiment à la fois</b> : sa production 🔨 de chaque mois avance le chantier.</p>`;
 }
 
 // --- fiche d'une case
@@ -280,8 +286,8 @@ export function vueCase(i) {
   const d = bat(b.cle), mien = b.proprio === 0;
   if (b.cle === 'hotel') return h + vueVille(E.villes.find(v => v.case === i));
   if (b.reste > 0) {
-    const f = 1 - b.reste / Math.max(1, d.duree);
-    return h + `<div class="boite"><h4>🏗️ En construction</h4><div class="jauge"><i style="width:${Math.round(f * 100)}%"></i></div><div class="mini" style="margin-top:4px">${b.reste} mois restant(s)</div></div>` + (mien ? `<div class="btns"><button class="btn rouge" data-a="demolir" data-c="${i}">Annuler (50 % remboursés)</button></div>` : '');
+    const f = Math.min(1, (b.avance || 0) / Math.max(1, d.production));
+    return h + `<div class="boite"><h4>🏗️ En construction</h4><div class="jauge"><i style="width:${Math.round(f * 100)}%"></i></div><div class="mini" style="margin-top:4px">🔨 ${Math.floor(b.avance || 0)}/${d.production} · environ ${b.reste} mois</div></div>` + (mien ? `<div class="btns"><button class="btn rouge" data-a="demolir" data-c="${i}">Annuler le chantier</button></div>` : '');
   }
   h += `<div class="boite"><div class="mini" style="margin-bottom:5px">${e(d.desc)}</div>`;
   // arrêté : pillé ou saboté (b.arret), ou faubourg d'une ville assiégée (hors de l'enceinte)
@@ -319,6 +325,9 @@ function vueVille(v) {
   let h = `<div class="boite">${ligne('Rang', `${v.niveau} · ${e(v.rang)}${v.capitale ? ' 👑' : ''}`)}${ligne('Royaume', pastille(v.proprio) + e(roy(v.proprio).nom))}${ligne('Défense', `🛡 ${v.defense}${v.murs ? ` · 🧱 murs ${v.murs}` : ''}`)}${ligne('Fortifications', e(v.fortif_nom))}${ligne('Rayon du territoire', `${2 + v.niveau} cases`)}${v.assiegee ? ligne('Situation', '<span style="color:#f98">🏰 Assiégée</span>') : ''}${v.blocus ? ligne('Port', '<span style="color:#f98">⚓ Bloqué : plus de commerce par mer</span>') : ''}${v.jour_marche ? ligne('Marché', '🧺 Jour de marché ce mois-ci') : ''}${v.eclairage ? ligne('La nuit', '🏮 Réverbères allumés') : ''}`;
   if (v.proprio === 0) {
     const ec = R().ecoles;
+    const ch = v.chantier;
+    h += ligne('Production', `🔨 ${Math.round(v.production || 0)} par mois`);
+    h += ligne('Chantier', ch ? `${ch.icone} ${e(ch.nom)} · 🔨 ${Math.floor(ch.avance)}/${ch.cout} · ~${ch.reste} mois` : '<span style="color:#ffd56b">Aucun : choisissez un bâtiment dans 🏗️ Construire</span>');
     h += ligne('Écoles', v.ecoles ? `📚 ${v.ecoles} · ateliers +${Math.round(v.ateliers * 100)} %${E.saison === 2 ? ' · vacances' : ''}` : v.ignorance ? `<span style="color:#f98">Aucune : l'ignorance (−${ec.ignorance_savoir} 💡, −${ec.ignorance_bonheur} 😊 par mois)</span>` : 'Aucune');
   }
   h += '</div>';
@@ -592,7 +601,7 @@ function vueRoyaume() {
       h += `<div class="tech ${a ? 'acquise' : ''} ${enc ? 'en-cours' : ''}"><span><b>${a ? '✅' : tot ? '⏳' : '💡'} ${e(t.nom)}</b> <span class="mini">(${t.annee})</span><br><span class="mini">${e(t.desc)}</span></span>${a ? '' : tot ? `<span class="mini">dès ${t.annee}</span>` : enc ? '<span class="mini">en cours</span>' : `<button class="btn b2" data-a="tech" data-v="${t.cle}">${t.cout} 💡</button>`}</div>`;
     }
   } else if (ongletRoyaume === 'stocks') {
-    h += `<div class="boite">${R().ressources.map(r => `<div class="ligne"><span>${r.icone} ${e(r.nom)}</span><span class="v">${Math.floor(j.stock[r.cle] || 0)}${r.cle === 'or' ? '' : ' / ' + Math.floor(j.capacite[r.cle])}${j.bilan[r.cle] ? ` <small style="color:${j.bilan[r.cle] > 0 ? '#8f8' : '#f98'}">${j.bilan[r.cle] > 0 ? '+' : ''}${Math.round(j.bilan[r.cle])}</small>` : ''}</span></div>`).join('')}</div><p class="mini">Entrepôts : +200 par ressource · Greniers : +300 de vivres. Les fermes ne produisent rien l'hiver : stockez !</p>`;
+    h += `<div class="boite">${R().ressources.filter(r => !r.flux).map(r => `<div class="ligne"><span>${r.icone} ${e(r.nom)}</span><span class="v">${Math.floor(j.stock[r.cle] || 0)}${r.cle === 'or' ? '' : ' / ' + Math.floor(j.capacite[r.cle])}${j.bilan[r.cle] ? ` <small style="color:${j.bilan[r.cle] > 0 ? '#8f8' : '#f98'}">${j.bilan[r.cle] > 0 ? '+' : ''}${Math.round(j.bilan[r.cle])}</small>` : ''}</span></div>`).join('')}</div><p class="mini">Entrepôts : +200 par ressource · Greniers : +300 de vivres. Les fermes ne produisent rien l'hiver : stockez !</p>`;
   } else if (ongletRoyaume === 'victoire') {
     const ais = E.royaumes.filter(r => !r.joueur), vivants = ais.filter(r => r.vivant);
     h += `<div class="boite"><h4>⚔️ Conquête</h4><div class="mini">Anéantir tous les rivaux : ${ais.length - vivants.length}/${ais.length}</div></div>

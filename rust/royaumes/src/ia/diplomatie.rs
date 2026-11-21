@@ -1560,7 +1560,7 @@ mod essais {
         let mut vu = false;
         for _ in 0..30 {
             p.propositions.clear();
-            let id = proposer(&mut p, Proposition { de: 2, genre: "echange".into(), texte: "…".into(), donne: Panier::from([("bois".to_string(), 30.0)]), demande: Panier::from([("or".to_string(), 18.0)]), ..Default::default() });
+            let id = proposer(&mut p, Proposition { de: 2, genre: "echange".into(), texte: "…".into(), donne: Panier::from([("nourriture".to_string(), 30.0)]), demande: Panier::from([("or".to_string(), 18.0)]), ..Default::default() });
             let m = executer(&mut p, &json!({"action": "repondre", "proposition": id, "accepte": false})).unwrap();
             if let Some(o) = p.propositions.iter().find(|x| x.de == 2 && x.genre == "echange") {
                 assert!(m["msg"].as_str().unwrap().starts_with("✉️ Contre-proposition"));
@@ -1755,8 +1755,8 @@ mod essais {
             p.diplomatie.souverains[1].caractere = c.into();
             p.royaumes[1].relation = 0.0;
             // de quoi échanger : de la pierre en trop, du pain qui manque
-            p.royaumes[1].stock.insert("pierre".into(), 200.0);
-            (p.royaumes[1].surplus, p.royaumes[1].demande) = (vec!["pierre".into()], vec!["pain".into()]);
+            p.royaumes[1].stock.insert("fer".into(), 200.0);
+            (p.royaumes[1].surplus, p.royaumes[1].demande) = (vec!["fer".into()], vec!["nourriture".into()]);
             let mut n = 0;
             for _ in 0..essais {
                 p.royaumes[1].prochaine_offre = 0;

@@ -4,7 +4,6 @@
 
 use royaumes::carte::Options;
 use royaumes::commandes::executer;
-use royaumes::meteo;
 use royaumes::partie::Partie;
 use royaumes::regles::regles;
 use serde_json::json;
@@ -37,38 +36,20 @@ fn robot(p: &mut Partie, militaire: bool) {
     let vid = p.villes[p.capitale(0).unwrap()].id;
     let _ = executer(p, &json!({"action": "ameliorer", "ville": vid}));
     let econome = p.niveau_capitale(0) == 1 && j.pop >= 40;
-    // en approchant du rang de Village, la scierie ne dévore pas le bois que demande l'Hôtel de ville
-    let garder_bois = p.niveau_capitale(0) == 1 && j.pop >= 30 && j.stock["bois"] < 60.0 && j.stock["planches"] >= 30.0;
-    // l'automne et l'hiver, on garde trois mois de grand froid de bois de chauffage : scierie et fonderie s'arrêtent
-    let c = &regles().chauffage;
-    let reserve = j.pop as f64 * c.par_habitant * c.grand_froid * 3.0;
-    let froid = matches!(meteo::saison(meteo::mois(p.tour)), 0 | 3) && j.stock["bois"] < reserve;
-    let garder_bois = garder_bois || froid;
-    // et s'il manque encore du bois, on en achète aux rivaux (par lots de 10) tant que le trésor le permet
-    for k in 1..p.royaumes.len() {
-        while froid && p.joueur().stock["bois"] < reserve && p.joueur().stock["or"] > 200.0 {
-            if executer(p, &json!({"action": "echanger", "royaume": k, "ressource": "bois", "achat": true})).is_err() {
-                break;
-            }
-        }
-    }
-    for b in p.batiments.iter().filter(|b| b.proprio == 0 && matches!(b.cle.as_str(), "scierie" | "fonderie") && b.pause != garder_bois).map(|b| b.id).collect::<Vec<_>>() {
-        let _ = executer(p, &json!({"action": "pause", "batiment": b}));
-    }
     if econome {
         if nb(p, "bucheron") < 3 {
             construire(p, "bucheron");
         }
-        // les bois des bûcherons s'épuisent : un forestier replante ; sur une petite île aux forêts rasées, le bois
-        // de l'Hôtel de ville ne viendra que d'arbres replantés, et les bûcherons sans arbres rendent leurs bras
+        // les bois des bûcherons s'épuisent : un forestier replante, et les bûcherons sans arbres rendent leurs bras
         let rases = p.batiments.iter().any(|b| b.proprio == 0 && b.cle == "bucheron" && b.etat.starts_with("🌲"));
-        if (rases || j.stock["bois"] < 60.0) && nb(p, "forestier") == 0 {
+        if rases && nb(p, "forestier") == 0 {
             construire(p, "forestier");
         }
-        if j.stock["bois"] < 60.0 {
-            for c in p.batiments.iter().filter(|b| b.proprio == 0 && b.cle == "bucheron" && b.etat.starts_with("🌲")).map(|b| b.case).collect::<Vec<_>>() {
-                let _ = executer(p, &json!({"action": "demolir", "case": c}));
-            }
+        for c in p.batiments.iter().filter(|b| b.proprio == 0 && b.cle == "bucheron" && b.etat.starts_with("🌲")).map(|b| b.case).collect::<Vec<_>>() {
+            let _ = executer(p, &json!({"action": "demolir", "case": c}));
+        }
+        if nb(p, "pecheur") + nb(p, "ferme") < 2 {
+            let _ = construire(p, "pecheur") || construire(p, "ferme");
         }
         return;
     }
@@ -82,9 +63,9 @@ fn robot(p: &mut Partie, militaire: bool) {
     if p.niveau_capitale(0) >= 2 && vivres < j.pop as f64 * 2.0 && nb(p, "pecheur") + nb(p, "ferme") < 4 + j.pop as usize / 30 {
         let _ = construire(p, "pecheur") || construire(p, "ferme");
     }
-    // le bois de chauffage : quand les forêts voisines sont rasées, un bûcheron part vers une forêt intacte
+    // la production : quand les forêts voisines sont rasées, un bûcheron part vers une forêt intacte
     let abattent = p.batiments.iter().filter(|b| b.proprio == 0 && b.cle == "bucheron" && !b.etat.starts_with("🌲")).count();
-    if froid && abattent < 2 && nb(p, "bucheron") < 8 {
+    if abattent < 2 && nb(p, "bucheron") < 8 {
         construire(p, "bucheron");
     }
     let voulus: &[(&str, usize)] = &[
@@ -209,15 +190,14 @@ fn campagne(o: Options, fortifient: bool) {
         if mois % 12 == 11 {
             let j = p.joueur();
             println!(
-                "{} · pop {} · bonheur {:.0} · or {:.0} · bois {:.0} · pain {:.0} · poisson {:.0} · blé {:.0} · bât. {} · techs {} · rang {} · rivaux {} bât. · navires {} · espions {} · explorées {}",
+                "{} · pop {} · bonheur {:.0} · or {:.0} · nourriture {:.0} · fer {:.0} · 🔨 capitale {:.0} · bât. {} · techs {} · rang {} · rivaux {} bât. · navires {} · espions {} · explorées {}",
                 r.date,
                 j.pop,
                 j.bonheur,
                 j.stock["or"],
-                j.stock["bois"],
-                j.stock["pain"],
-                j.stock["poisson"],
-                j.stock["ble"],
+                j.stock["nourriture"],
+                j.stock["fer"],
+                p.production_ville(p.capitale(0).unwrap()),
                 p.batiments.iter().filter(|b| b.proprio == 0).count(),
                 j.techs.len(),
                 p.niveau_capitale(0),
@@ -359,8 +339,15 @@ fn routes_tracees_et_ameliorees() {
     assert!(p.segments_routes(0) >= 1, "routes de départ");
     assert!(p.routes.iter().all(|r| p.carte.dist(r[0], r[1]) == 1), "une route relie deux cases voisines");
     // un puits d'abord : un incendie ne réduira pas le bûcheron en cendres pendant l'essai
-    assert!(construire(&mut p, "puits") && construire(&mut p, "bucheron"));
-    p.fin_du_mois();
+    assert!(construire(&mut p, "puits"));
+    assert!(!construire(&mut p, "bucheron"), "un chantier à la fois dans la ville");
+    while p.batiments.iter().any(|b| b.proprio == 0 && b.cle == "puits" && !b.fini()) {
+        p.fin_du_mois();
+    }
+    assert!(construire(&mut p, "bucheron"));
+    while p.batiments.iter().any(|b| b.proprio == 0 && b.cle == "bucheron" && !b.fini()) {
+        p.fin_du_mois();
+    }
     p.fin_du_mois();
     let b = p.batiments.iter().find(|b| b.proprio == 0 && b.cle == "bucheron").unwrap().case;
     assert!(p.carte.cases[b].route == 1, "le bûcheron achevé est relié");
@@ -368,8 +355,7 @@ fn routes_tracees_et_ameliorees() {
     assert!(executer(&mut p, &json!({"action": "ameliorer_routes"})).is_err());
     let ci = p.capitale(0).unwrap();
     p.villes[ci].niveau = 2;
-    p.royaumes[0].stock.insert("pierre".into(), 500.0);
-    p.royaumes[0].stock.insert("or".into(), 500.0);
+    p.royaumes[0].stock.insert("or".into(), 800.0);
     assert!(executer(&mut p, &json!({"action": "ameliorer_routes"})).is_ok());
     assert_eq!(p.carte.cases[b].route, 2);
     let avant = p.cout_case(b);

@@ -141,8 +141,17 @@ pub fn etat(p: &Partie) -> Value {
             "fortif": v.fortif, "fortif_nom": rg.fortif(v.fortif).map_or("Ville ouverte", |f| f.nom.as_str()),
             "travaux_fortif": if v.travaux_fortif > 0 { json!(v.travaux_fortif) } else { Value::Null },
             "fortif_suivante": suivante, "enceinte": p.enceinte(i),
+            // production (🔨) par mois et chantier en cours (un seul à la fois par ville)
+            "production": if mien { json!(p.production_ville(i)) } else { Value::Null },
+            "chantier": if mien { p.chantier_de(v.id).map(|bi| {
+                let b = &p.batiments[bi];
+                let d = rg.bat(&b.cle);
+                json!({"batiment": b.id, "cle": b.cle, "case": b.case, "nom": d.map_or("", |d| d.nom.as_str()), "icone": d.map_or("", |d| d.icone.as_str()),
+                       "avance": b.avance, "cout": d.map_or(0.0, |d| d.production), "reste": b.reste})
+            }) } else { None },
         })
     }).collect();
+    let produit = |r: &str| p.batiments.iter().filter(|b| b.proprio == 0).filter_map(|b| b.produit.get(r)).sum::<f64>();
     json!({
         "tour": p.tour,
         "date": meteo::date_texte(p.tour),
@@ -174,6 +183,13 @@ pub fn etat(p: &Partie) -> Value {
             "recherche": j.recherche,
             "savoir": j.savoir,
             "savoir_mois": p.savoir_mois(0),
+            // les quatre rendements du royaume par mois (🔨 somme des villes, 🌾 et 🪙 nets du mois dernier, 💡)
+            "rendements": {
+                "production": (0..p.villes.len()).filter(|&vi| p.villes[vi].proprio == 0).map(|vi| p.production_ville(vi)).sum::<f64>(),
+                "nourriture": produit("nourriture") - j.pop as f64 * 0.3,
+                "or": produit("or") + ["impots", "commerce", "commerce_mer"].iter().map(|k| j.revenus.get(*k).copied().unwrap_or(0.0)).sum::<f64>() - j.revenus.get("entretien").copied().unwrap_or(0.0),
+                "savoir": p.savoir_mois(0),
+            },
             // bois (ou équivalent en charbon) que brûleront les foyers à la fin du mois (0 hors de l'hiver)
             "chauffage": j.pop as f64 * p.chauffage_par_habitant(),
             "famine": j.famine,
@@ -210,7 +226,7 @@ pub fn etat(p: &Partie) -> Value {
         }).collect::<Vec<_>>(),
         "villes": villes,
         "batiments": p.batiments.iter().filter(|b| b.proprio == 0 || connu(b.case)).map(|b| json!({
-            "id": b.id, "cle": b.cle, "proprio": b.proprio, "case": b.case, "reste": b.reste,
+            "id": b.id, "cle": b.cle, "proprio": b.proprio, "case": b.case, "reste": b.reste, "avance": b.avance,
             "ouvriers": b.ouvriers as i64 * HOMMES, "etat": b.etat, "pause": b.pause, "file": b.file, "face": b.face,
             "ville": b.ville, "produit": b.produit, "arret": if b.arret > p.tour { json!(b.arret) } else { Value::Null },
         })).collect::<Vec<_>>(),

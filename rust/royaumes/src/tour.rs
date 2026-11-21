@@ -10,8 +10,11 @@ use crate::meteo::{self, Effets, Meteo};
 use crate::partie::{Combat, Evenement, Fin, Mouvement, Partie, Rapport, BRIGANDS};
 use crate::regles::{regles, Panier};
 
+/// Or d'entretien par bâtiment achevé et par mois (comme dans Civilization : ce qu'on bâtit se paie chaque mois).
+pub const ENTRETIEN_BATIMENT: f64 = 0.5;
+
 /// L'offre du colporteur : (ressource, quantité, prix en or).
-pub const COLPORTEUR: (&str, f64, f64) = ("outils", 15.0, 120.0);
+pub const COLPORTEUR: (&str, f64, f64) = ("fer", 10.0, 120.0);
 
 pub struct Quete {
     pub texte: &'static str,
@@ -452,7 +455,7 @@ impl Partie {
             let or = st.entry("or".into()).or_insert(0.0);
             let g = (*or * 0.25).floor();
             *or -= g;
-            for r in ["bois", "pierre", "pain", "poisson", "ble"] {
+            for r in ["nourriture", "fer", "charbon"] {
                 if let Some(x) = st.get_mut(r) {
                     *x *= 0.8;
                 }
@@ -530,13 +533,22 @@ impl Partie {
 
     // ------------------------------------------------------------------ chantiers
     fn chantiers(&mut self, rapport: &mut Rapport) {
+        // chaque chantier reçoit la production (🔨) de sa ville ; il s'achève quand elle couvre son coût
         let mut finis = Vec::new();
-        for b in self.batiments.iter_mut() {
-            if b.reste > 0 {
-                b.reste -= 1;
-                if b.reste == 0 {
-                    finis.push(b.id);
-                }
+        for bi in 0..self.batiments.len() {
+            if self.batiments[bi].fini() {
+                continue;
+            }
+            let b = &self.batiments[bi];
+            let bonus = if b.proprio == 0 { 1.0 } else { ia::bonus_production(self.options.difficulte) };
+            let prod = bonus * b.ville.and_then(|v| self.villes.iter().position(|x| x.id == v && x.proprio == b.proprio)).map_or(3.0, |vi| self.production_ville(vi));
+            let cout = regles().bat(&b.cle).map_or(0.0, |d| d.production);
+            self.batiments[bi].avance += prod;
+            if self.batiments[bi].avance + 1e-9 >= cout {
+                self.batiments[bi].reste = 0;
+                finis.push(self.batiments[bi].id);
+            } else {
+                self.estimer_chantier(bi);
             }
         }
         let mut territoire = false;
@@ -798,7 +810,7 @@ impl Partie {
                 }
             }
             for (r, v) in &d.prod {
-                if r == "or" {
+                if r == "or" || r == "production" {
                     continue;
                 }
                 let place = (cap[r] - st.get(r).copied().unwrap_or(0.0)).max(0.0);
@@ -812,9 +824,10 @@ impl Partie {
                 continue;
             }
             if b.cle == "bucheron" {
-                let voulu = d.prod["bois"] * f;
+                // 3 de bois sur pied abattus par point de production
+                let voulu = d.prod["production"] * f * 3.0;
                 let obtenu = self.abattre(i, voulu);
-                f = obtenu / d.prod["bois"];
+                f = obtenu / 3.0 / d.prod["production"];
                 if obtenu <= 1e-6 {
                     self.batiments[i].etat = "🌲 Plus d'arbres à proximité".into();
                     continue;
@@ -828,7 +841,10 @@ impl Partie {
                     *x = (*x - v * f).max(0.0);
                 }
                 for (r, v) in &d.prod {
-                    *st.entry(r.clone()).or_insert(0.0) += v * f;
+                    // la production (🔨) ne se stocke pas : elle va au chantier de la ville (`chantiers`, d'après `produit`)
+                    if r != "production" {
+                        *st.entry(r.clone()).or_insert(0.0) += v * f;
+                    }
                     produit.insert(r.clone(), v * f);
                 }
             }
@@ -867,25 +883,10 @@ impl Partie {
         // boissons, drap, chauffage
         let mut boisson = 0.0;
         if s.taverne > 0.0 && pop > 0.0 {
-            let couv = (s.taverne / pop).min(1.0);
-            let mut besoin = s.taverne.min(pop) * 0.1;
-            let dispo: f64 = rg.boissons.iter().map(|r| st.get(r).copied().unwrap_or(0.0)).sum();
-            let ratio = if besoin > 0.0 { (dispo / besoin).min(1.0) } else { 0.0 };
-            for r in &rg.boissons {
-                let x = st.entry(r.clone()).or_insert(0.0);
-                let t = x.min(besoin);
-                *x -= t;
-                besoin -= t;
-            }
-            boisson = couv * ratio;
+            boisson = (s.taverne / pop).min(1.0);
         }
-        let besoin_drap = pop * 0.05;
-        let drap = if st.get("tissu").copied().unwrap_or(0.0) >= besoin_drap && besoin_drap > 0.0 {
-            *st.get_mut("tissu").unwrap() -= besoin_drap;
-            true
-        } else {
-            false
-        };
+        // un atelier de drap actif habille le peuple
+        let drap = self.batiments.iter().any(|b| b.proprio == id && matches!(b.cle.as_str(), "tisserand" | "manufacture" | "filature") && self.actif(b));
         let chauffage = self.chauffer(id, pop);
         let gele = chauffage.is_some_and(|v| v < 0.0);
         // bonheur
@@ -895,8 +896,8 @@ impl Partie {
         let impots = self.royaumes[k].impots.clone();
         let mut detail: Vec<(String, f64)> = vec![
             ("Base".into(), 35.0),
-            ("Nourriture".into(), if famine { -30.0 } else { [0.0, 6.0, 11.0, 15.0, 18.0, 20.0][variete.min(5) as usize] }),
-            ("Bière et vin (tavernes)".into(), (10.0 * boisson).round()),
+            ("Nourriture".into(), if famine { -30.0 } else { 8.0 }),
+            ("Tavernes".into(), (10.0 * boisson).round()),
             ("Foi".into(), (10.0 * foi).round()),
             ("Hygiène".into(), (7.0 * hyg).round()),
             ("Vêtements".into(), if drap { 8.0 } else { 0.0 }),
@@ -951,7 +952,7 @@ impl Partie {
         let commerce = self.routes_commerciales(id) * 25.0 * routes;
         let nb_bat = self.batiments.iter().filter(|b| b.proprio == id && b.fini()).count() as f64;
         let eclairage = eclairees * el.entretien;
-        let entretien = s.soldats as f64 * 0.5 + nb_bat * 0.2 + s.entretien_flotte + self.entretien_forts(id) + eclairage;
+        let entretien = s.soldats as f64 * 0.5 + nb_bat * ENTRETIEN_BATIMENT + s.entretien_flotte + self.entretien_forts(id) + eclairage;
         let commerce_mer = self.commerce_maritime(id);
         let j = &mut self.royaumes[k];
         j.commerce_mer = commerce_mer;
@@ -973,7 +974,7 @@ impl Partie {
         ]);
         for (r, v) in j.stock.iter_mut() {
             if r != "or" {
-                *v = v.min(cap[r]).max(0.0);
+                *v = v.min(cap.get(r).copied().unwrap_or(0.0)).max(0.0);
             }
         }
         let mut bilan = Panier::new();
@@ -1121,9 +1122,9 @@ impl Partie {
         let joueur = k == 0;
         if x < 0.04 && self.a_batiment(id, "ferme") && meteo::saison(meteo::mois(self.tour)) >= 2 {
             let st = &mut self.royaumes[k].stock;
-            *st.entry("ble".into()).or_insert(0.0) += 40.0;
+            *st.entry("nourriture".into()).or_insert(0.0) += 40.0;
             if joueur {
-                self.evt(rapport, "🌾 Moisson exceptionnelle : +40 blé".into(), "bon", None);
+                self.evt(rapport, "🌾 Moisson exceptionnelle : +40 nourriture".into(), "bon", None);
             }
         } else if x < 0.07 && s.logement > self.royaumes[k].pop {
             let n = 6.min(s.logement - self.royaumes[k].pop);
@@ -1143,7 +1144,7 @@ impl Partie {
                 id,
                 de: 0,
                 genre: "marchand".into(),
-                texte: "Un colporteur propose 15 🔨 outils pour 120 🪙.".into(),
+                texte: "Un colporteur propose 10 🔩 fer pour 120 🪙.".into(),
                 donne: Panier::from([(COLPORTEUR.0.to_string(), COLPORTEUR.1)]),
                 demande: Panier::from([("or".to_string(), COLPORTEUR.2)]),
                 ..Default::default()
@@ -1215,7 +1216,6 @@ mod essais {
                 p.poser(cle, c, 0, false);
             }
         }
-        let avant = p.joueur().stock["bois"];
         for _ in 0..24 {
             let r = p.fin_du_mois();
             assert!(!r.date.is_empty());
@@ -1223,8 +1223,7 @@ mod essais {
         assert_eq!(p.tour, 24 + crate::partie::TOUR_DEPART);
         assert!(p.joueur().pop >= 1);
         assert!(p.batiments.iter().any(|b| b.cle == "bucheron" && b.fini()));
-        assert!(p.joueur().stock["bois"] >= 0.0);
-        let _ = avant;
+        assert!(p.joueur().stock.values().all(|&v| v >= 0.0));
         // les IA ont grandi
         assert!(p.batiments.iter().filter(|b| b.proprio != 0).count() > 15);
     }
