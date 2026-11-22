@@ -18,8 +18,9 @@ jobs:
           node-version: '22'
 
       # le moteur et le serveur : génération de carte, météo, règles, ordres, tours, campagne de dix ans, sauvegarde
+      # avec les outils de développement : la maquette « Guerre et diplomatie » doit rester celle que donnent ses sources
       - name: Moteur et serveur (Rust)
-        run: cargo test --locked -p royaumes
+        run: cargo test --locked -p royaumes --features outils
 
       # l'interface : chaque module JavaScript doit au moins se lire
       - name: Interface (syntaxe)

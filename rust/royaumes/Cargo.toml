@@ -13,3 +13,16 @@ serde_json = { version = "1", features = ["preserve_order"] }
 # Serveur HTTP/HTTPS et appairage : communs aux web tools (dépôt web_suite)
 # feature production : mise à jour sans git de la copie de production (archive web_royaumes-prod)
 web_tools_commun = { git = "https://github.com/pilou33620/web_suite", rev = "a9d9d90638718302b92ee862bbd415c16bb218fc", features = ["production"] }
+
+# Outils de développement (maquettes) : compilés seulement avec --features outils, donc ni dans bin/ ni dans les
+# archives publiées (cargo build --bins les laisse de côté).
+[features]
+outils = []
+
+[[bin]]
+name = "maquette_guerre"
+required-features = ["outils"]
+
+[[bin]]
+name = "maquette_quartiers"
+required-features = ["outils"]

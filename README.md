@@ -164,6 +164,7 @@ web/                  l'interface (index.html, css/, js/) ; images, icônes et r
                       `bash outils/maj-graphismes.sh` ; la CI vérifie que ce dossier est identique à web_engine
 outils/maj-graphismes.sh   met à jour web/graphismes depuis web_engine (aussi chaque lundi par l'action « graphismes »)
 maquettes/            maquettes 3D validées avant intégration (rendu, armées, guerre, vie des quartiers)
+                      assemblées par `cargo run -p royaumes --features outils --bin maquette_guerre` (ou maquette_quartiers)
 tests/navigateur.py   banc d'essai de l'interface dans Chrome (Playwright)
 ```
 
