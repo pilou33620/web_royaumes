@@ -21,6 +21,8 @@ obtenir_binaires() {
   if command -v cargo >/dev/null 2>&1; then
     cargo build --release -p royaumes --bins || return 1
     for f in target/release/*; do
+      # navigateur : outil de développement (caisse rust/navigateur), jamais dans bin/
+      [ "$(basename "$f")" = navigateur ] && continue
       if [ -f "$f" ] && [ -x "$f" ]; then
         # copie puis renommage : un exécutable en cours d'usage ne se réécrit pas
         cp "$f" "bin/.neuf" && mv -f "bin/.neuf" "bin/$(basename "$f")"

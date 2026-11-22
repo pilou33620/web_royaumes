@@ -165,9 +165,13 @@ web/                  l'interface (index.html, css/, js/) ; images, icônes et r
 outils/maj-graphismes.sh   met à jour web/graphismes depuis web_engine (aussi chaque lundi par l'action « graphismes »)
 maquettes/            maquettes 3D validées avant intégration (rendu, armées, guerre, vie des quartiers)
                       assemblées par `cargo run -p royaumes --features outils --bin maquette_guerre` (ou maquette_quartiers)
-tests/navigateur.py   banc d'essai de l'interface dans Chrome (Playwright)
+rust/navigateur/       banc d'essai de l'interface dans Chromium (outil de développement, hors bin/ et archives)
 ```
 
 Bancs d'essai : `cargo test --locked -p royaumes` (dont une campagne de dix ans jouée par un robot, dix ans de rivaux laissés
 seuls aux trois difficultés et la relecture d'une sauvegarde). Interface : serveur lancé, puis
-`python3 tests/navigateur.py`.
+`cargo run -p navigateur -- [url]` (par défaut `http://127.0.0.1:8800/`). Il pilote Chromium par le protocole DevTools
+(`headless_chrome`) au format téléphone, joue une partie (construction, fins de mois, saisons, météo, quartiers la nuit) et
+dépose ses captures dans `/tmp/royaumes-*.png`. `CHROME=/chemin/vers/chrome` pour un navigateur précis ; sinon le Chromium
+de Playwright (`/opt/pw-browsers`) s'il existe, puis `chrome` ou `chromium` du PATH. Outil de développement : ni dans
+`bin/`, ni dans les archives publiées, et `cargo build` à la racine ne compile que le jeu. La CI le compile.

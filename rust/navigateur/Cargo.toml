@@ -1,0 +1,12 @@
+[package]
+name = "navigateur"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Outil de développement : banc d'essai de l'interface dans Chromium (hors des archives publiées et de bin/)"
+
+[dependencies]
+anyhow = "1"
+# pilote Chromium par le protocole DevTools ; feature par défaut « offline » : protocole embarqué, rien à télécharger
+headless_chrome = "1.0.22"
+serde_json = "1"

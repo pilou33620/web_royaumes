@@ -1,6 +1,8 @@
 [workspace]
 resolver = "2"
-members = ["rust/royaumes"]
+members = ["rust/royaumes", "rust/navigateur"]
+# navigateur : outil de développement, compilé seulement sur demande (cargo run -p navigateur)
+default-members = ["rust/royaumes"]
 
 [profile.release]
 opt-level = 3

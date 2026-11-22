@@ -29,3 +29,8 @@ jobs:
       # les graphismes viennent de la bibliothèque commune web_engine : ils se modifient là-bas, pas ici
       - name: Graphismes (identiques à la bibliothèque web_engine)
         run: bash outils/maj-graphismes.sh --verifier
+
+      # le banc d'essai de l'interface dans Chromium (outil de développement, caisse rust/navigateur) :
+      # il lui faut le serveur et WebGL, il est seulement compilé ici
+      - name: Banc d'essai de l'interface (compilation)
+        run: cargo build --locked -p navigateur

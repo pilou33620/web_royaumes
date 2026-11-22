@@ -11,6 +11,8 @@ where cargo >nul 2>nul
 if not errorlevel 1 (
   cargo build --release -p royaumes --bins || exit /b 1
   copy /y target\release\*.exe bin\ >nul 2>nul
+  rem navigateur : outil de developpement, caisse rust/navigateur, jamais dans bin
+  if exist bin\navigateur.exe del /q bin\navigateur.exe
   exit /b 0
 )
 set ICI=
