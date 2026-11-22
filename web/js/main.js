@@ -445,7 +445,7 @@ async function menu(v) {
     <p><b>Événements</b> — tous les trois ou quatre mois, une affaire se présente : à vous de trancher.</p>`, [{ l: 'Compris', v: true }]);
   if (v === 'reseau') {
     const i = await api.info();
-    ui.modale('📱 Jouer depuis un autre appareil', i.reseau?.length ? `<p>Sur le même Wi-Fi, ouvrez :</p>${i.reseau.map(a => `<p><b>${a}</b></p>`).join('')}<p class="mini">Le serveur affiche un code d'appairage à saisir la première fois.</p>` : '<p>Le jeu n\'est ouvert qu\'à cet ordinateur. Lancez <b>lancer-reseau.bat</b> (Windows) ou <b>./lancer.sh --lan</b> pour y jouer depuis l\'iPad.</p>', [{ l: 'OK', v: true }]);
+    ui.modale('📱 Jouer depuis un autre appareil', i.reseau?.length ? `<p>Sur le même Wi-Fi, ouvrez :</p>${i.reseau.map(a => `<p><b>${a}</b></p>`).join('')}<p class="mini">Le serveur affiche un code d'appairage à saisir la première fois.</p>` : '<p>Le jeu n\'est ouvert qu\'à cet ordinateur. Lancez <b>lancer-reseau.bat</b> (Windows) ou <b>./demarrer_WEB_ROYAUMES.sh --lan</b> pour y jouer depuis l\'iPad.</p>', [{ l: 'OK', v: true }]);
   }
 }
 function retourAccueil() {
@@ -463,7 +463,7 @@ async function demarrer() {
   try {
     [J.R, J.info] = await Promise.all([api.regles(), api.info()]);
   } catch (err) {
-    $('#chargement-texte').textContent = 'Le serveur du jeu ne répond pas. Lancez-le avec lancer.sh ou lancer.bat.';
+    $('#chargement-texte').textContent = 'Le serveur du jeu ne répond pas. Lancez-le avec demarrer_WEB_ROYAUMES (.sh ou .cmd).';
     return;
   }
   initMonde(J.R);

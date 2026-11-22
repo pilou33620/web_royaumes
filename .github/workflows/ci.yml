@@ -19,7 +19,7 @@ jobs:
 
       # le moteur et le serveur : génération de carte, météo, règles, ordres, tours, campagne de dix ans, sauvegarde
       - name: Moteur et serveur (Rust)
-        run: cargo test -p royaumes
+        run: cargo test --locked -p royaumes
 
       # l'interface : chaque module JavaScript doit au moins se lire
       - name: Interface (syntaxe)

@@ -11,4 +11,5 @@ doctest = false
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 # Serveur HTTP/HTTPS et appairage : communs aux web tools (dépôt web_suite)
-web_tools_commun = { git = "https://github.com/pilou33620/web_suite", rev = "f4165391c090bdb8670d72eedef7b486f2e6afa1" }
+# feature production : mise à jour sans git de la copie de production (archive web_royaumes-prod)
+web_tools_commun = { git = "https://github.com/pilou33620/web_suite", rev = "a9d9d90638718302b92ee862bbd415c16bb218fc", features = ["production"] }

@@ -13,7 +13,8 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 use web_tools_commun::appairage::{self, Garde};
-use web_tools_commun::serveur::{Reponse, Requete, Serveur};
+use web_tools_commun::production;
+use web_tools_commun::serveur::{decoder_chemin, Reponse, Requete, Serveur};
 
 use crate::carte::{Carte, Options};
 use crate::commandes;
@@ -23,6 +24,8 @@ use crate::vue;
 pub const PORT: u16 = 8795;
 pub const AUTO: &str = "sauvegarde-automatique";
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+/// Le dépôt, d'où vient aussi l'archive de production web_royaumes-prod (publication « binaires »).
+const DEPOT: &str = "https://github.com/pilou33620/web_royaumes";
 
 /// La racine du jeu (web/, saves/) : le dossier courant s'il contient web/index.html, sinon le premier
 /// dossier au-dessus de l'exécutable qui le contient.
@@ -180,8 +183,9 @@ fn liste_sauvegardes() -> Vec<Value> {
     v
 }
 
-fn type_mime(p: &Path) -> &'static str {
-    match p.extension().and_then(|x| x.to_str()).unwrap_or("") {
+/// Liste blanche : une extension absente de la table n'est pas servie (404).
+fn type_mime(p: &Path) -> Option<&'static str> {
+    Some(match p.extension().and_then(|x| x.to_str()).unwrap_or("") {
         "html" => "text/html; charset=utf-8",
         "js" | "mjs" => "text/javascript; charset=utf-8",
         "css" => "text/css; charset=utf-8",
@@ -190,22 +194,24 @@ fn type_mime(p: &Path) -> &'static str {
         "png" => "image/png",
         "svg" => "image/svg+xml",
         "ico" => "image/x-icon",
-        _ => "application/octet-stream",
-    }
+        _ => return None,
+    })
 }
 
-/// Un fichier de web/ ; rien hors de ce dossier.
+/// Un fichier de web/, rien hors de ce dossier : chemin décodé par decoder_chemin (un « + » reste un « + »), chaque
+/// segment ordinaire et sans point en tête (ni « .. », ni fichier caché), une extension de la table ; sinon 404.
 fn fichier(chemin: &str) -> Reponse {
-    let rel = if chemin == "/" { "index.html" } else { chemin.trim_start_matches('/') };
-    let rel = web_tools_commun::serveur::decoder_url(rel);
+    let introuvable = || Reponse::texte(404, "introuvable");
+    let rel = decoder_chemin(if chemin == "/" { "index.html" } else { chemin.trim_start_matches('/') });
     let p = Path::new(&rel);
-    if p.components().any(|c| !matches!(c, Component::Normal(_))) {
-        return Reponse::texte(403, "interdit");
+    let sur = p.components().all(|c| matches!(c, Component::Normal(s) if !s.to_string_lossy().starts_with('.')));
+    let Some(mime) = type_mime(p) else { return introuvable() };
+    if !sur {
+        return introuvable();
     }
-    let f = racine().join("web").join(p);
-    match std::fs::read(&f) {
-        Ok(o) => Reponse::new(200, type_mime(&f), o),
-        Err(_) => Reponse::texte(404, "introuvable"),
+    match std::fs::read(racine().join("web").join(p)) {
+        Ok(o) => Reponse::new(200, mime, o),
+        Err(_) => introuvable(),
     }
 }
 
@@ -361,7 +367,14 @@ pub fn main() {
     };
     let mut maj = String::new();
     if !args.no_update {
-        match mise_a_jour() {
+        // copie de production (archive web_royaumes-prod, sans git) : par la publication « binaires », sinon par git ;
+        // demarrer_WEB_ROYAUMES reprend alors l'exécutable de la nouvelle version (code 75)
+        let r = if production::est_copie_prod(racine()) {
+            production::mettre_a_jour(DEPOT, "web_royaumes", racine(), &|t| println!("Mises à jour : {t}"))
+        } else {
+            mise_a_jour()
+        };
+        match r {
             Ok(true) if std::env::var_os("ROYAUMES_RELANCEUR").is_some() => {
                 println!("Nouvelle version installée : relance du jeu…");
                 std::process::exit(75);
@@ -418,6 +431,19 @@ mod essais {
         assert!(lire_args(&a(&["--port"])).is_err());
         assert!(lire_args(&a(&["--inconnu"])).is_err());
         assert_eq!(lire_args(&a(&["--port=8800"])).unwrap().port, 8800);
+    }
+
+    #[test]
+    fn fichiers_de_web() {
+        // seuls les fichiers de web/ d'une extension connue sortent ; le chemin est décodé (%6d = m)
+        let code = |p: &str| fichier(p).code;
+        for ok in ["/", "/index.html", "/js/main.js", "/js/%6dain.js"] {
+            assert_eq!(code(ok), 200, "{ok}");
+        }
+        let refus = ["/../Cargo.toml", "/%2e%2e/Cargo.toml", "/js/../../Cargo.toml", "/graphismes/three/LICENSE", "/js/", "/.git/HEAD", "/js/.absent.js"];
+        for non in refus {
+            assert_eq!(code(non), 404, "{non}");
+        }
     }
 
     #[test]

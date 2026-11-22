@@ -75,10 +75,19 @@ qui s'ouvre dans le navigateur, comme web_conquete.
 - **Victoires** : conquête, prospérité (Cité + Palais royal + 4 000 habitants), diplomatie (alliance avec tous),
   ou meilleur royaume en décembre 1850.
 
-## Lancer le jeu
+## Installer et lancer le jeu
 
-Rien à installer : le script de lancement prend l'exécutable du jeu (`bin/royaumes`, `bin\royaumes.exe` sous Windows)
-par `binaires.sh` (`binaires.cmd` sous Windows). Si Rust (`cargo`) est installé, il le compile sur place (la première
+**Pour jouer : l'archive de production.** Sans git ni Rust : télécharger l'archive de son système dans la
+publication GitHub « binaires » (https://github.com/pilou33620/web_royaumes/releases/tag/binaires) —
+`web_royaumes-prod-windows-x86_64.zip`, `web_royaumes-prod-linux-x86_64.tar.gz`,
+`web_royaumes-prod-linux-aarch64.tar.gz` (Raspberry Pi OS 64 bits) ou `web_royaumes-prod-macos-aarch64.tar.gz`
+(Mac à puce Apple) —, la décompresser où l'on veut, puis lancer `demarrer_WEB_ROYAUMES` dans le dossier
+`web_royaumes/` obtenu. Elle contient l'exécutable (`bin/`), la page (`web/`), les scripts de démarrage et ce README ;
+ni sources ni historique.
+
+**Pour développer : git.** `git clone https://github.com/pilou33620/web_royaumes.git`, puis `demarrer_WEB_ROYAUMES`.
+Le script prend l'exécutable du jeu (`bin/royaumes`, `bin\royaumes.exe` sous Windows) par `scripts/binaires.sh`
+(`scripts\binaires.cmd` sous Windows). Si Rust (`cargo`) est installé, il le compile sur place (la première
 fois prend quelques minutes ; la compilation récupère aussi la caisse commune `web_tools_commun`, du dépôt web_suite).
 Sinon il le télécharge, une fois par version, depuis la publication GitHub « binaires » (Linux x86_64 et aarch64,
 macOS sur puce Apple, Windows x86_64), recompilée à chaque envoi sur main, et refuse l'archive si son empreinte
@@ -86,17 +95,21 @@ SHA-256 n'est pas celle publiée avec elle.
 
 | Système | Commande |
 |---|---|
-| Windows | double-clic sur `lancer.bat` (`lancer-reseau.bat` pour y jouer depuis l'iPad) |
-| Linux, macOS | `./lancer.sh` |
-| Raspberry Pi | `./lancer.sh` (sans écran : ouvert au réseau local, adresse affichée), ou `sh raspberry/installer.sh` pour un démarrage automatique |
-| Android (Termux) | `pkg install rust git`, puis `./lancer.sh --no-browser` et ouvrir `http://127.0.0.1:8795` |
+| Windows | double-clic sur `demarrer_WEB_ROYAUMES.cmd` (`lancer-reseau.bat` pour y jouer depuis l'iPad) |
+| Linux, macOS | `./demarrer_WEB_ROYAUMES.sh` |
+| Raspberry Pi | `./demarrer_WEB_ROYAUMES.sh` (sans écran : ouvert au réseau local, adresse affichée), ou `sh raspberry/installer.sh` pour un démarrage automatique |
+| Android (Termux) | `pkg install rust git`, puis `./demarrer_WEB_ROYAUMES.sh --no-browser` et ouvrir `http://127.0.0.1:8795` |
 | iPad | joue par le réseau sur le jeu lancé sur un Raspberry Pi ou un PC (Safari, puis « Sur l'écran d'accueil ») |
+
+En cas d'erreur au démarrage, la fenêtre (ou le terminal) reste ouverte avec la raison. Les anciens noms `lancer.sh`,
+`lancer.bat` et `lancer-reseau.bat` restent, en relais vers `demarrer_WEB_ROYAUMES`.
 
 Options : `--lan` (ouvert au réseau local), `--local` (cette machine seulement), `--port 8795`, `--no-browser`,
 `--browser`, `--no-update`. En mode réseau, un code d'appairage (commun aux web tools) est demandé la première fois.
 
-Installé avec `git clone`, le jeu cherche une mise à jour à chaque démarrage (avance rapide seulement) et se relance
-tout seul. La partie est sauvegardée à chaque mois dans `saves/` ; on peut aussi la sauvegarder sous un nom.
+Le jeu cherche une mise à jour à chaque démarrage et se relance tout seul : copie de production, par l'archive publiée
+(empreinte SHA-256 vérifiée, seuls les fichiers de l'archive sont remplacés) ; clone git, par `git pull` en avance
+rapide seulement. Les sauvegardes ne sont jamais touchées. La partie est sauvegardée à chaque mois dans `saves/` ; on peut aussi la sauvegarder sous un nom.
 
 ## Comment jouer
 
@@ -125,6 +138,10 @@ tout seul. La partie est sauvegardée à chaque mois dans `saves/` ; on peut aus
 ## Organisation
 
 ```
+demarrer_WEB_ROYAUMES.sh, .cmd   lancement ; relance après une mise à jour (code 75), fenêtre ouverte en cas d'erreur
+                      (lancer.sh, lancer.bat, lancer-reseau.bat : anciens noms, en relais)
+scripts/binaires.sh, .cmd   l'exécutable dans bin/ : compilé si cargo est là, sinon téléchargé (publication
+                      « binaires ») ; rien à faire dans une copie de production
 rust/royaumes/        le moteur et le serveur (Rust)
   data/regles.json    bâtiments, unités, technologies, époques, prix (envoyé tel quel à l'interface)
   src/carte.rs        génération de la carte
@@ -150,6 +167,6 @@ maquettes/            maquettes 3D validées avant intégration (rendu, armées,
 tests/navigateur.py   banc d'essai de l'interface dans Chrome (Playwright)
 ```
 
-Bancs d'essai : `cargo test -p royaumes` (dont une campagne de dix ans jouée par un robot, dix ans de rivaux laissés
+Bancs d'essai : `cargo test --locked -p royaumes` (dont une campagne de dix ans jouée par un robot, dix ans de rivaux laissés
 seuls aux trois difficultés et la relecture d'une sauvegarde). Interface : serveur lancé, puis
 `python3 tests/navigateur.py`.
