@@ -1,8 +1,8 @@
 //! Le serveur local du jeu : sert l'interface (web/) et l'API, garde la partie en mémoire,
 //! la sauvegarde à chaque mois.
 //!
-//! Lancement :  royaumes            (puis ouvrir http://127.0.0.1:8795)
-//! Options   :  --port 8795  --lan  --local  --no-browser  --browser  --no-update
+//! Lancement :  royaumes            (puis ouvrir http://127.0.0.1:8800)
+//! Options   :  --port 8800  --lan  --local  --no-browser  --browser  --no-update
 //! Sur un Raspberry Pi (ou un Linux sans écran), le jeu s'ouvre tout seul au réseau local et
 //! affiche son adresse ; en mode réseau, l'appairage des web tools (web_tools_commun) protège l'accès.
 
@@ -21,7 +21,7 @@ use crate::commandes;
 use crate::partie::Partie;
 use crate::vue;
 
-pub const PORT: u16 = 8795;
+pub const PORT: u16 = 8800;
 pub const AUTO: &str = "sauvegarde-automatique";
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Le dépôt, d'où vient aussi l'archive de production web_royaumes-prod (publication « binaires »).
@@ -263,7 +263,7 @@ pub struct Args {
     pub no_update: bool,
 }
 
-pub const USAGE: &str = "usage: royaumes [--port 8795] [--lan | --local] [--no-browser | --browser] [--no-update]";
+pub const USAGE: &str = "usage: royaumes [--port 8800] [--lan | --local] [--no-browser | --browser] [--no-update]";
 
 pub fn lire_args(argv: &[String]) -> Result<Args, String> {
     let mut a = Args { port: PORT, ..Default::default() };

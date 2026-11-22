@@ -1,7 +1,7 @@
 #!/bin/sh
 # Royaumes des Rives — installation sur Raspberry Pi (ou tout Linux avec systemd)
 # Le jeu démarre tout seul à l'allumage et reste accessible depuis l'iPad sur le Wi-Fi de la maison.
-#   ./raspberry/installer.sh            installe et démarre le service (port 8795)
+#   ./raspberry/installer.sh            installe et démarre le service (port 8800)
 #   ./raspberry/installer.sh 8800       idem sur un autre port
 #   ./raspberry/installer.sh --retirer  arrête et supprime le service
 set -e
@@ -17,7 +17,7 @@ if [ "$1" = "--retirer" ]; then
   exit 0
 fi
 
-PORT="${1:-8795}"
+PORT="${1:-8800}"
 # l'exécutable du jeu, une première fois tout de suite (compilé si cargo est là, sinon téléchargé) :
 # une erreur se voit ici plutôt que dans le journal du service
 ( cd "$DIR" && . ./scripts/binaires.sh && obtenir_binaires ) || { echo "Impossible d'obtenir l'exécutable du jeu (voir ci-dessus)."; exit 1; }

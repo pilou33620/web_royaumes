@@ -98,13 +98,13 @@ SHA-256 n'est pas celle publiée avec elle.
 | Windows | double-clic sur `demarrer_WEB_ROYAUMES.cmd` (`lancer-reseau.bat` pour y jouer depuis l'iPad) |
 | Linux, macOS | `./demarrer_WEB_ROYAUMES.sh` |
 | Raspberry Pi | `./demarrer_WEB_ROYAUMES.sh` (sans écran : ouvert au réseau local, adresse affichée), ou `sh raspberry/installer.sh` pour un démarrage automatique |
-| Android (Termux) | `pkg install rust git`, puis `./demarrer_WEB_ROYAUMES.sh --no-browser` et ouvrir `http://127.0.0.1:8795` |
+| Android (Termux) | `pkg install rust git`, puis `./demarrer_WEB_ROYAUMES.sh --no-browser` et ouvrir `http://127.0.0.1:8800` |
 | iPad | joue par le réseau sur le jeu lancé sur un Raspberry Pi ou un PC (Safari, puis « Sur l'écran d'accueil ») |
 
 En cas d'erreur au démarrage, la fenêtre (ou le terminal) reste ouverte avec la raison. Les anciens noms `lancer.sh`,
 `lancer.bat` et `lancer-reseau.bat` restent, en relais vers `demarrer_WEB_ROYAUMES`.
 
-Options : `--lan` (ouvert au réseau local), `--local` (cette machine seulement), `--port 8795`, `--no-browser`,
+Options : `--lan` (ouvert au réseau local), `--local` (cette machine seulement), `--port 8800`, `--no-browser`,
 `--browser`, `--no-update`. En mode réseau, un code d'appairage (commun aux web tools) est demandé la première fois.
 
 Le jeu cherche une mise à jour à chaque démarrage et se relance tout seul : copie de production, par l'archive publiée

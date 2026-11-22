@@ -5,7 +5,7 @@ déplacement d'une armée, plusieurs fins de mois, saisons et météo forcées. 
 import sys
 from playwright.sync_api import sync_playwright
 
-URL = sys.argv[1] if len(sys.argv) > 1 else 'http://127.0.0.1:8795/'
+URL = sys.argv[1] if len(sys.argv) > 1 else 'http://127.0.0.1:8800/'
 JS_ECRAN = """(i)=>{const J=window.__jeu;const l=J.carte.l;const c=i%l,r=(i/l)|0;const x=Math.sqrt(3)*(c+0.5*(r&1)),z=1.5*r;
  return [x,z]}"""
 

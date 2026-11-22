@@ -1,6 +1,6 @@
 #!/bin/sh
 # Lancement de Royaumes des Rives (Linux, macOS, Raspberry Pi) : garde le terminal ouvert en cas d'erreur.
-#   ./demarrer_WEB_ROYAUMES.sh [--port 8795] [--lan | --local] [--no-browser | --browser] [--no-update]
+#   ./demarrer_WEB_ROYAUMES.sh [--port 8800] [--lan | --local] [--no-browser | --browser] [--no-update]
 cd "$(dirname "$0")" || exit 1
 # Un seul fichier a cliquer : les lanceurs Windows (.cmd, .bat) sont masques du gestionnaire de fichiers.
 ls *.cmd *.bat > .hidden 2>/dev/null
