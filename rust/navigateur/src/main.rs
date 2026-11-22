@@ -52,22 +52,30 @@ fn js(tab: &Tab, expr: &str) -> Result<Value> {
     }
 }
 
-/// Clique au milieu du premier élément visible qui répond au sélecteur et contient le texte, une fois
-/// découvert (écran de chargement) et immobile (panneaux qui glissent) ; l'attend jusqu'à 30 s.
+/// Clique au milieu du premier élément visible qui répond au sélecteur et contient le texte, comme Playwright :
+/// une fois immobile (panneaux qui glissent), amené à l'écran s'il le faut, et découvert (écran de chargement).
+/// L'attend jusqu'à 30 s.
 fn cliquer(tab: &Tab, css: &str, texte: &str) -> Result<()> {
-    let expr = format!(
-        "(()=>{{const e=[...document.querySelectorAll({})].find(e=>{{const r=e.getBoundingClientRect();return r.width>0&&r.height>0&&e.textContent.includes({})}});\
-         if(!e)return null;const r=e.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2;return e.contains(document.elementFromPoint(x,y))?[x,y]:null}})()",
+    let el = format!(
+        "[...document.querySelectorAll({})].find(e=>{{const r=e.getBoundingClientRect();return r.width>0&&r.height>0&&e.textContent.includes({})}})",
         Value::from(css),
         Value::from(texte)
     );
+    let trouver = format!(
+        "(()=>{{const e={el};if(!e)return null;const r=e.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2;\
+         return [x,y,e.contains(document.elementFromPoint(x,y))]}})()"
+    );
     let mut avant = None;
     for _ in 0..150 {
-        let v = js(tab, &expr)?;
+        let v = js(tab, &trouver)?;
         let ici = v[0].as_f64().zip(v[1].as_f64());
         if let (Some((x, y)), true) = (ici, ici == avant) {
-            tab.click_point(Point { x, y })?;
-            return Ok(());
+            if v[2] == true {
+                tab.click_point(Point { x, y })?;
+                return Ok(());
+            }
+            // immobile mais hors de l'écran (ou recouvert) : défiler seulement maintenant, pas en plein glissement
+            js(tab, &format!("{el}?.scrollIntoViewIfNeeded()"))?;
         }
         avant = ici;
         sleep(Duration::from_millis(200));
